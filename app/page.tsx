@@ -36,6 +36,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "powerboat",
+    title: "Powerboat Rush",
+    subtitle: "Speedboat Obstacle Race",
+    emoji: "🚤",
+    artClass: "art-1",
+    description:
+      "3D speedboat race across the ocean. Dodge mines, rocks and whirlpools, hit every checkpoint gate, and nail the legendary final jump. WASD + Space nitro.",
+    route: "/games/powerboat",
+    status: "playable" as const,
+  },
+  {
     id: "coming-soon-3",
     title: "Coming Soon",
     subtitle: "Game #3",
