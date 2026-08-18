@@ -25,6 +25,17 @@ const GAMES = [
     status: "locked" as const,
   },
   {
+    id: "world-war-z",
+    title: "World War Z",
+    subtitle: "Zombie Survival",
+    emoji: "🧟",
+    artClass: "art-2",
+    description:
+      "3D FPS zombie shooter. Survive endless waves of the horde in a dark arena. WASD + mouse, click to shoot. How long can you last?",
+    route: "/games/world-war-z",
+    status: "playable" as const,
+  },
+  {
     id: "coming-soon-3",
     title: "Coming Soon",
     subtitle: "Game #3",
