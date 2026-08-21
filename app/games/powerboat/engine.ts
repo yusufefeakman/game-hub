@@ -858,7 +858,7 @@ const game = {
     AudioSys.stopEngine();
     AudioSys.gameover();
     const el = document.getElementById("pb-stats");
-    if (el) el.innerHTML = `Time: ${(this.time + this.penalty).toFixed(1)}s &nbsp; Checkpoints: ${this.checkpointsPassed}/${this.totalCheckpoints}`;
+    if (el) el.innerHTML = `Süre: ${(this.time + this.penalty).toFixed(1)}s &nbsp; Kontrol Noktası: ${this.checkpointsPassed}/${this.totalCheckpoints}`;
     show("pb-screen-gameover");
   },
   victory() {
@@ -867,7 +867,7 @@ const game = {
     AudioSys.victory();
     const total = this.time + this.penalty;
     const el = document.getElementById("pb-stats-v");
-    if (el) el.innerHTML = `Final Time: ${total.toFixed(1)}s (penalty +${this.penalty.toFixed(1)}s)`;
+    if (el) el.innerHTML = `Final Süre: ${total.toFixed(1)}s (ceza +${this.penalty.toFixed(1)}s)`;
     show("pb-screen-victory");
   },
   update(dt: number) {
@@ -974,7 +974,7 @@ const game = {
         if (dot < -10) {
           this.addPenalty(MISS_PENALTY);
           this.resetBoatSafe();
-          showToast("CHECKPOINT MISSED! -" + MISS_PENALTY + "s");
+          showToast("KONTROL NOKTASI KAÇTI! -" + MISS_PENALTY + "s");
         }
       }
     }
@@ -1071,12 +1071,12 @@ function buildOverlayUI(container: HTMLElement) {
   hud.className = "pb-hud";
   hud.innerHTML = `
     <div class="pb-hud-box">
-      <span>TIME <span id="pb-time">0.0</span>s</span>
-      <span>CP <span id="pb-cp">0</span>/<span id="pb-cp-total">0</span></span>
-      <span>HP <span class="pb-bar"><span class="pb-bar-fill pb-hp-fill" id="pb-hp-fill" style="width:100%"></span></span></span>
-      <span>NITRO <span class="pb-bar"><span class="pb-bar-fill pb-boost-fill" id="pb-boost-fill" style="width:100%"></span></span></span>
+      <span>SÜRE <span id="pb-time">0.0</span>s</span>
+      <span>KAPI <span id="pb-cp">0</span>/<span id="pb-cp-total">0</span></span>
+      <span>CAN <span class="pb-bar"><span class="pb-bar-fill pb-hp-fill" id="pb-hp-fill" style="width:100%"></span></span></span>
+      <span>NİTRO <span class="pb-bar"><span class="pb-bar-fill pb-boost-fill" id="pb-boost-fill" style="width:100%"></span></span></span>
     </div>
-    <button id="pb-mute" class="pb-mute" title="Mute (M)">&#128266;</button>`;
+    <button id="pb-mute" class="pb-mute" title="Sesi kapat (M)">&#128266;</button>`;
   container.appendChild(hud);
 
   // Speedometer (SVG arc)
@@ -1089,7 +1089,7 @@ function buildOverlayUI(container: HTMLElement) {
         stroke-dasharray="276" stroke-dashoffset="276" stroke-linecap="round" transform="rotate(135 50 50)"/>
     </svg>
     <div class="spd-num" id="pb-speed">0</div>
-    <div class="spd-unit">km/h</div>`;
+    <div class="spd-unit">km/sa</div>`;
   container.appendChild(speedo);
 
   // Minimap
@@ -1114,33 +1114,33 @@ function buildOverlayUI(container: HTMLElement) {
   };
 
   mk("pb-screen-start", `
-    <h1>POWERBOAT RUSH</h1>
-    <h2>Speedboat Obstacle Race</h1>
-    <p>Carve through the ocean, dodge mines and rocks, hit every checkpoint gate.</p>
-    <p>Watch the final ramp — that jump is legendary.</p>
-    <button class="big-btn" id="pb-btn-start">START RACE</button>
+    <h1>SÜRAT TEKNESİ HÜCUMU</h1>
+    <h2>Sürat Teknesi Engel Yarışı</h2>
+    <p>Okyanusta ilerle, mayınlardan ve kayalardan kaç, her kontrol kapısından geç.</p>
+    <p>Final rampasına dikkat — o atlayış efsanedir.</p>
+    <button class="big-btn" id="pb-btn-start">YARIŞI BAŞLAT</button>
     <div class="keys">
-      <b>W / &#8593;</b> throttle &nbsp; <b>S / &#8595;</b> brake &nbsp; <b>A D / &#8592; &#8594;</b> steer<br>
-      <b>Space</b> nitro boost &nbsp; <b>P</b> pause &nbsp; <b>R</b> restart &nbsp; <b>M</b> mute
+      <b>W / &#8593;</b> gaz &nbsp; <b>S / &#8595;</b> fren &nbsp; <b>A D / &#8592; &#8594;</b> direksiyon<br>
+      <b>Space</b> nitro &nbsp; <b>P</b> duraklat &nbsp; <b>R</b> yeniden başlat &nbsp; <b>M</b> ses kapat
     </div>`);
 
   mk("pb-screen-pause", `
-    <h2>PAUSED</h2>
-    <p>The ocean waits for no one.</p>
-    <button class="big-btn" id="pb-btn-resume">RESUME</button>
-    <button class="big-btn" id="pb-btn-restart" style="background:linear-gradient(#88aacc,#446688);box-shadow:0 5px 0 #223344">RESTART</button>`, true);
+    <h2>DURAKLATILDI</h2>
+    <p>Okyanus kimseyi beklemez.</p>
+    <button class="big-btn" id="pb-btn-resume">DEVAM ET</button>
+    <button class="big-btn" id="pb-btn-restart" style="background:linear-gradient(#88aacc,#446688);box-shadow:0 5px 0 #223344">YENİDEN BAŞLAT</button>`, true);
 
   mk("pb-screen-gameover", `
-    <h1 style="color:#ff4444;text-shadow:3px 3px 0 #440000">WRECKED</h1>
-    <p>Your boat is on the ocean floor...</p>
+    <h1 style="color:#ff4444;text-shadow:3px 3px 0 #440000">ENKAZ</h1>
+    <p>Teknen okyanusun dibinde...</p>
     <div class="pb-stats" id="pb-stats"></div>
-    <button class="big-btn" id="pb-btn-retry">TRY AGAIN</button>`, true);
+    <button class="big-btn" id="pb-btn-retry">TEKRAR DENE</button>`, true);
 
   mk("pb-screen-victory", `
-    <h1>FINISH!</h1>
-    <p>You conquered the course. The final jump was epic.</p>
+    <h1>BİTİŞ!</h1>
+    <p>Parkuru fethettin. O final atlayışı efsaneydi.</p>
     <div class="pb-stats" id="pb-stats-v"></div>
-    <button class="big-btn" id="pb-btn-again">RACE AGAIN</button>`, true);
+    <button class="big-btn" id="pb-btn-again">TEKRAR YARIŞ</button>`, true);
 
   // Touch controls
   const touch = document.createElement("div");
@@ -1151,8 +1151,8 @@ function buildOverlayUI(container: HTMLElement) {
       <div class="pb-tbtn" id="pb-t-right">&#9654;</div>
     </div>
     <div class="pb-tcluster">
-      <div class="pb-tbtn" id="pb-t-gas">GAS</div>
-      <div class="pb-tbtn pb-boost" id="pb-t-boost">NITRO</div>
+      <div class="pb-tbtn" id="pb-t-gas">GAZ</div>
+      <div class="pb-tbtn pb-boost" id="pb-t-boost">NİTRO</div>
     </div>`;
   container.appendChild(touch);
 

@@ -37,23 +37,23 @@ const GAMES = [
   },
   {
     id: "powerboat",
-    title: "Powerboat Rush",
-    subtitle: "Speedboat Obstacle Race",
+    title: "Sürat Teknesi Hücumu",
+    subtitle: "Sürat Teknesi Engel Yarışı",
     emoji: "🚤",
     artClass: "art-1",
     description:
-      "3D speedboat race across the ocean. Dodge mines, rocks and whirlpools, hit every checkpoint gate, and nail the legendary final jump. WASD + Space nitro.",
+      "Okyanus üzerinde 3 boyutlu sürat teknesi yarışı. Mayınlardan, kayalardan ve girdaplardan kaçın, engelleri atlatarak yarışmayı tamamla. WASD + Uzay ile hareket/nitro.",
     route: "/games/powerboat",
     status: "playable" as const,
   },
   {
     id: "spaceship",
-    title: "Starstriker",
-    subtitle: "Asteroid Assault",
+    title: "Yıldız Vurucu",
+    subtitle: "Asteroid Saldırısı",
     emoji: "🚀",
     artClass: "art-3",
     description:
-      "3D space shooter. Pilot your fighter through endless asteroid fields, blast rocks and enemy squadrons, grab power-ups, and chase the high score. WASD steer, Space fire, Shift boost.",
+      "3D uzay nişancı oyunu. Uzay aracını asteroid alanlarında yönlendir, kayaları ve düşman filolarını patlat. WASD ile hareket, Space ile ateş, Shift ile hızlan.",
     route: "/games/spaceship",
     status: "playable" as const,
   },
@@ -101,7 +101,7 @@ export default function Home() {
             >
               <div className={`card-art ${game.artClass}`}>
                 <span className="art-emoji">{game.emoji}</span>
-                <span className="card-badge">PLAYABLE</span>
+                <span className="card-badge">OYNANABİLİR</span>
               </div>
               <div className="card-body">
                 <h2>{game.title}</h2>
@@ -109,20 +109,20 @@ export default function Home() {
                   {game.subtitle}
                 </p>
                 <p>{game.description}</p>
-                <span className="card-play">▶ Play Now</span>
+                <span className="card-play">▶ Şimdi Oyna</span>
               </div>
             </Link>
           ) : (
             <div key={game.id} className="game-card locked">
               <div className={`card-art ${game.artClass}`}>
                 <span className="art-emoji">{game.emoji}</span>
-                <span className="card-badge soon">COMING SOON</span>
+                <span className="card-badge soon">ÇOK YAKINDA</span>
               </div>
               <div className="card-body">
                 <h2>{game.title}</h2>
                 <p>{game.description}</p>
                 <span className="card-locked-label">
-                  🔒 Not available yet
+                  🔒 Henüz mevcut değil
                 </span>
               </div>
             </div>

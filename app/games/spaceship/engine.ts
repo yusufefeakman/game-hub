@@ -695,15 +695,15 @@ const PowerUps = {
     switch (p.type) {
       case "shield":
         ShipShield.value = Math.min(60, ShipShield.value + 35);
-        showToast("SHIELD +35");
+        showToast("KALKAN +35");
         break;
       case "rapid":
         game.rapidTimer = 6;
-        showToast("RAPID FIRE!");
+        showToast("SERİ ATEŞ!");
         break;
       case "repair":
         game.hull = Math.min(100, game.hull + 25);
-        showToast("HULL +25");
+        showToast("GÖVDE +25");
         break;
       case "star":
         game.addScore(300, pos);
@@ -882,13 +882,13 @@ function buildOverlayUI(container: HTMLElement) {
   hud.className = "ss-hud";
   hud.innerHTML = `
     <div class="ss-hud-box">
-      <span>SCORE <span id="ss-score">0</span></span>
-      <span>BEST <span id="ss-best">0</span></span>
-      <span>WAVE <span id="ss-wave">1</span></span>
-      <span>KILLS <span id="ss-kills">0</span></span>
+      <span>SKOR <span id="ss-score">0</span></span>
+      <span>REKOR <span id="ss-best">0</span></span>
+      <span>DALGA <span id="ss-wave">1</span></span>
+      <span>İMHA <span id="ss-kills">0</span></span>
     </div>
     <div style="display:flex;gap:10px;align-items:flex-start">
-      <button id="ss-mute" class="ss-mute" title="Mute (M)">&#128266;</button>
+      <button id="ss-mute" class="ss-mute" title="Sesi kapat (M)">&#128266;</button>
     </div>`;
   container.appendChild(hud);
 
@@ -904,8 +904,8 @@ function buildOverlayUI(container: HTMLElement) {
   bars.style.cssText = "top:auto;bottom:16px;left:16px;right:auto;flex-direction:column;gap:6px;";
   bars.innerHTML = `
     <div class="ss-hud-box">
-      <span>HULL <span class="ss-bar"><span class="ss-bar-fill ss-hull-fill" id="ss-hull-fill" style="width:100%"></span></span></span>
-      <span>SHIELD <span class="ss-bar"><span class="ss-bar-fill ss-shield-fill" id="ss-shield-fill" style="width:0%"></span></span></span>
+      <span>GÖVDE <span class="ss-bar"><span class="ss-bar-fill ss-hull-fill" id="ss-hull-fill" style="width:100%"></span></span></span>
+      <span>KALKAN <span class="ss-bar"><span class="ss-bar-fill ss-shield-fill" id="ss-shield-fill" style="width:0%"></span></span></span>
     </div>`;
   container.appendChild(bars);
 
@@ -936,27 +936,27 @@ function buildOverlayUI(container: HTMLElement) {
   };
 
   mk("ss-screen-start", `
-    <h1>STARSTRIKER</h1>
-    <h2>Asteroid Assault</h2>
-    <p>You are the last fighter of the frontier fleet. Blast the asteroid fields,</p>
-    <p>hunt enemy squadrons, grab power-ups, and push your score to the stars.</p>
-    <button class="big-btn" id="ss-btn-start">LAUNCH</button>
+    <h1>YILDIZ VURUCU</h1>
+    <h2>Asteroid Saldırısı</h2>
+    <p>Sınır filosunun son savaşçısısın. Asteroid alanlarını patlat,</p>
+    <p>düşman filolarını avla, güçlendirmeleri kap ve skorunu yıldızlara taşı.</p>
+    <button class="big-btn" id="ss-btn-start">BAŞLAT</button>
     <div class="keys">
-      <b>W A S D / &#8592; &#8593; &#8595; &#8594;</b> steer &nbsp; <b>Space</b> fire &nbsp; <b>Shift</b> boost<br>
-      <b>P</b> pause &nbsp; <b>R</b> restart &nbsp; <b>M</b> mute
+      <b>W A S D / &#8592; &#8593; &#8595; &#8594;</b> yönlen &nbsp; <b>Space</b> ateş &nbsp; <b>Shift</b> hızlan<br>
+      <b>P</b> duraklat &nbsp; <b>R</b> yeniden başlat &nbsp; <b>M</b> ses kapat
     </div>`);
 
   mk("ss-screen-pause", `
-    <h2>PAUSED</h2>
-    <p>The void holds its breath...</p>
-    <button class="big-btn" id="ss-btn-resume">RESUME</button>
-    <button class="big-btn" id="ss-btn-restart" style="background:linear-gradient(#88aacc,#446688);box-shadow:0 5px 0 #223344">RESTART</button>`, true);
+    <h2>DURAKLATILDI</h2>
+    <p>Boşluk nefesini tutuyor...</p>
+    <button class="big-btn" id="ss-btn-resume">DEVAM ET</button>
+    <button class="big-btn" id="ss-btn-restart" style="background:linear-gradient(#88aacc,#446688);box-shadow:0 5px 0 #223344">YENİDEN BAŞLAT</button>`, true);
 
   mk("ss-screen-gameover", `
-    <h1 style="color:#ff4444;text-shadow:3px 3px 0 #440000">SHIP DESTROYED</h1>
-    <p>The stars claim another pilot...</p>
+    <h1 style="color:#ff4444;text-shadow:3px 3px 0 #440000">GEMİ İMHA EDİLDİ</h1>
+    <p>Yıldızlar bir pilotu daha aldı...</p>
     <div class="ss-stats" id="ss-stats"></div>
-    <button class="big-btn" id="ss-btn-retry">FLY AGAIN</button>`, true);
+    <button class="big-btn" id="ss-btn-retry">TEKRAR UÇ</button>`, true);
 
   // Touch controls
   const touch = document.createElement("div");
@@ -969,8 +969,8 @@ function buildOverlayUI(container: HTMLElement) {
       <div class="ss-tbtn" id="ss-t-down">&#9660;</div>
     </div>
     <div class="ss-tcluster">
-      <div class="ss-tbtn ss-boost" id="ss-t-boost">BOOST</div>
-      <div class="ss-tbtn ss-fire" id="ss-t-fire">FIRE</div>
+      <div class="ss-tbtn ss-boost" id="ss-t-boost">HIZLAN</div>
+      <div class="ss-tbtn ss-fire" id="ss-t-fire">ATEŞ</div>
     </div>`;
   container.appendChild(touch);
 
@@ -1019,7 +1019,7 @@ function updateHUD() {
   if (comboEl) {
     if (game.multiplier > 1) {
       comboEl.classList.remove("hidden");
-      comboEl.textContent = `x${game.multiplier} COMBO`;
+      comboEl.textContent = `x${game.multiplier} KOMBO`;
     } else {
       comboEl.classList.add("hidden");
     }
@@ -1122,13 +1122,13 @@ const game = {
     if (ShipShield.value > 0) {
       ShipShield.value = Math.max(0, ShipShield.value - amount);
       AudioSys.shieldHit();
-      showToast("SHIELD HIT");
+      showToast("KALKAN VURULDU");
     } else {
       this.hull -= amount;
       AudioSys.hullHit();
       flashDamage();
       shake = 0.9;
-      showToast("HULL DAMAGE");
+      showToast("GÖVDE HASARI");
     }
     if (this.hull <= 0) this.gameOver();
   },
@@ -1139,12 +1139,12 @@ const game = {
     if (this.score > this.best) {
       this.best = this.score;
       try { localStorage.setItem("ss-best", String(this.best)); } catch { /* ignore */ }
-      showToast("NEW BEST!");
+      showToast("YENİ REKOR!");
       AudioSys.fanfare();
     }
     const stats = document.getElementById("ss-stats");
     if (stats) {
-      stats.textContent = `Score ${this.score}  •  Wave ${this.wave}  •  Kills ${this.kills}`;
+      stats.textContent = `Skor ${this.score}  •  Dalga ${this.wave}  •  İmha ${this.kills}`;
     }
     show("ss-screen-gameover");
   },
@@ -1162,7 +1162,7 @@ const game = {
       this.waveTimer = 0;
       this.wave++;
       AudioSys.wave();
-      showToast(`WAVE ${this.wave}`);
+      showToast(`DALGA ${this.wave}`);
       if (this.wave >= 3) this.enemyTimer = Math.min(this.enemyTimer, 2.2);
     }
 
