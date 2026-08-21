@@ -47,6 +47,28 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "spaceship",
+    title: "Starstriker",
+    subtitle: "Asteroid Assault",
+    emoji: "🚀",
+    artClass: "art-3",
+    description:
+      "3D space shooter. Pilot your fighter through endless asteroid fields, blast rocks and enemy squadrons, grab power-ups, and chase the high score. WASD steer, Space fire, Shift boost.",
+    route: "/games/spaceship",
+    status: "playable" as const,
+  },
+  {
+    id: "chess",
+    title: "Royal Chess",
+    subtitle: "3D Strategy Classic",
+    emoji: "♞",
+    artClass: "art-2",
+    description:
+      "Full 3D chess with complete rules: castling, en passant, promotion, checkmate and draw detection. Play a friend locally or challenge the built-in computer. Drag to orbit, scroll to zoom, click to move.",
+    route: "/games/chess",
+    status: "playable" as const,
+  },
+  {
     id: "coming-soon-3",
     title: "Coming Soon",
     subtitle: "Game #3",
