@@ -69,6 +69,28 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "fighter",
+    title: "Dövüş Arenası",
+    subtitle: "Efsane Savaşçılar",
+    emoji: "🥊",
+    artClass: "art-3",
+    description:
+      "Özgün 3D dövüş arenası! 4 efsane savaşçıdan birini seç (Kor, Bora, Çelik, Gölge), bilgisayara ya da arkadaşına karşı dövüş. Yumruk, tekme, blok, kombo ve enerjiyle güçlenen özel saldırılar. P1: A/D + W/S + J/K/L — P2: Ok tuşları + 1/2/3.",
+    route: "/games/fighter",
+    status: "playable" as const,
+  },
+  {
+    id: "fighting",
+    title: "Neon Rivals",
+    subtitle: "3D Dövüş Oyunu",
+    emoji: "🥋",
+    artClass: "art-1",
+    description:
+      "Özgün 3D dövüş oyunu! 4 savaşçı (Kairo, Vexa, Rokan, Nyra), 2'şer özel saldırı, 3 arena (Neon City, Antik Tapınak, Cyber Arena), kombo ve stamina sistemi, eğitim modu ve EASY/NORMAL/HARD yapay zekâ. P1: A/D + W/S + J/K/L/U — P2: Oklar + Num1-4.",
+    route: "/fighting",
+    status: "playable" as const,
+  },
+  {
     id: "coming-soon-3",
     title: "Coming Soon",
     subtitle: "Game #3",
