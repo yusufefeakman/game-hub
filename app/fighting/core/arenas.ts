@@ -65,6 +65,7 @@ function platform(): THREE.Mesh {
   mat.map!.repeat.set(4, 2);
   const plat = new THREE.Mesh(new THREE.BoxGeometry(16.4, 0.6, 6.2), mat);
   plat.position.y = -0.3;
+  plat.receiveShadow = true;
   return plat;
 }
 
@@ -97,6 +98,7 @@ function buildNeon(): Arena {
     const bx = -11 + i * 1.7 + Math.random() * 0.6;
     const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 2), bldgMat);
     b.position.set(bx, bh / 2 - 1, bz);
+    b.castShadow = true;
     group.add(b);
     for (let wy = 0; wy < 4; wy++) {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(bw * 0.8, 0.07, 0.05), winMat);
@@ -155,6 +157,7 @@ function buildTemple(): Arena {
   for (const px of [-6.5, 6.5]) {
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 5, 0.9), stoneMat);
     pillar.position.set(px, 1.9, -2.5);
+    pillar.castShadow = true;
     group.add(pillar);
     const cap = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.35, 1.3), darkMat);
     cap.position.set(px, 4.5, -2.5);
@@ -171,6 +174,7 @@ function buildTemple(): Arena {
   for (const tx of [-5.5, 5.5]) {
     const pole = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.6, 0.35), darkMat);
     pole.position.set(tx, 1, -1.8);
+    pole.castShadow = true;
     group.add(pole);
     const bowl = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.35, 6), darkMat);
     bowl.position.set(tx, 2.4, -1.8);

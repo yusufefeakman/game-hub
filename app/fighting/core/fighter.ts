@@ -2,156 +2,85 @@
    NEON RIVALS — fighter mesh builder, pose system and per-fighter update
    ===================================================================== */
 import * as THREE from "three";
+import { buildHumanoid, type HumanoidPalette } from "../../lib/visuals";
 import { G, ARENA_HALF, GRAVITY, clamp } from "./state";
 import { Input } from "./input";
 import { AudioSys } from "./audio";
 import * as Combat from "./combat";
 import { aiUpdate } from "./ai";
-import type { FighterCfg, FighterState, Limbs, Parts } from "./types";
+import type { FighterCfg, FighterState, Parts } from "./types";
 
-/* ---------------- mesh builder ---------------- */
-function buildLimbs(
-  parent: THREE.Object3D,
-  upLen: number,
-  upW: number,
-  lowLen: number,
-  lowW: number,
-  tipSize: number,
-  mat: THREE.Material,
-  pos: [number, number, number]
-): Limbs {
-  const up = new THREE.Group();
-  up.position.set(pos[0], pos[1], pos[2]);
-  const upMesh = new THREE.Mesh(new THREE.BoxGeometry(upW, upLen, upW * 0.85), mat);
-  upMesh.position.y = -upLen / 2;
-  up.add(upMesh);
-  const low = new THREE.Group();
-  low.position.y = -upLen;
-  const lowMesh = new THREE.Mesh(new THREE.BoxGeometry(lowW, lowLen, lowW * 0.85), mat);
-  lowMesh.position.y = -lowLen / 2;
-  low.add(lowMesh);
-  const tip = new THREE.Mesh(new THREE.BoxGeometry(tipSize, tipSize * 0.8, tipSize), mat);
-  tip.position.y = -lowLen - tipSize * 0.4;
-  low.add(tip);
-  up.add(low);
-  parent.add(up);
-  return { up, low, tip };
+/* ---------------- mesh builder (shared realistic humanoid) ---------------- */
+
+function gearFor(cfg: FighterCfg) {
+  return (headG: THREE.Group, _hip: THREE.Group, mats: THREE.Material[], _pal: HumanoidPalette) => {
+    const mk = (color: number, rough = 0.8) => {
+      const m = new THREE.MeshStandardMaterial({ color, roughness: rough });
+      mats.push(m);
+      return m;
+    };
+    if (cfg.id === "kairo") {
+      // glowing visor band
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.05, 0.16), new THREE.MeshBasicMaterial({ color: 0x9deeff }));
+      visor.position.set(0, 0.16, 0.05);
+      headG.add(visor);
+      const finR = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.12, 5), mk(cfg.colors.secondary));
+      finR.position.set(0.13, 0.2, -0.02);
+      finR.rotation.z = -0.5;
+      headG.add(finR);
+      const finL = finR.clone();
+      finL.position.x = -0.13;
+      finL.rotation.z = 0.5;
+      headG.add(finL);
+    } else if (cfg.id === "vexa") {
+      // ponytail + side spikes
+      const pony = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.26, 7), mk(cfg.colors.secondary));
+      pony.position.set(0, 0.18, -0.12);
+      pony.rotation.x = -0.55;
+      headG.add(pony);
+      const spikeR = new THREE.Mesh(new THREE.ConeGeometry(0.024, 0.1, 5), mk(cfg.colors.accent));
+      spikeR.position.set(0.1, 0.21, 0);
+      spikeR.rotation.z = -0.6;
+      headG.add(spikeR);
+      const spikeL = spikeR.clone();
+      spikeL.position.x = -0.1;
+      spikeL.rotation.z = 0.6;
+      headG.add(spikeL);
+    } else if (cfg.id === "rokan") {
+      // heavy dome helmet + dark visor
+      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.135, 16, 12), mk(cfg.colors.accent, 0.5));
+      helm.scale.set(1.02, 0.82, 1.04);
+      helm.position.set(0, 0.14, 0);
+      headG.add(helm);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.035, 0.06), new THREE.MeshBasicMaterial({ color: 0x1a1a1a }));
+      visor.position.set(0, 0.15, 0.115);
+      visor.rotation.x = -0.15;
+      headG.add(visor);
+    } else {
+      // nyra: tiara spikes + back crest
+      for (const sx of [-1, 0, 1]) {
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.024, 0.11, 5), mk(cfg.colors.trim, 0.6));
+        spike.position.set(sx * 0.055, 0.215 + Math.abs(sx) * 0.02, 0);
+        headG.add(spike);
+      }
+      const crest = new THREE.Mesh(new THREE.ConeGeometry(0.048, 0.24, 6), mk(cfg.colors.accent, 0.5));
+      crest.position.set(0, 0.16, -0.13);
+      crest.rotation.x = -0.6;
+      headG.add(crest);
+    }
+  };
 }
 
 export function buildFighter(cfg: FighterCfg): { root: THREE.Group; parts: Parts; mats: THREE.MeshStandardMaterial[] } {
-  const root = new THREE.Group();
-  const face = new THREE.Group();
-  root.add(face);
-
-  const mats: THREE.MeshStandardMaterial[] = [];
-  const mat = (color: number, rough = 0.85, metal = 0.08) => {
-    const m = new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
-    mats.push(m);
-    return m;
+  const built = buildHumanoid(cfg.colors, {
+    scale: cfg.id === "rokan" ? 1.08 : 1,
+    gear: gearFor(cfg),
+  });
+  return {
+    root: built.root,
+    parts: built.parts as unknown as Parts,
+    mats: built.mats as unknown as THREE.MeshStandardMaterial[],
   };
-
-  if (cfg.id === "rokan") face.scale.setScalar(1.08);
-  const primary = mat(cfg.colors.primary);
-  const secondary = mat(cfg.colors.secondary);
-  const skin = mat(cfg.colors.skin);
-  const trim = mat(cfg.colors.trim, 0.6, 0.5);
-  const accent = mat(cfg.colors.accent, 0.7, 0.2);
-
-  const hip = new THREE.Group();
-  hip.position.y = 0.96;
-  face.add(hip);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.54, 0.28), primary);
-  torso.position.y = 0.3;
-  hip.add(torso);
-  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.22, 0.3), secondary);
-  chest.position.y = 0.52;
-  hip.add(chest);
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.1, 0.3), trim);
-  belt.position.y = 0.08;
-  hip.add(belt);
-
-  // head
-  const headG = new THREE.Group();
-  headG.position.y = 0.62;
-  hip.add(headG);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.28, 0.27), skin);
-  head.position.y = 0.16;
-  headG.add(head);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: cfg.colors.accent });
-  const eye = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.02), eyeMat);
-  eye.position.set(0.135, 0.19, 0.07);
-  head.add(eye);
-  const eye2 = eye.clone();
-  eye2.position.x = -0.135;
-  head.add(eye2);
-  const band = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.07, 0.29), trim);
-  band.position.y = 0.24;
-  headG.add(band);
-
-  // unique headgear per fighter
-  if (cfg.id === "kairo") {
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.06, 0.31), new THREE.MeshBasicMaterial({ color: 0x9deeff }));
-    visor.position.y = 0.3;
-    headG.add(visor);
-  } else if (cfg.id === "vexa") {
-    const pony = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.4, 5), secondary);
-    pony.position.set(-0.14, 0.3, 0);
-    pony.rotation.z = 0.4;
-    headG.add(pony);
-    const padR = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.26, 4), accent);
-    padR.position.set(0.34, 0.46, 0);
-    padR.rotation.z = -0.6;
-    hip.add(padR);
-  } else if (cfg.id === "rokan") {
-    const helm = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.32), accent);
-    helm.position.y = 0.3;
-    headG.add(helm);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.06, 0.06), new THREE.MeshBasicMaterial({ color: 0x1a1a1a }));
-    visor.position.set(0, 0.25, 0.15);
-    headG.add(visor);
-    const bigPadR = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.3), accent);
-    bigPadR.position.set(0.36, 0.44, 0);
-    hip.add(bigPadR);
-    const bigPadL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.3), accent);
-    bigPadL.position.set(-0.36, 0.44, 0);
-    hip.add(bigPadL);
-  } else {
-    // nyra: tiara + back crest
-    for (const s of [-1, 1]) {
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 4), trim);
-      spike.position.set(s * 0.11, 0.34, 0);
-      headG.add(spike);
-    }
-    const crest = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.34, 5), accent);
-    crest.position.set(0, 0.36, -0.1);
-    crest.rotation.x = 0.3;
-    headG.add(crest);
-  }
-
-  const armR = buildLimbs(hip, 0.34, 0.15, 0.32, 0.13, 0.14, skin, [0.3, 0.44, 0]);
-  const armL = buildLimbs(hip, 0.34, 0.15, 0.32, 0.13, 0.14, skin, [-0.3, 0.44, 0]);
-  const legR = buildLimbs(hip, 0.46, 0.17, 0.46, 0.15, 0.17, secondary, [0.14, 0, 0]);
-  const legL = buildLimbs(hip, 0.46, 0.17, 0.46, 0.15, 0.17, secondary, [-0.14, 0, 0]);
-  armR.tip.material = trim as THREE.MeshStandardMaterial;
-  armL.tip.material = trim as THREE.MeshStandardMaterial;
-  legR.tip.material = trim as THREE.MeshStandardMaterial;
-  legL.tip.material = trim as THREE.MeshStandardMaterial;
-
-  const emblem = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.02), new THREE.MeshBasicMaterial({ color: cfg.colors.accent }));
-  emblem.position.set(0, 0.34, 0.145);
-  hip.add(emblem);
-
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.55, 20),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false })
-  );
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.02;
-  root.add(shadow);
-  (root.userData as { shadow?: THREE.Mesh }).shadow = shadow;
-
-  const parts: Parts = { face, hip, torso, headG, armR, armL, legR, legL };
-  return { root, parts, mats };
 }
 
 export function disposeFighter(f: FighterState) {
@@ -423,7 +352,10 @@ export function updateFighter(f: FighterState, opp: FighterState, dt: number, rd
   if (f.flashT > 0) {
     f.flashT -= rdt;
     const k = Math.max(0, f.flashT / 0.16);
-    f.mats.forEach((m) => m.emissive.setRGB(0.55 * k, 0.3 * k, 0.08 * k));
+    f.mats.forEach((m) => {
+      const std = m as THREE.MeshStandardMaterial;
+      if (std.emissive) std.emissive.setRGB(0.55 * k, 0.3 * k, 0.08 * k);
+    });
   }
   if (f.comboT > 0) f.comboT -= rdt;
 

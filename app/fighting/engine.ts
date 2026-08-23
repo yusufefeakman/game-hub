@@ -11,6 +11,7 @@ import { buildArena, type Arena } from "./core/arenas";
 import { disposeFighter, makeFighter, updateFighter } from "./core/fighter";
 import * as Combat from "./core/combat";
 import { FIGHTERS } from "./core/characters";
+import { setupLights, createComposer, type ComposerWrap } from "../lib/visuals";
 import { HUD, hideScreens, showBanner, showHud, updateHud, initHud, loadSettings, showMenu, showSelect, showEnd, showPause, showSettings, updateSelectCursor, pickFighter, toggleSound } from "./core/hud";
 import type { FighterCfg, GameStateName } from "./core/types";
 
@@ -18,6 +19,7 @@ let renderer: THREE.WebGLRenderer;
 let canvasEl: HTMLCanvasElement | null = null;
 let wrap: HTMLDivElement | null = null;
 let arena: Arena | null = null;
+let composerWrap: ComposerWrap | null = null;
 let camZ = 9.6;
 let raf = 0;
 let lastTs = 0;
@@ -30,10 +32,18 @@ function resolveArena(): "neon" | "temple" | "cyber" {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+function applyBloom() {
+  if (!composerWrap) return;
+  composerWrap.bloom.strength = G.arenaKind === "cyber" ? 1.05 : G.arenaKind === "neon" ? 0.85 : 0.45;
+  composerWrap.bloom.threshold = 0.6;
+  composerWrap.bloom.radius = 0.55;
+}
+
 function rebuildArena() {
   arena?.dispose();
   G.arenaKind = resolveArena();
   arena = buildArena(G.arenaKind);
+  applyBloom();
 }
 
 /* ---------------- fighters / match flow ---------------- */
@@ -312,7 +322,8 @@ function updateCamera(rdt: number) {
 
 function render() {
   updateCamera(1 / 60);
-  renderer.render(G.scene!, G.camera!);
+  if (composerWrap) composerWrap.composer.render();
+  else renderer.render(G.scene!, G.camera!);
 }
 
 function loop(ts: number) {
@@ -340,17 +351,21 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   G.camera.position.set(0, 3.1, 9.6);
   G.camera.lookAt(0, 1.35, 0);
 
-  const ambient = new THREE.AmbientLight(0x55607a, 0.85);
-  G.scene.add(ambient);
-  const dir = new THREE.DirectionalLight(0xffe0c0, 1.15);
-  dir.position.set(3, 8, 6);
-  G.scene.add(dir);
+  // cinematic lighting: hemisphere + key (shadows) + rim + PBR environment
+  setupLights(G.scene, renderer, {
+    hemiSky: 0x8fa8d8,
+    hemiGround: 0x241830,
+    keyColor: 0xffe2c0,
+    rimColor: 0x66aaff,
+  });
 
   loadSettings();
   G.state = "menu";
   G.training = false;
   FX.init();
   rebuildArena();
+  composerWrap = createComposer(renderer, G.scene, G.camera, 0.8, 0.55, 0.6);
+  applyBloom();
 
   // wrap canvas for overlay UI
   wrap = document.createElement("div");
@@ -366,6 +381,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const scale = Math.min(window.innerWidth / 960, window.innerHeight / 540);
     canvas.style.width = 960 * scale + "px";
     canvas.style.height = 540 * scale + "px";
+    composerWrap?.setSize(960, 540);
   };
   resize();
   window.addEventListener("resize", resize);
@@ -449,6 +465,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     arena?.dispose();
     arena = null;
     wrap?.remove();
+    composerWrap?.dispose();
+    composerWrap = null;
     renderer.dispose();
     G.scene = null;
     G.camera = null;

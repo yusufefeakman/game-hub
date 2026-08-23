@@ -13,6 +13,7 @@
      startGame(canvas) -> () => void   (returns a stop/cleanup function)
    ===================================================================== */
 import * as THREE from "three";
+import { buildHumanoid, setupLights, createComposer, type HumanoidPalette, type ComposerWrap } from "../../lib/visuals";
 
 /* ================= 1. CONSTANTS ================= */
 const ARENA_HALF = 7.6;      // walkable x range
@@ -395,6 +396,7 @@ const G = {
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
+let composerWrap: ComposerWrap | null = null;
 let canvasEl: HTMLCanvasElement | null = null;
 let ui: HTMLDivElement | null = null;
 let wrap: HTMLDivElement | null = null;
@@ -477,20 +479,20 @@ function buildWorld() {
   lavaTex = makeLavaTexture();
   rockTex = makeNoiseTexture("#24131c", "#150a10");
 
-  const ambient = new THREE.AmbientLight(0x55444c, 0.9);
-  scene.add(ambient);
-  const dir = new THREE.DirectionalLight(0xffd9b0, 1.25);
-  dir.position.set(3, 8, 6);
-  scene.add(dir);
-  const rim = new THREE.DirectionalLight(0x8855ff, 0.35);
-  rim.position.set(-4, 3, -6);
-  scene.add(rim);
+  // cinematic lighting: hemisphere + key (shadows) + rim + PBR environment
+  setupLights(scene, renderer, {
+    hemiSky: 0x7a5a68,
+    hemiGround: 0x1a0a12,
+    keyColor: 0xffd9b0,
+    rimColor: 0x8855ff,
+  });
 
   // ---- platform ----
   const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.95 });
   stoneMat.map!.repeat.set(4, 2);
   const plat = new THREE.Mesh(new THREE.BoxGeometry(16.4, 0.6, 6.2), stoneMat);
   plat.position.y = -0.3;
+  plat.receiveShadow = true;
   scene.add(plat);
   const edgeMat = new THREE.MeshStandardMaterial({ color: 0x2c1c24, roughness: 1 });
   const front = new THREE.Mesh(new THREE.BoxGeometry(16.4, 1.2, 0.7), edgeMat);
@@ -524,6 +526,7 @@ function buildWorld() {
   const volcMat = new THREE.MeshStandardMaterial({ color: 0x1d0f16, roughness: 1 });
   const volc = new THREE.Mesh(new THREE.ConeGeometry(6, 9, 7), volcMat);
   volc.position.set(-10.5, -0.2, -8);
+  volc.castShadow = true;
   scene.add(volc);
   const volcGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff5511, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
   volcGlow.scale.set(7, 2.4, 1);
@@ -541,6 +544,7 @@ function buildWorld() {
   for (const tx of [-7.2, 7.2]) {
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 3.6, 0.7), torchMat);
     pillar.position.set(tx, 1.1, -1.4);
+    pillar.castShadow = true;
     scene.add(pillar);
     const bowl = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.4, 6), torchMat);
     bowl.position.set(tx, 3.2, -1.4);
@@ -583,157 +587,76 @@ function buildWorld() {
   (embers as unknown as { userData: { vel: Float32Array } }).userData = { vel: eVel };
 }
 
-/* ================= 7. FIGHTER MESH BUILDER ================= */
-function buildLimbs(
-  parent: THREE.Object3D,
-  upLen: number,
-  upW: number,
-  lowLen: number,
-  lowW: number,
-  tipSize: number,
-  mat: THREE.Material,
-  pos: [number, number, number]
-): Limbs {
-  const up = new THREE.Group();
-  up.position.set(pos[0], pos[1], pos[2]);
-  const upMesh = new THREE.Mesh(new THREE.BoxGeometry(upW, upLen, upW * 0.85), mat);
-  upMesh.position.y = -upLen / 2;
-  up.add(upMesh);
-  const low = new THREE.Group();
-  low.position.y = -upLen;
-  const lowMesh = new THREE.Mesh(new THREE.BoxGeometry(lowW, lowLen, lowW * 0.85), mat);
-  lowMesh.position.y = -lowLen / 2;
-  low.add(lowMesh);
-  const tip = new THREE.Mesh(new THREE.BoxGeometry(tipSize, tipSize * 0.8, tipSize), mat);
-  tip.position.y = -lowLen - tipSize * 0.4;
-  low.add(tip);
-  up.add(low);
-  parent.add(up);
-  return { up, low, tip };
+/* ================= 7. FIGHTER MESH BUILDER (shared realistic humanoid) ================= */
+function gearFor(cfg: FighterCfg) {
+  return (headG: THREE.Group, _hip: THREE.Group, mats: THREE.Material[], _pal: HumanoidPalette) => {
+    const mk = (color: number, rough = 0.8) => {
+      const m = new THREE.MeshStandardMaterial({ color, roughness: rough });
+      mats.push(m);
+      return m;
+    };
+    if (cfg.id === "kor") {
+      // curved horns
+      for (const s of [-1, 1]) {
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.2, 7), mk(0xffd9a0, 0.6));
+        horn.position.set(s * 0.09, 0.19, -0.02);
+        horn.rotation.z = s * 0.55;
+        horn.rotation.x = -0.25;
+        headG.add(horn);
+      }
+      const browGlow = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.1), new THREE.MeshBasicMaterial({ color: 0xff3c00 }));
+      browGlow.position.set(0, 0.15, 0.06);
+      headG.add(browGlow);
+    } else if (cfg.id === "bora") {
+      // lightning crest
+      const crest = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.24, 5), mk(cfg.colors.trim, 0.5));
+      crest.position.set(0, 0.19, -0.08);
+      crest.rotation.x = -0.4;
+      headG.add(crest);
+      const spikeR = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.12, 5), mk(cfg.colors.accent));
+      spikeR.position.set(0.11, 0.2, 0);
+      spikeR.rotation.z = -0.55;
+      headG.add(spikeR);
+      const spikeL = spikeR.clone();
+      spikeL.position.x = -0.11;
+      spikeL.rotation.z = 0.55;
+      headG.add(spikeL);
+    } else if (cfg.id === "celik") {
+      // heavy knight helm
+      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.132, 16, 12), mk(cfg.colors.accent, 0.45));
+      helm.scale.set(1.0, 0.84, 1.05);
+      helm.position.set(0, 0.14, 0);
+      headG.add(helm);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.04, 0.07), new THREE.MeshBasicMaterial({ color: 0x1a1a1a }));
+      visor.position.set(0, 0.15, 0.112);
+      visor.rotation.x = -0.12;
+      headG.add(visor);
+      const crest = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, 0.14), mk(cfg.colors.trim, 0.5));
+      crest.position.set(0, 0.21, -0.02);
+      headG.add(crest);
+    } else {
+      // golge: shadow hood
+      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.145, 16, 12), mk(0x241a38, 0.95));
+      hood.scale.set(1.1, 0.92, 1.05);
+      hood.position.set(0, 0.1, -0.02);
+      headG.add(hood);
+      const glowEyes = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.03), new THREE.MeshBasicMaterial({ color: cfg.colors.accent }));
+      glowEyes.position.set(0, 0.1, 0.105);
+      headG.add(glowEyes);
+    }
+  };
 }
 
 function buildFighter(cfg: FighterCfg): { root: THREE.Group; parts: Parts; mats: THREE.MeshStandardMaterial[] } {
-  const root = new THREE.Group();
-  const face = new THREE.Group();
-  root.add(face);
-
-  const mk = (color: number, rough = 0.85, metal = 0.08) =>
-    new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
-
-  const mats: THREE.MeshStandardMaterial[] = [];
-  const mat = (color: number, rough = 0.85, metal = 0.08) => {
-    const m = mk(color, rough, metal);
-    mats.push(m);
-    return m;
+  const built = buildHumanoid(cfg.colors, {
+    scale: cfg.id === "celik" ? 1.07 : 1,
+    gear: gearFor(cfg),
+  });
+  return {
+    root: built.root,
+    parts: built.parts as unknown as Parts,
+    mats: built.mats as unknown as THREE.MeshStandardMaterial[],
   };
-
-  const scale = cfg.id === "celik" ? 1.07 : cfg.id === "bora" ? 1.0 : 1.0;
-  face.scale.setScalar(scale);
-
-  const primary = mat(cfg.colors.primary);
-  const secondary = mat(cfg.colors.secondary);
-  const skin = mat(cfg.colors.skin);
-  const trim = mat(cfg.colors.trim, 0.6, 0.5);
-  const accent = mat(cfg.colors.accent, 0.7, 0.2);
-
-  // ---- torso / hips ----
-  const hip = new THREE.Group();
-  hip.position.y = 0.96;
-  face.add(hip);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.54, 0.28), primary);
-  torso.position.y = 0.3;
-  hip.add(torso);
-  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.22, 0.3), secondary);
-  chest.position.y = 0.52;
-  hip.add(chest);
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.1, 0.3), trim);
-  belt.position.y = 0.08;
-  hip.add(belt);
-
-  // ---- head ----
-  const headG = new THREE.Group();
-  headG.position.y = 0.62;
-  hip.add(headG);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.28, 0.27), skin);
-  head.position.y = 0.16;
-  headG.add(head);
-  // eyes
-  const eyeMat = new THREE.MeshBasicMaterial({ color: cfg.colors.accent });
-  const eye = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.02), eyeMat);
-  eye.position.set(0.135, 0.19, 0.07);
-  head.add(eye);
-  const eye2 = eye.clone();
-  eye2.position.x = -0.135;
-  head.add(eye2);
-  // headband
-  const band = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.07, 0.29), trim);
-  band.position.y = 0.24;
-  headG.add(band);
-
-  // unique head gear per fighter
-  if (cfg.id === "kor") {
-    const hornMat = mat(0xffd9a0, 0.7, 0.1);
-    for (const s of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.24, 5), hornMat);
-      horn.position.set(s * 0.16, 0.36, 0);
-      horn.rotation.z = s * 0.5;
-      headG.add(horn);
-    }
-  } else if (cfg.id === "bora") {
-    const crest = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 4), trim);
-    crest.position.set(0, 0.38, -0.02);
-    crest.rotation.x = 0.2;
-    headG.add(crest);
-  } else if (cfg.id === "celik") {
-    const helm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.3), accent);
-    helm.position.y = 0.3;
-    headG.add(helm);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.05), new THREE.MeshBasicMaterial({ color: 0x1a1a1a }));
-    visor.position.set(0, 0.26, 0.145);
-    headG.add(visor);
-  } else {
-    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.36, 6), mat(0x241a38));
-    hood.position.y = 0.34;
-    hood.rotation.x = Math.PI;
-    headG.add(hood);
-  }
-
-  // ---- limbs ----
-  const armR = buildLimbs(hip, 0.34, 0.15, 0.32, 0.13, 0.14, skin, [0.3, 0.44, 0]);
-  const armL = buildLimbs(hip, 0.34, 0.15, 0.32, 0.13, 0.14, skin, [-0.3, 0.44, 0]);
-  const legR = buildLimbs(hip, 0.46, 0.17, 0.46, 0.15, 0.17, secondary, [0.14, 0, 0]);
-  const legL = buildLimbs(hip, 0.46, 0.17, 0.46, 0.15, 0.17, secondary, [-0.14, 0, 0]);
-  // colored fists / boots
-  armR.tip.material = trim as THREE.MeshStandardMaterial;
-  armL.tip.material = trim as THREE.MeshStandardMaterial;
-  legR.tip.material = trim as THREE.MeshStandardMaterial;
-  legL.tip.material = trim as THREE.MeshStandardMaterial;
-
-  // shoulder pads
-  const padR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.22), accent);
-  padR.position.set(0.32, 0.42, 0);
-  hip.add(padR);
-  const padL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.22), accent);
-  padL.position.set(-0.32, 0.42, 0);
-  hip.add(padL);
-
-  // torso emblem (front)
-  const emblem = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.02), new THREE.MeshBasicMaterial({ color: cfg.colors.accent }));
-  emblem.position.set(0, 0.34, 0.145);
-  hip.add(emblem);
-
-  // shadow blob under fighter
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.55, 20),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false })
-  );
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.02;
-  root.add(shadow);
-  (root.userData as { shadow: THREE.Mesh }).shadow = shadow;
-
-  const parts: Parts = { face, hip, torso, headG, armR, armL, legR, legL };
-  return { root, parts, mats };
 }
 
 function disposeFighter(f: FighterState) {
@@ -1327,7 +1250,8 @@ function updateFighter(f: FighterState, opp: FighterState, dt: number, rdt: numb
     f.flashT -= rdt;
     const k = Math.max(0, f.flashT / 0.16);
     f.mats.forEach((m) => {
-      m.emissive.setRGB(0.55 * k, 0.3 * k, 0.08 * k);
+      const std = m as THREE.MeshStandardMaterial;
+      if (std.emissive) std.emissive.setRGB(0.55 * k, 0.3 * k, 0.08 * k);
     });
   }
   if (f.comboT > 0) f.comboT -= rdt;
@@ -2218,7 +2142,8 @@ function render() {
   }
   camera.position.set(follow + sx, 3.1 + sy, camDist);
   camera.lookAt(follow, 1.35, 0);
-  renderer.render(scene, camera);
+  if (composerWrap) composerWrap.composer.render();
+  else renderer.render(scene, camera);
 }
 
 function loop(ts: number) {
@@ -2245,6 +2170,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   buildWorld();
   FX.init();
+  composerWrap = createComposer(renderer, scene, camera, 0.55, 0.5, 0.6);
 
   // wrap canvas for overlay UI
   wrap = document.createElement("div");
@@ -2258,6 +2184,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const scale = Math.min(window.innerWidth / 960, window.innerHeight / 540);
     canvas.style.width = 960 * scale + "px";
     canvas.style.height = 540 * scale + "px";
+    composerWrap?.setSize(960, 540);
   };
   resize();
   window.addEventListener("resize", resize);
@@ -2312,6 +2239,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     G.fighters.forEach(disposeFighter);
     G.fighters = [];
     wrap?.remove();
+    composerWrap?.dispose();
+    composerWrap = null;
     renderer.dispose();
     canvasEl = null;
   };
