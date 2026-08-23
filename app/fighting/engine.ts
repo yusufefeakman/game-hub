@@ -330,7 +330,6 @@ function loop(ts: number) {
 /* ---------------- public API ---------------- */
 export function startGame(canvas: HTMLCanvasElement): () => void {
   canvasEl = canvas;
-  (window as unknown as { __nr?: unknown }).__nr = G; // QA debug hook
   canvas.style.imageRendering = "auto";
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setSize(canvas.width, canvas.height);

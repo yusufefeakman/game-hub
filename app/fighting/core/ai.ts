@@ -35,23 +35,25 @@ function aiThink(f: FighterState, opp: FighterState, d: Diff) {
 
   const oppAttacking = opp.state === "attack";
   if (oppAttacking && adx < 2.1) {
+    // reactive defense only — block/crouch/retreat when the opponent swings
     if (r < d.block) ai.plan = "block";
     else if (opp.attack?.height === "high" && Math.random() < 0.5) ai.plan = "crouch";
-    else if (Math.random() < 0.5) ai.plan = "retreat";
+    else if (Math.random() < 0.4) ai.plan = "retreat";
+    else ai.plan = "idle";
   } else if (adx > 1.6) {
     if (r < 0.12) ai.plan = "jump";
     else ai.plan = "approach";
   } else if (adx < 1.15) {
     if (pickSpecial(f) && r < d.special) ai.plan = "special";
-    else if (r < 0.45 * d.aggression) ai.plan = "light";
-    else if (r < 0.72 * d.aggression) ai.plan = "heavy";
-    else if (r < 0.82) ai.plan = "block";
-    else ai.plan = "jump";
+    else if (r < 0.5 * d.aggression) ai.plan = "light";
+    else if (r < 0.75 * d.aggression) ai.plan = "heavy";
+    else if (r < 0.75 * d.aggression + 0.12) ai.plan = "jump";
+    else ai.plan = "approach";
   } else {
     if (pickSpecial(f) && r < d.special) ai.plan = "special";
-    else if (r < 0.4) ai.plan = "approach";
-    else if (r < 0.62) ai.plan = "heavy";
-    else ai.plan = "block";
+    else if (r < 0.45) ai.plan = "approach";
+    else if (r < 0.68) ai.plan = "heavy";
+    else ai.plan = "approach";
   }
   if (f.hp < 25 && Math.random() < d.retreat) ai.plan = "retreat";
   ai.t = d.react[0] + Math.random() * (d.react[1] - d.react[0]);
