@@ -15,16 +15,6 @@ const GAMES = [
     status: "playable" as const,
   },
   {
-    id: "coming-soon-2",
-    title: "Coming Soon",
-    subtitle: "Game #2",
-    emoji: "🎮",
-    artClass: "art-2",
-    description: "A new original game is in the works. Check back later!",
-    route: null,
-    status: "locked" as const,
-  },
-  {
     id: "world-war-z",
     title: "World War Z",
     subtitle: "Zombie Survival",
@@ -89,16 +79,6 @@ const GAMES = [
       "Özgün 3D dövüş oyunu! 4 savaşçı (Kairo, Vexa, Rokan, Nyra), 2'şer özel saldırı, 3 arena (Neon City, Antik Tapınak, Cyber Arena), kombo ve stamina sistemi, eğitim modu ve EASY/NORMAL/HARD yapay zekâ. P1: A/D + W/S + J/K/L/U — P2: Oklar + Num1-4.",
     route: "/fighting",
     status: "playable" as const,
-  },
-  {
-    id: "coming-soon-3",
-    title: "Coming Soon",
-    subtitle: "Game #3",
-    emoji: "🕹️",
-    artClass: "art-3",
-    description: "Another adventure will land here. Stay tuned!",
-    route: null,
-    status: "locked" as const,
   },
 ];
 
