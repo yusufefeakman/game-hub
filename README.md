@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pixel Arcade — Game Hub
 
-## Getting Started
+Next.js 16 ile geliştirilmiş, tarayıcıda oynanabilen **özgün oyunlar koleksiyonu**. Tüm oyunlar
+sıfırdan yazılmıştır: telifli karakter, görsel, müzik veya varlık kullanılmaz. Grafikler
+prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 
-First, run the development server:
+## 🎮 Oyunlar
+
+| Oyun | Açıklama | Route |
+|---|---|---|
+| **Neon Rivals** 🥋 | 3D dövüş oyunu: 4 karakter (Kairo, Vexa, Rokan, Nyra), 2'şer özel saldırı, 3 arena, training modu, tuş yeniden atama, EASY/NORMAL/HARD yapay zekâ | `/game-hub/fighting` |
+| **Dövüş Arenası** 🥊 | 3D dövüş oyunu: 4 savaşçı (Kor, Bora, Çelik, Gölge), enerji sistemi, 1P vs CPU / 2P | `/game-hub/games/fighter` |
+| **Royal Chess** ♞ | Tam kurallı 3D satranç (rok, en passant, terfi, şah mat) — yerel 2P veya bilgisayar | `/game-hub/games/chess` |
+| **Yıldız Vurucu** 🚀 | 3D uzay nişancısı: asteroid alanlarında savaş | `/game-hub/games/spaceship` |
+| **Sürat Teknesi Hücumu** 🚤 | 3D sürat teknesi yarışı | `/game-hub/games/powerboat` |
+| **World War Z** 🧟 | 3D FPS zombi hayatta kalma | `/game-hub/games/world-war-z` |
+| **Pixel Pals** 🌟 | Platform macerası | `/game-hub/games/pixel-pals` |
+
+## 🚀 Çalıştırma
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Tarayıcıda aç: [http://localhost:3000/game-hub](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> Not: `next.config.ts` içinde `basePath` `/game-hub` olarak sabittir (GitHub Pages dağıtımı için).
+> Yerel geliştirmede basePath'i kaldırmak isterseniz `.env.local` içinde `BASE_PATH=""` tanımlayın.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 📦 Üretim derlemesi (GitHub Pages)
 
-## Learn More
+Proje statik export kullanır; çıktı `out/` klasörüne yazılır:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run build
+# çıktı: out/ — bu klasörü GitHub Pages'e yayınlayın
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🧱 Proje yapısı
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+app/
+├── page.tsx              # Oyun kataloğu (GAMES dizisi — yeni oyun buraya eklenir)
+├── globals.css
+├── fighting/             # Neon Rivals (modüler motor)
+│   ├── page.tsx          # "use client" + dinamik import
+│   ├── engine.ts         # startGame(canvas) -> stop() — döngü/durum makinesi/kamera
+│   └── core/             # types, state, audio, input, characters, fighter,
+│                         # combat, ai, arenas, effects, hud
+└── games/<oyun>/         # Diğer oyunların deseni
+    ├── page.tsx          # "use client" + dinamik import
+    └── engine.ts         # startGame(canvas) -> stop()
+```
 
-## Deploy on Vercel
+Oyun deseni: her oyun kendi klasöründe, `startGame(canvas)` döndüren bir motor
+(`engine.ts`) ve onu monte eden bir sayfadan (`page.tsx`) oluşur. Motorlar kendi
+DOM overlay'lerini (menü/HUD) kurar; sesler Web Audio ile sentezlenir.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🧪 Doğrulama
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `npm run build` — TypeScript + statik export kontrolü
+- Headless Chrome CDP QA: menü akışları, oynanış, sıfır konsol hatası
+
+## ⚙️ Teknolojiler
+
+Next.js 16 (Turbopack) · React 19 · TypeScript (strict) · Three.js (r185) · Web Audio API
