@@ -162,6 +162,7 @@ export function showEnd(winnerIdx: number) {
 }
 
 export function showSelect() {
+  G.state = "select";
   G.selectIdx = 0;
   G.p1Picked = false;
   G.aiPickT = 0;
@@ -613,6 +614,8 @@ export function updateHud(rdt: number) {
   }
   const round = $id("round");
   if (round) round.textContent = G.training ? "TRAINING" : "ROUND " + G.round;
+  const tr = $id("training");
+  if (tr) tr.style.display = G.training ? "block" : "none";
 
   // banner
   if (G.banner.t > 0) {

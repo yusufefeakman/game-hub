@@ -291,12 +291,17 @@ function disposeGroup(group: THREE.Group) {
 }
 
 export function buildArena(kind: ArenaId): Arena {
+  let arena: Arena;
   switch (kind) {
     case "neon":
-      return buildNeon();
+      arena = buildNeon();
+      break;
     case "temple":
-      return buildTemple();
+      arena = buildTemple();
+      break;
     default:
-      return buildCyber();
+      arena = buildCyber();
   }
+  G.scene?.add(arena.group);
+  return arena;
 }

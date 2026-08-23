@@ -441,6 +441,8 @@ export function updateFighter(f: FighterState, opp: FighterState, dt: number, rd
   let crouchHeld = false;
   let blockHeld = false;
   if (!f.isAI && !f.isDummy) {
+    if (Input.held(f.idx, "left")) f.walkDir -= 1;
+    if (Input.held(f.idx, "right")) f.walkDir += 1;
     crouchHeld = Input.held(f.idx, "crouch");
     blockHeld = Input.held(f.idx, "block");
     if (!f.airborne && f.state !== "hitstun" && f.state !== "stunned") {
