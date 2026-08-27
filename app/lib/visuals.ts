@@ -251,7 +251,7 @@ export function setupLights(
   opts: { hemiSky: number; hemiGround: number; keyColor: number; keyIntensity?: number; rimColor: number; rimIntensity?: number }
 ): LightSetup {
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
 
