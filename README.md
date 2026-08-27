@@ -29,12 +29,13 @@ Bu repoyu kendi hesabına **tek tıkla** dağıtabilirsin — token gerekmez, bu
 
 ## 🕹️ itch.io'ya yükleme
 
-Oyunun tek dosyalık oynanabilir sürümü: `public/astro-blaster.html` (GitHub Pages'te canlı:
-[astro-blaster.html](https://yusufefeakman.github.io/game-hub/astro-blaster.html)).
+Oyunların tek dosyalık oynanabilir sürümleri (GitHub Pages'te canlı):
+- **Anime Legends:** `public/anime-legends.html` → [anime-legends.html](https://yusufefeakman.github.io/game-hub/anime-legends.html)
+- **Astro Blaster:** `public/astro-blaster.html` → [astro-blaster.html](https://yusufefeakman.github.io/game-hub/astro-blaster.html)
 
 itch.io'ya yüklemek için:
 1. itch.io'da yeni proje oluştur → **Kind: HTML** seç.
-2. `public/astro-blaster.html` dosyasını **Uploads** alanına sürükle.
+2. İlgili `.html` dosyasını **Uploads** alanına sürükle.
 3. (İsteğe bağlı) Çözünürlük: 960×540, **Embed options** → **Fullscreen** aç.
 4. Yayınla! 🎉
 
