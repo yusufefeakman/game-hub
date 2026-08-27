@@ -48,6 +48,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "astro-blaster",
+    title: "Astro Blaster",
+    subtitle: "Uzay Blok Patlatma",
+    emoji: "🛸",
+    artClass: "art-3",
+    description:
+      "Uzay temalı blok kırma oyunu. Plazma gemini yönlendir, kozmik blokları parçala; altın bloklar ekstra puan, elmas bloklar kırılmaz. W genişletir, M çoklu top, S yavaşlatır, E ekstra can.",
+    route: "/games/astro-blaster",
+    status: "playable" as const,
+  },
+  {
     id: "chess",
     title: "Royal Chess",
     subtitle: "3D Strategy Classic",
