@@ -8,6 +8,7 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 
 | Oyun | Açıklama | Route |
 |---|---|---|
+| **Anime Legends** 🥷 | 24 ikonik anime karakteriyle dövüş turnuvası: Naruto, Goku, Luffy, Gojo, Saitama... 8 rakibi yen, şampiyon ol | `/game-hub/games/anime-legends` |
 | **Astro Blaster** 🛸 | Uzay temalı blok kırma (Breakout): 5 seviye, 4 blok tipi, güçlendirmeler | `/game-hub/games/astro-blaster` |
 | **Neon Rivals** 🥋 | 3D dövüş oyunu: 4 karakter (Kairo, Vexa, Rokan, Nyra), 2'şer özel saldırı, 3 arena, training modu, tuş yeniden atama, EASY/NORMAL/HARD yapay zekâ | `/game-hub/fighting` |
 | **Dövüş Arenası** 🥊 | 3D dövüş oyunu: 4 savaşçı (Kor, Bora, Çelik, Gölge), enerji sistemi, 1P vs CPU / 2P | `/game-hub/games/fighter` |

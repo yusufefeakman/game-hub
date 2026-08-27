@@ -1,0 +1,1247 @@
+/* =====================================================================
+   ANIME LEGENDS: Ultimate Arena — Game Engine
+   A 2D anime battle arena with a roster of iconic characters. Every
+   fighter is drawn procedurally (chibi style) on canvas; all audio is
+   synthesized with the Web Audio API. No external assets.
+
+   Roster is data-driven: add a character by appending one entry to the
+   CHARACTERS array — no other code changes needed.
+
+   Public API:
+     startGame(canvas) -> () => void   (returns a stop/cleanup function)
+   ===================================================================== */
+
+/* ================= 1. SETUP & CONSTANTS ================= */
+const W = 960;
+const H = 540;
+
+const GROUND_Y = H - 90; // top of the ground line fighters stand on
+const GRAVITY = 2100;
+const MAX_FALL = 1200;
+
+// HUD
+const HUD_H = 46;
+
+// Tournament
+const TOURNAMENT_SIZE = 8; // opponents to beat
+
+/* ================= 2. AUDIO (Web Audio, synthesized) ================= */
+const AudioSys = {
+  ctx: null as AudioContext | null,
+  muted: false,
+  master: null as GainNode | null,
+  bgmTimer: 0 as number | null,
+  bgmStep: 0,
+  init() {
+    if (this.ctx) return;
+    try {
+      this.ctx = new AudioContext();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.28;
+      this.master.connect(this.ctx.destination);
+    } catch {
+      this.ctx = null;
+    }
+  },
+  resume() {
+    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+  },
+  tone(type: OscillatorType, f0: number, f1: number, dur: number, vol = 0.5, delay = 0) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime + delay;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(g);
+    g.connect(this.master!);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  },
+  noise(dur: number, vol = 0.3, delay = 0) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime + delay;
+    const len = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(g);
+    g.connect(this.master!);
+    src.start(t);
+  },
+  hit() { this.tone("square", 500, 180, 0.1, 0.35); this.noise(0.08, 0.3); },
+  block() { this.tone("square", 180, 140, 0.08, 0.25); },
+  whoosh() { this.noise(0.18, 0.25); this.tone("sine", 300, 900, 0.18, 0.2); },
+  launch() { this.tone("sine", 200, 800, 0.2, 0.3); },
+  ult() { this.tone("sawtooth", 100, 900, 0.5, 0.4); this.noise(0.4, 0.4); [523, 659, 784, 1047].forEach((f, i) => this.tone("square", f, f, 0.12, 0.25, 0.05 + i * 0.07)); },
+  ko() { this.tone("sawtooth", 400, 60, 0.6, 0.5); this.noise(0.5, 0.5); },
+  roundWin() { [523, 659, 784, 1047].forEach((f, i) => this.tone("square", f, f, 0.14, 0.3, i * 0.12)); },
+  victory() { [523, 659, 784, 1047, 784, 1047, 1319, 1568].forEach((f, i) => this.tone("square", f, f, 0.18, 0.32, i * 0.14)); },
+  gameover() { [392, 330, 262, 196, 131].forEach((f, i) => this.tone("triangle", f, f, 0.32, 0.4, i * 0.24)); },
+  select() { this.tone("square", 660, 660, 0.07, 0.3); },
+  jump() { this.tone("sine", 300, 600, 0.12, 0.2); },
+  setMuted(m: boolean) { this.muted = m; if (this.master) this.master.gain.value = m ? 0 : 0.28; },
+};
+
+/* ================= 3. INPUT ================= */
+const Input = {
+  left: false,
+  right: false,
+  jump: false,
+  jumpPressed: false,
+  init() {
+    const down = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (["arrowleft", "arrowright", " ", "a", "d", "w"].includes(k)) e.preventDefault();
+      if (k === "arrowleft" || k === "a") this.left = true;
+      if (k === "arrowright" || k === "d") this.right = true;
+      if (k === "arrowup" || k === "w" || k === " ") {
+        if (!this.jump) this.jumpPressed = true;
+        this.jump = true;
+      }
+      if (k === "p") game.togglePause();
+      if (k === "m") game.toggleMute();
+      if (k === "enter") {
+        if (game.state === "start" || game.state === "gameover" || game.state === "victory") game.startSelect();
+        if (game.state === "pause") game.togglePause();
+      }
+      if (k === "j" || k === "1") game.playerAttack(0);
+      if (k === "k" || k === "2") game.playerAttack(1);
+      if (k === "l" || k === "3") game.playerAttack(2);
+      if (k === "u" || k === "4") game.playerUlt();
+      if (k === "q" || k === "e") game.dash();
+    };
+    const up = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k === "arrowleft" || k === "a") this.left = false;
+      if (k === "arrowright" || k === "d") this.right = false;
+      if (k === "arrowup" || k === "w" || k === " ") this.jump = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+
+    // Touch controls
+    const bind = (id: string, on: () => void, off?: () => void) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("touchstart", (e) => { e.preventDefault(); on(); }, { passive: false });
+      el.addEventListener("mousedown", (e) => { e.preventDefault(); on(); });
+      if (off) {
+        el.addEventListener("touchend", (e) => { e.preventDefault(); off(); }, { passive: false });
+        el.addEventListener("mouseup", off);
+      }
+    };
+    bind("t-left", () => { this.left = true; }, () => { this.left = false; });
+    bind("t-right", () => { this.right = true; }, () => { this.right = false; });
+    bind("t-jump", () => { this.jumpPressed = true; this.jump = true; }, () => { this.jump = false; });
+    bind("t-a0", () => game.playerAttack(0));
+    bind("t-a1", () => game.playerAttack(1));
+    bind("t-a2", () => game.playerAttack(2));
+    bind("t-ult", () => game.playerUlt());
+
+    if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+      document.body.classList.add("touch");
+    }
+  },
+  destroy() { /* window listeners die with page */ },
+};
+
+/* ================= 4. ROSTER (data-driven — add a character here) ================= */
+type MoveType = "melee" | "wave" | "dash" | "ult";
+
+interface MoveDef {
+  name: string;
+  type: MoveType;
+  dmg: number;
+  cd: number; // cooldown seconds
+  range?: number; // melee reach
+  speed?: number; // projectile speed
+  r?: number; // projectile radius
+  color?: string;
+}
+
+interface CharDef {
+  id: string;
+  name: string;
+  series: string;
+  hair: string;
+  primary: string;
+  secondary: string;
+  aura: string;
+  hp: number;
+  atk: number; // damage multiplier
+  spd: number; // movement speed
+  moves: [MoveDef, MoveDef, MoveDef]; // move1, move2, ult
+}
+
+const CHARACTERS: CharDef[] = [
+  {
+    id: "naruto", name: "Naruto", series: "Naruto",
+    hair: "#ffb400", primary: "#ff8c1a", secondary: "#1a4b8c", aura: "#ffb400",
+    hp: 150, atk: 1.0, spd: 340,
+    moves: [
+      { name: "Rasengan", type: "melee", dmg: 16, cd: 1.1, range: 90, color: "#4dd0e1" },
+      { name: "Shadow Clone", type: "wave", dmg: 12, cd: 2.0, speed: 520, r: 14, color: "#ffb400" },
+      { name: "Rasenshuriken", type: "ult", dmg: 46, cd: 12, speed: 640, r: 24, color: "#7ee081" },
+    ],
+  },
+  {
+    id: "sasuke", name: "Sasuke", series: "Naruto",
+    hair: "#2b2b3d", primary: "#5c6bc0", secondary: "#263238", aura: "#b388ff",
+    hp: 140, atk: 1.05, spd: 360,
+    moves: [
+      { name: "Chidori", type: "dash", dmg: 18, cd: 1.6, range: 120, color: "#b3e5fc" },
+      { name: "Fireball", type: "wave", dmg: 13, cd: 1.9, speed: 480, r: 15, color: "#ff7043" },
+      { name: "Susanoo", type: "ult", dmg: 48, cd: 12, speed: 620, r: 26, color: "#b388ff" },
+    ],
+  },
+  {
+    id: "goku", name: "Goku", series: "Dragon Ball",
+    hair: "#1a1a2e", primary: "#ff8c1a", secondary: "#1a4b8c", aura: "#4dd0e1",
+    hp: 160, atk: 1.1, spd: 350,
+    moves: [
+      { name: "Kamehameha", type: "wave", dmg: 17, cd: 1.8, speed: 560, r: 16, color: "#4dd0e1" },
+      { name: "Dragon Fist", type: "melee", dmg: 15, cd: 1.2, range: 95, color: "#ffd23f" },
+      { name: "Spirit Bomb", type: "ult", dmg: 50, cd: 12, speed: 600, r: 28, color: "#ffe066" },
+    ],
+  },
+  {
+    id: "vegeta", name: "Vegeta", series: "Dragon Ball",
+    hair: "#1a1a2e", primary: "#4fc3f7", secondary: "#0d47a1", aura: "#ffd23f",
+    hp: 150, atk: 1.05, spd: 355,
+    moves: [
+      { name: "Galick Gun", type: "wave", dmg: 16, cd: 1.8, speed: 540, r: 16, color: "#b388ff" },
+      { name: "Big Bang", type: "melee", dmg: 14, cd: 1.2, range: 90, color: "#ffd23f" },
+      { name: "Final Flash", type: "ult", dmg: 48, cd: 12, speed: 640, r: 26, color: "#ffe082" },
+    ],
+  },
+  {
+    id: "luffy", name: "Luffy", series: "One Piece",
+    hair: "#2b2b3d", primary: "#e53935", secondary: "#ffd54f", aura: "#ff7043",
+    hp: 155, atk: 1.0, spd: 360,
+    moves: [
+      { name: "Gum-Gum Bazooka", type: "melee", dmg: 16, cd: 1.2, range: 130, color: "#ff7043" },
+      { name: "Gum-Gum Rocket", type: "dash", dmg: 14, cd: 1.7, range: 150, color: "#ff5252" },
+      { name: "Gear 4", type: "ult", dmg: 46, cd: 12, speed: 600, r: 26, color: "#ff1744" },
+    ],
+  },
+  {
+    id: "zoro", name: "Zoro", series: "One Piece",
+    hair: "#2e7d32", primary: "#388e3c", secondary: "#1b5e20", aura: "#81c784",
+    hp: 145, atk: 1.1, spd: 345,
+    moves: [
+      { name: "Oni Giri", type: "melee", dmg: 17, cd: 1.1, range: 100, color: "#a5d6a7" },
+      { name: "Santoryu", type: "wave", dmg: 14, cd: 1.9, speed: 520, r: 15, color: "#81c784" },
+      { name: "Ashura", type: "ult", dmg: 48, cd: 12, speed: 620, r: 25, color: "#c8e6c9" },
+    ],
+  },
+  {
+    id: "ichigo", name: "Ichigo", series: "Bleach",
+    hair: "#ff8a3c", primary: "#263238", secondary: "#1a1a2e", aura: "#ff5252",
+    hp: 150, atk: 1.05, spd: 350,
+    moves: [
+      { name: "Getsuga Tensho", type: "wave", dmg: 16, cd: 1.7, speed: 550, r: 16, color: "#ff5252" },
+      { name: "Zangetsu Slash", type: "melee", dmg: 15, cd: 1.2, range: 100, color: "#ef9a9a" },
+      { name: "Bankai", type: "ult", dmg: 49, cd: 12, speed: 630, r: 26, color: "#ff1744" },
+    ],
+  },
+  {
+    id: "tanjiro", name: "Tanjiro", series: "Demon Slayer",
+    hair: "#8d3a2a", primary: "#2e7d32", secondary: "#1b1b2f", aura: "#66bb6a",
+    hp: 145, atk: 1.05, spd: 360,
+    moves: [
+      { name: "Water Breathing", type: "wave", dmg: 14, cd: 1.7, speed: 540, r: 15, color: "#4dd0e1" },
+      { name: "Sun Slash", type: "melee", dmg: 16, cd: 1.1, range: 95, color: "#ffa726" },
+      { name: "Hinokami Kagura", type: "ult", dmg: 48, cd: 12, speed: 640, r: 25, color: "#ff7043" },
+    ],
+  },
+  {
+    id: "nezuko", name: "Nezuko", series: "Demon Slayer",
+    hair: "#e57373", primary: "#f48fb1", secondary: "#7b1fa2", aura: "#ff8a80",
+    hp: 140, atk: 1.0, spd: 375,
+    moves: [
+      { name: "Blood Demon Art", type: "wave", dmg: 13, cd: 1.8, speed: 500, r: 14, color: "#ff8a80" },
+      { name: "Demon Kick", type: "melee", dmg: 15, cd: 1.0, range: 90, color: "#ffcdd2" },
+      { name: "Exploding Blood", type: "ult", dmg: 45, cd: 12, speed: 600, r: 24, color: "#ff1744" },
+    ],
+  },
+  {
+    id: "levi", name: "Levi", series: "Attack on Titan",
+    hair: "#1a1a2e", primary: "#bdbdbd", secondary: "#37474f", aura: "#cfd8dc",
+    hp: 135, atk: 1.15, spd: 390,
+    moves: [
+      { name: "ODM Slash", type: "dash", dmg: 17, cd: 1.3, range: 140, color: "#eceff1" },
+      { name: "Sword Dance", type: "melee", dmg: 14, cd: 1.0, range: 95, color: "#90a4ae" },
+      { name: "Kill Titan", type: "ult", dmg: 47, cd: 12, speed: 650, r: 22, color: "#ffffff" },
+    ],
+  },
+  {
+    id: "eren", name: "Eren", series: "Attack on Titan",
+    hair: "#5d4037", primary: "#795548", secondary: "#3e2723", aura: "#8d6e63",
+    hp: 155, atk: 1.0, spd: 330,
+    moves: [
+      { name: "Titan Fist", type: "melee", dmg: 17, cd: 1.2, range: 105, color: "#a1887f" },
+      { name: "ODM Wire", type: "wave", dmg: 12, cd: 1.9, speed: 500, r: 13, color: "#d7ccc8" },
+      { name: "Attack Titan", type: "ult", dmg: 49, cd: 12, speed: 610, r: 28, color: "#8d6e63" },
+    ],
+  },
+  {
+    id: "midoriya", name: "Midoriya", series: "My Hero Academia",
+    hair: "#2e7d32", primary: "#66bb6a", secondary: "#263238", aura: "#81c784",
+    hp: 145, atk: 1.05, spd: 365,
+    moves: [
+      { name: "Delaware Smash", type: "wave", dmg: 14, cd: 1.7, speed: 560, r: 14, color: "#a5d6a7" },
+      { name: "Detroit Smash", type: "melee", dmg: 17, cd: 1.3, range: 100, color: "#c8e6c9" },
+      { name: "One For All 100%", type: "ult", dmg: 50, cd: 12, speed: 660, r: 26, color: "#e8f5e9" },
+    ],
+  },
+  {
+    id: "bakugo", name: "Bakugo", series: "My Hero Academia",
+    hair: "#ffb300", primary: "#ff6f00", secondary: "#263238", aura: "#ffa726",
+    hp: 140, atk: 1.1, spd: 370,
+    moves: [
+      { name: "Howitzer", type: "wave", dmg: 15, cd: 1.7, speed: 570, r: 15, color: "#ffb300" },
+      { name: "Explosion", type: "melee", dmg: 16, cd: 1.1, range: 95, color: "#ff8f00" },
+      { name: "Cluster", type: "ult", dmg: 47, cd: 12, speed: 640, r: 24, color: "#ffd54f" },
+    ],
+  },
+  {
+    id: "gojo", name: "Gojo", series: "Jujutsu Kaisen",
+    hair: "#eceff1", primary: "#2196f3", secondary: "#1a1a2e", aura: "#80d8ff",
+    hp: 150, atk: 1.1, spd: 350,
+    moves: [
+      { name: "Blue", type: "wave", dmg: 15, cd: 1.6, speed: 580, r: 15, color: "#40c4ff" },
+      { name: "Red", type: "wave", dmg: 16, cd: 1.8, speed: 560, r: 16, color: "#ff5252" },
+      { name: "Hollow Purple", type: "ult", dmg: 52, cd: 12, speed: 700, r: 28, color: "#e1bee7" },
+    ],
+  },
+  {
+    id: "itadori", name: "Itadori", series: "Jujutsu Kaisen",
+    hair: "#f48fb1", primary: "#e53935", secondary: "#1a1a2e", aura: "#ef5350",
+    hp: 155, atk: 1.05, spd: 355,
+    moves: [
+      { name: "Black Flash", type: "melee", dmg: 18, cd: 1.2, range: 100, color: "#ff8a80" },
+      { name: "Divergent Fist", type: "wave", dmg: 13, cd: 1.9, speed: 520, r: 14, color: "#ef9a9a" },
+      { name: "Domain Expansion", type: "ult", dmg: 49, cd: 12, speed: 620, r: 27, color: "#ff5252" },
+    ],
+  },
+  {
+    id: "saitama", name: "Saitama", series: "One Punch Man",
+    hair: "#ffcc80", primary: "#ffd54f", secondary: "#e53935", aura: "#ffeb3b",
+    hp: 170, atk: 1.3, spd: 340,
+    moves: [
+      { name: "Normal Punch", type: "melee", dmg: 20, cd: 1.2, range: 100, color: "#fff176" },
+      { name: "Side Hop", type: "dash", dmg: 12, cd: 1.6, range: 130, color: "#fff9c4" },
+      { name: "Serious Punch", type: "ult", dmg: 55, cd: 12, speed: 700, r: 30, color: "#ffffff" },
+    ],
+  },
+  {
+    id: "killua", name: "Killua", series: "Hunter x Hunter",
+    hair: "#eceff1", primary: "#26a69a", secondary: "#00695c", aura: "#80deea",
+    hp: 135, atk: 1.1, spd: 400,
+    moves: [
+      { name: "Thunderbolt", type: "wave", dmg: 14, cd: 1.6, speed: 590, r: 13, color: "#80deea" },
+      { name: "Godspeed", type: "dash", dmg: 16, cd: 1.4, range: 150, color: "#b2ebf2" },
+      { name: "Lightning Palm", type: "ult", dmg: 46, cd: 12, speed: 660, r: 23, color: "#4dd0e1" },
+    ],
+  },
+  {
+    id: "gon", name: "Gon", series: "Hunter x Hunter",
+    hair: "#2e7d32", primary: "#66bb6a", secondary: "#1565c0", aura: "#81c784",
+    hp: 150, atk: 1.0, spd: 355,
+    moves: [
+      { name: "Jajanken Rock", type: "melee", dmg: 17, cd: 1.3, range: 100, color: "#a5d6a7" },
+      { name: "Jajanken Paper", type: "wave", dmg: 13, cd: 1.8, speed: 540, r: 14, color: "#ef9a9a" },
+      { name: "Adult Gon", type: "ult", dmg: 50, cd: 12, speed: 640, r: 27, color: "#1b5e20" },
+    ],
+  },
+  {
+    id: "sailormoon", name: "Sailor Moon", series: "Sailor Moon",
+    hair: "#ffd54f", primary: "#f06292", secondary: "#283593", aura: "#f8bbd0",
+    hp: 140, atk: 1.0, spd: 360,
+    moves: [
+      { name: "Moon Tiara", type: "wave", dmg: 13, cd: 1.6, speed: 570, r: 13, color: "#f8bbd0" },
+      { name: "Moon Kick", type: "melee", dmg: 14, cd: 1.0, range: 90, color: "#f48fb1" },
+      { name: "Moon Princess", type: "ult", dmg: 47, cd: 12, speed: 640, r: 25, color: "#ffd54f" },
+    ],
+  },
+  {
+    id: "pikachu", name: "Pikachu", series: "Pokémon",
+    hair: "#ffd54f", primary: "#ffd54f", secondary: "#8d6e63", aura: "#fff176",
+    hp: 130, atk: 1.0, spd: 390,
+    moves: [
+      { name: "Thunderbolt", type: "wave", dmg: 14, cd: 1.5, speed: 580, r: 13, color: "#ffee58" },
+      { name: "Quick Attack", type: "dash", dmg: 13, cd: 1.3, range: 140, color: "#fff9c4" },
+      { name: "Thunder", type: "ult", dmg: 45, cd: 12, speed: 680, r: 24, color: "#ffff00" },
+    ],
+  },
+  {
+    id: "edward", name: "Edward", series: "Fullmetal Alchemist",
+    hair: "#ffd54f", primary: "#c62828", secondary: "#37474f", aura: "#ffca28",
+    hp: 140, atk: 1.05, spd: 350,
+    moves: [
+      { name: "Alchemy Spike", type: "wave", dmg: 15, cd: 1.7, speed: 550, r: 15, color: "#ffca28" },
+      { name: "Automail Punch", type: "melee", dmg: 15, cd: 1.1, range: 90, color: "#90a4ae" },
+      { name: "Philosopher's Stone", type: "ult", dmg: 48, cd: 12, speed: 630, r: 26, color: "#ff1744" },
+    ],
+  },
+  {
+    id: "natsu", name: "Natsu", series: "Fairy Tail",
+    hair: "#f06292", primary: "#e53935", secondary: "#263238", aura: "#ff7043",
+    hp: 150, atk: 1.1, spd: 355,
+    moves: [
+      { name: "Fire Dragon Roar", type: "wave", dmg: 16, cd: 1.7, speed: 560, r: 16, color: "#ff7043" },
+      { name: "Fire Fist", type: "melee", dmg: 15, cd: 1.1, range: 95, color: "#ff8a65" },
+      { name: "Fire Dragon King", type: "ult", dmg: 49, cd: 12, speed: 650, r: 27, color: "#ff5722" },
+    ],
+  },
+  {
+    id: "asta", name: "Asta", series: "Black Clover",
+    hair: "#eceff1", primary: "#263238", secondary: "#e53935", aura: "#cfd8dc",
+    hp: 150, atk: 1.1, spd: 360,
+    moves: [
+      { name: "Black Divider", type: "melee", dmg: 17, cd: 1.2, range: 100, color: "#90a4ae" },
+      { name: "Anti-Magic Slash", type: "wave", dmg: 14, cd: 1.8, speed: 540, r: 15, color: "#b0bec5" },
+      { name: "Black Meteorite", type: "ult", dmg: 48, cd: 12, speed: 640, r: 26, color: "#607d8b" },
+    ],
+  },
+  {
+    id: "jotaro", name: "Jotaro", series: "JoJo's Bizarre Adventure",
+    hair: "#1a1a2e", primary: "#1a1a2e", secondary: "#4fc3f7", aura: "#b3e5fc",
+    hp: 145, atk: 1.1, spd: 345,
+    moves: [
+      { name: "ORA ORA", type: "melee", dmg: 16, cd: 1.0, range: 110, color: "#81d4fa" },
+      { name: "Star Finger", type: "wave", dmg: 13, cd: 1.8, speed: 560, r: 13, color: "#b3e5fc" },
+      { name: "Star Platinum: Time Stop", type: "ult", dmg: 50, cd: 12, speed: 700, r: 26, color: "#e1f5fe" },
+    ],
+  },
+];
+
+/* ================= 5. ENTITIES & STATE ================= */
+type GameState = "start" | "select" | "playing" | "pause" | "roundend" | "gameover" | "victory";
+
+interface Fighter {
+  char: CharDef;
+  x: number; y: number; vx: number; vy: number;
+  w: number; h: number;
+  facing: number; // 1 right, -1 left
+  onGround: boolean;
+  hp: number; maxHp: number;
+  isPlayer: boolean;
+  attackT: number; // attack animation timer
+  attackMove: MoveDef | null;
+  hitT: number; // hurt flash
+  cds: [number, number, number]; // cooldown timers per move
+  ultReady: boolean;
+  ultCharge: number;
+  dashT: number;
+  dead: boolean;
+  koT: number;
+  animT: number;
+  rot: number;
+}
+
+interface Projectile {
+  x: number; y: number; vx: number;
+  owner: Fighter;
+  dmg: number; r: number; color: string; life: number;
+  ult: boolean;
+}
+
+interface Particle {
+  x: number; y: number; vx: number; vy: number;
+  life: number; max: number; size: number; color: string;
+}
+
+const player: Fighter = createFighter(CHARACTERS[0], true);
+const enemy: Fighter = createFighter(CHARACTERS[1], false);
+
+function createFighter(char: CharDef, isPlayer: boolean): Fighter {
+  return {
+    char, x: isPlayer ? 260 : W - 260, y: GROUND_Y, vx: 0, vy: 0,
+    w: 44, h: 84, facing: isPlayer ? 1 : -1,
+    onGround: true, hp: char.hp, maxHp: char.hp, isPlayer,
+    attackT: 0, attackMove: null, hitT: 0,
+    cds: [0, 0, 0], ultReady: true, ultCharge: 0,
+    dashT: 0, dead: false, koT: 0, animT: 0, rot: 0,
+  };
+}
+
+const projectiles: Projectile[] = [];
+const particles: Particle[] = [];
+const messages: { text: string; x: number; y: number; t: number; color: string; big?: boolean }[] = [];
+
+let roundIndex = 0;
+let roundCount = 0;
+let screenShake = 0;
+
+const game = {
+  state: "start" as GameState,
+  time: 0,
+  selectedChar: null as CharDef | null,
+  score: 0,
+
+  startSelect() {
+    AudioSys.init(); AudioSys.resume();
+    this.state = "select";
+    hideAllScreens();
+    show("screen-select");
+    buildSelectGrid();
+  },
+  pickCharacter(char: CharDef) {
+    AudioSys.select();
+    this.selectedChar = char;
+    const playerIdx = CHARACTERS.indexOf(char);
+    // Opponent pool: all chars except the chosen one
+    const pool = CHARACTERS.filter((_, i) => i !== playerIdx);
+    this.opponents = shuffle(pool).slice(0, TOURNAMENT_SIZE);
+    roundIndex = 0;
+    roundCount = 0;
+    this.score = 0;
+    startFight();
+  },
+  opponents: [] as CharDef[],
+
+  togglePause() {
+    if (this.state === "playing") { this.state = "pause"; show("screen-pause"); }
+    else if (this.state === "pause") { this.state = "playing"; hide("screen-pause"); }
+  },
+  toggleMute() {
+    AudioSys.init();
+    AudioSys.setMuted(!AudioSys.muted);
+    const btn = document.getElementById("mute-btn");
+    if (btn) btn.innerHTML = AudioSys.muted ? "&#128263;" : "&#128266;";
+  },
+  playerAttack(i: number) {
+    if (this.state !== "playing" || player.dead) return;
+    if (i === 2) { this.playerUlt(); return; } // move 3 is the ultimate
+    const mv = player.char.moves[i];
+    if (player.cds[i] > 0) return;
+    doAttack(player, enemy, mv, i);
+  },
+  playerUlt() {
+    if (this.state !== "playing" || player.dead || !player.ultReady) return;
+    const mv = player.char.moves[2];
+    doAttack(player, enemy, mv, 2);
+    player.ultReady = false;
+  },
+  dash() {
+    if (this.state !== "playing" || player.dead || player.dashT > 0) return;
+    player.dashT = 0.25;
+    player.vx = player.facing * 700;
+    AudioSys.whoosh();
+  },
+  roundEnd(winner: Fighter, loser: Fighter) {
+    this.state = "roundend";
+    loser.dead = true;
+    loser.koT = 0;
+    AudioSys.ko();
+    screenShake = 0.6;
+    spawnBurst(loser.x + loser.w / 2, loser.y + loser.h / 2, 26, "#ffffff");
+    setTimeout(() => {
+      if (winner.isPlayer) {
+        roundCount++;
+        this.score += 100 * roundCount + Math.max(0, Math.round(winner.hp)) * 2;
+        AudioSys.roundWin();
+        if (roundCount >= TOURNAMENT_SIZE) {
+          this.state = "victory";
+          AudioSys.victory();
+          const el = document.getElementById("final-stats-v");
+          if (el) el.innerHTML = `Champion! &nbsp; Score: ${this.score}`;
+          show("screen-victory");
+        } else {
+          // heal 35% between rounds
+          player.hp = Math.min(player.maxHp, player.hp + player.maxHp * 0.35);
+          roundIndex++;
+          startFight();
+        }
+      } else {
+        this.state = "gameover";
+        AudioSys.gameover();
+        const el = document.getElementById("final-stats");
+        if (el) el.innerHTML = `Rounds won: ${roundCount} &nbsp; Score: ${this.score}`;
+        show("screen-gameover");
+      }
+    }, 1400);
+  },
+  update(dt: number) {
+    if (this.state !== "playing") return;
+    this.time += dt;
+
+    updateFighter(player, dt, true);
+    updateFighter(enemy, dt, false);
+
+    // Projectiles
+    for (const p of projectiles) {
+      p.x += p.vx * dt;
+      p.life -= dt;
+      const target = p.owner === player ? enemy : player;
+      if (!target.dead &&
+        Math.abs(p.x - (target.x + target.w / 2)) < 26 &&
+        Math.abs(p.y - (target.y + target.h / 2)) < 44) {
+        p.life = 0;
+        damageFighter(target, p.dmg, p.owner, p.color);
+      }
+    }
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      if (projectiles[i].life <= 0 || projectiles[i].x < -60 || projectiles[i].x > W + 60) projectiles.splice(i, 1);
+    }
+
+    // Particles
+    for (const p of particles) {
+      p.life -= dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vy += 900 * dt;
+    }
+    for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) particles.splice(i, 1);
+    for (const m of messages) { m.t += dt; m.y -= 36 * dt; }
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i].t > 1.2) messages.splice(i, 1);
+
+    if (screenShake > 0) screenShake -= dt;
+  },
+};
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function startFight() {
+  const pc = game.selectedChar!;
+  const ec = game.opponents[roundIndex];
+  Object.assign(player, createFighter(pc, true));
+  Object.assign(enemy, createFighter(ec, false));
+  projectiles.length = 0;
+  particles.length = 0;
+  messages.length = 0;
+  screenShake = 0;
+  game.state = "playing";
+  hideAllScreens();
+  messages.push({ text: `ROUND ${roundCount + 1}`, x: W / 2, y: H / 2 - 60, t: 0, color: "#ffd23f", big: true });
+  messages.push({ text: `${ec.name} vs ${pc.name}`, x: W / 2, y: H / 2 - 24, t: 0, color: "#4dd0e1" });
+  AudioSys.roundWin();
+  updateHUD();
+}
+
+/* ================= 6. COMBAT ================= */
+function doAttack(attacker: Fighter, defender: Fighter, mv: MoveDef, idx: number) {
+  attacker.attackMove = mv;
+  attacker.attackT = 0.35;
+  attacker.facing = defender.x >= attacker.x ? 1 : -1;
+  const cx = attacker.x + attacker.w / 2;
+  const cy = attacker.y + attacker.h / 2;
+  const scale = attacker.char.atk;
+
+  if (mv.type === "melee") {
+    const range = mv.range || 90;
+    const hx = attacker.x + (attacker.facing > 0 ? attacker.w : -range);
+    AudioSys.hit();
+    spawnBurst(hx + range / 2, cy, 10, mv.color || "#fff");
+    if (Math.abs(attacker.x + attacker.w / 2 - (defender.x + defender.w / 2)) < range + 30 &&
+      Math.abs(attacker.y - defender.y) < 90) {
+      damageFighter(defender, mv.dmg * scale, attacker, mv.color || "#fff");
+    }
+    attacker.vx = -attacker.facing * 120; // slight recoil
+  } else if (mv.type === "wave") {
+    AudioSys.launch();
+    projectiles.push({
+      x: cx + attacker.facing * 30, y: cy,
+      vx: attacker.facing * (mv.speed || 500),
+      owner: attacker, dmg: mv.dmg * scale,
+      r: mv.r || 14, color: mv.color || "#ffd23f",
+      life: 1.6, ult: false,
+    });
+    attacker.vx = -attacker.facing * 60;
+  } else if (mv.type === "dash") {
+    AudioSys.whoosh();
+    attacker.dashT = 0.3;
+    attacker.vx = attacker.facing * 780;
+    spawnBurst(cx, cy, 8, mv.color || "#fff");
+  } else if (mv.type === "ult") {
+    AudioSys.ult();
+    screenShake = 0.4;
+    spawnBurst(cx, cy, 22, mv.color || "#fff");
+    projectiles.push({
+      x: cx + attacker.facing * 36, y: cy,
+      vx: attacker.facing * (mv.speed || 600),
+      owner: attacker, dmg: mv.dmg * scale,
+      r: mv.r || 24, color: mv.color || "#ffd23f",
+      life: 2.2, ult: true,
+    });
+  }
+  if (idx === 2) {
+    attacker.ultReady = false;
+  } else {
+    attacker.cds[idx] = mv.cd;
+  }
+  messages.push({ text: mv.name.toUpperCase() + "!", x: cx, y: attacker.y - 30, t: 0, color: mv.color || "#fff" });
+}
+
+function damageFighter(target: Fighter, dmg: number, attacker: Fighter, color: string) {
+  if (target.dead) return;
+  target.hp -= dmg;
+  target.hitT = 0.18;
+  target.vx = (target.x > attacker.x ? 1 : -1) * 220;
+  target.vy = -180;
+  AudioSys.hit();
+  spawnBurst(target.x + target.w / 2, target.y + target.h / 2, 12, color);
+  if (target.hp <= 0) {
+    target.hp = 0;
+    game.roundEnd(attacker, target);
+  }
+}
+
+function updateFighter(f: Fighter, dt: number, isPlayer: boolean) {
+  f.animT += dt;
+  if (f.attackT > 0) f.attackT -= dt;
+  if (f.hitT > 0) f.hitT -= dt;
+  if (f.dashT > 0) f.dashT -= dt;
+  if (f.dead) {
+    f.koT += dt;
+    f.vy += GRAVITY * dt;
+    f.y += f.vy * dt;
+    f.rot = f.koT * 6 * (f.facing || 1);
+    return;
+  }
+  // cooldowns
+  for (let i = 0; i < 3; i++) if (f.cds[i] > 0) f.cds[i] -= dt;
+  if (!f.ultReady) {
+    f.ultCharge += dt;
+    if (f.ultCharge >= 6) { f.ultReady = true; f.ultCharge = 0; if (isPlayer) messages.push({ text: "ULT READY!", x: f.x + f.w / 2, y: f.y - 30, t: 0, color: "#ffd23f" }); }
+  }
+
+  if (isPlayer) {
+    const dir = (Input.right ? 1 : 0) - (Input.left ? 1 : 0);
+    const speed = f.char.spd * (f.dashT > 0 ? 2.2 : 1);
+    f.vx = dir * speed;
+    if (Input.jumpPressed && f.onGround) {
+      f.vy = -640;
+      f.onGround = false;
+      AudioSys.jump();
+    }
+  } else {
+    aiControl(f, dt);
+  }
+
+  Input.jumpPressed = false;
+
+  // physics
+  f.vy += GRAVITY * dt;
+  if (f.vy > MAX_FALL) f.vy = MAX_FALL;
+  f.x += f.vx * dt;
+  f.y += f.vy * dt;
+  if (f.y > GROUND_Y) { f.y = GROUND_Y; f.vy = 0; f.onGround = true; }
+  f.x = Math.max(30, Math.min(W - 30 - f.w, f.x));
+}
+
+function aiControl(f: Fighter, dt: number) {
+  const p = player;
+  const dist = Math.abs(f.x - p.x);
+  f.facing = p.x >= f.x ? 1 : -1;
+  const range = 120;
+
+  // Dash attack occasionally
+  if (f.dashT > 0) return;
+
+  if (dist > range) {
+    f.vx = f.facing * f.char.spd * 0.9;
+  } else {
+    f.vx = 0;
+    // attack!
+    const r = Math.random();
+    if (r < 0.10) {
+      const idx = Math.floor(Math.random() * 2);
+      if (f.cds[idx] <= 0) doAttack(f, p, f.char.moves[idx], idx);
+    } else if (r < 0.16 && f.ultReady) {
+      doAttack(f, p, f.char.moves[2], 2);
+      f.ultReady = false;
+    }
+  }
+  if (f.onGround && Math.random() < 0.01) { f.vy = -640; f.onGround = false; }
+}
+
+function spawnBurst(x: number, y: number, n: number, color: string) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 120 + Math.random() * 320;
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60,
+      life: 0.5 + Math.random() * 0.5, max: 1,
+      size: 2 + Math.random() * 4, color,
+    });
+  }
+}
+
+/* ================= 7. HUD ================= */
+function updateHUD() {
+  const set = (id: string, v: string | number) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(v);
+  };
+  set("hud-round", `${roundCount + 1}/${TOURNAMENT_SIZE}`);
+  set("hud-score", game.score);
+  set("hud-p-name", player.char.name);
+  set("hud-e-name", enemy.char.name);
+}
+
+/* ================= 8. RENDERING ================= */
+let ctx: CanvasRenderingContext2D;
+
+function rnd(i: number) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+function drawBackground() {
+  // anime sky
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#1a0533");
+  g.addColorStop(0.45, "#5c2d91");
+  g.addColorStop(0.7, "#ff8c5a");
+  g.addColorStop(1, "#2b1055");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // sun
+  const sun = ctx.createRadialGradient(W * 0.72, H * 0.42, 8, W * 0.72, H * 0.42, 130);
+  sun.addColorStop(0, "rgba(255,240,180,0.95)");
+  sun.addColorStop(0.5, "rgba(255,190,120,0.5)");
+  sun.addColorStop(1, "transparent");
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, W, H);
+
+  // stars
+  for (let i = 0; i < 60; i++) {
+    const sx = rnd(i) * W;
+    const sy = rnd(i + 300) * H * 0.5;
+    ctx.globalAlpha = 0.3 + 0.5 * Math.abs(Math.sin(game.time * 2 + i));
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+  ctx.globalAlpha = 1;
+
+  // distant mountains
+  ctx.fillStyle = "rgba(60,20,90,0.85)";
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y + 10);
+  for (let x = 0; x <= W; x += 40) {
+    const y = GROUND_Y - 40 - rnd(x / 40) * 120;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, GROUND_Y + 10);
+  ctx.closePath();
+  ctx.fill();
+
+  // ground
+  const gg = ctx.createLinearGradient(0, GROUND_Y, 0, H);
+  gg.addColorStop(0, "#3d1f6e");
+  gg.addColorStop(1, "#160a2e");
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  ctx.lineTo(W, GROUND_Y);
+  ctx.stroke();
+}
+
+function drawFighter(f: Fighter) {
+  if (f.dead) {
+    ctx.save();
+    ctx.translate(f.x + f.w / 2, f.y + f.h);
+    ctx.rotate(f.koT * 5 * (f.facing || 1));
+    drawChibi(f, -f.w / 2, -f.h);
+    ctx.restore();
+    return;
+  }
+  const flash = f.hitT > 0 && Math.floor(f.hitT * 40) % 2 === 0;
+  const bounce = f.onGround ? Math.sin(f.animT * 8) * 2 : 0;
+  const lunge = f.attackT > 0 ? f.facing * 14 : 0;
+
+  // aura when ult ready (player)
+  if (f.ultReady && f.isPlayer) {
+    const pulse = 0.5 + 0.5 * Math.sin(game.time * 6);
+    ctx.strokeStyle = f.char.aura;
+    ctx.globalAlpha = 0.5 + pulse * 0.4;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(f.x + f.w / 2, f.y + f.h / 2, f.w * 0.85, f.h * 0.75, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.save();
+  ctx.translate(f.x + lunge, f.y + bounce);
+  if (flash) ctx.filter = "brightness(2.5)";
+  drawChibi(f, 0, 0);
+  ctx.filter = "none";
+  ctx.restore();
+
+  // name tag
+  ctx.font = "bold 13px monospace";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  const nx = f.x + f.w / 2;
+  const ny = f.y - 14;
+  ctx.fillRect(nx - 40, ny - 14, 80, 18);
+  ctx.fillStyle = f.isPlayer ? "#4dd0e1" : "#ff5d73";
+  ctx.fillText(f.char.name, nx, ny);
+}
+
+function drawChibi(f: Fighter, ox: number, oy: number) {
+  const c = f.char;
+  const x = ox, y = oy;
+  const bodyW = f.w, bodyH = f.h;
+
+  // legs
+  ctx.fillStyle = c.secondary;
+  ctx.fillRect(x + 8, y + bodyH - 18, 12, 18);
+  ctx.fillRect(x + bodyW - 20, y + bodyH - 18, 12, 18);
+
+  // body (jacket)
+  ctx.fillStyle = c.primary;
+  roundRect(x + 4, y + 30, bodyW - 8, bodyH - 44, 8);
+  ctx.fill();
+  // belt
+  ctx.fillStyle = c.secondary;
+  ctx.fillRect(x + 4, y + 58, bodyW - 8, 6);
+
+  // head
+  ctx.fillStyle = "#ffd9b3";
+  ctx.beginPath();
+  ctx.arc(x + bodyW / 2, y + 24, 19, 0, Math.PI * 2);
+  ctx.fill();
+
+  // hair
+  ctx.fillStyle = c.hair;
+  ctx.beginPath();
+  ctx.arc(x + bodyW / 2, y + 20, 20, Math.PI, 0);
+  ctx.fill();
+  // hair spikes
+  ctx.beginPath();
+  ctx.moveTo(x + bodyW / 2 - 18, y + 22);
+  ctx.lineTo(x + bodyW / 2 - 24, y + 2);
+  ctx.lineTo(x + bodyW / 2 - 8, y + 14);
+  ctx.lineTo(x + bodyW / 2 - 12, y - 4);
+  ctx.lineTo(x + bodyW / 2 + 2, y + 10);
+  ctx.lineTo(x + bodyW / 2 + 8, y - 6);
+  ctx.lineTo(x + bodyW / 2 + 16, y + 8);
+  ctx.lineTo(x + bodyW / 2 + 24, y + 2);
+  ctx.lineTo(x + bodyW / 2 + 20, y + 20);
+  ctx.closePath();
+  ctx.fill();
+
+  // eyes
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.ellipse(x + bodyW / 2 - 8, y + 26, 5, 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + bodyW / 2 + 8, y + 26, 5, 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#1a1a2e";
+  ctx.beginPath(); ctx.arc(x + bodyW / 2 - 8 + f.facing * 1.5, y + 27, 2.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + bodyW / 2 + 8 + f.facing * 1.5, y + 27, 2.6, 0, Math.PI * 2); ctx.fill();
+
+  // attack flash arm
+  if (f.attackT > 0) {
+    ctx.fillStyle = f.attackMove?.color || "#fff";
+    ctx.beginPath();
+    ctx.arc(x + bodyW / 2 + f.facing * 26, y + 40, 9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawProjectiles() {
+  for (const p of projectiles) {
+    const pulse = 0.5 + 0.5 * Math.sin(game.time * 20);
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = p.ult ? 26 : 12;
+    const g = ctx.createRadialGradient(p.x - 2, p.y - 2, 1, p.x, p.y, p.r);
+    g.addColorStop(0, "#ffffff");
+    g.addColorStop(0.5, p.color);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * (1 + pulse * 0.25), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const a = Math.max(0, p.life / p.max);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * a + 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawMessages() {
+  ctx.textAlign = "center";
+  for (const m of messages) {
+    const a = 1 - m.t / 1.2;
+    ctx.globalAlpha = a;
+    ctx.font = m.big ? "bold 42px monospace" : "bold 17px monospace";
+    ctx.fillStyle = "#000";
+    ctx.fillText(m.text, m.x + 2, m.y + 2);
+    ctx.fillStyle = m.color;
+    ctx.fillText(m.text, m.x, m.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUDCanvas() {
+  // HP bars
+  const barW = 360, barH = 18;
+  const py = 14;
+  const drawBar = (x: number, hp: number, maxHp: number, color: string, right: boolean) => {
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(x, py, barW, barH);
+    const ratio = Math.max(0, hp / maxHp);
+    ctx.fillStyle = color;
+    if (right) ctx.fillRect(x + barW * (1 - ratio), py, barW * ratio, barH);
+    else ctx.fillRect(x, py, barW * ratio, barH);
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, py, barW, barH);
+  };
+  drawBar(20, player.hp, player.maxHp, "#4dd0e1", false);
+  drawBar(W - 20 - barW, enemy.hp, enemy.maxHp, "#ff5d73", true);
+
+  ctx.font = "bold 14px monospace";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#4dd0e1";
+  ctx.fillText(player.char.name, 22, py + barH + 18);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#ff5d73";
+  ctx.fillText(enemy.char.name, W - 22, py + barH + 18);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff";
+  ctx.fillText(`${roundCount + 1}/${TOURNAMENT_SIZE}`, W / 2, py + barH + 18);
+
+  // player cooldown pips
+  const cx0 = 22;
+  const cyy = py + barH + 30;
+  for (let i = 0; i < 3; i++) {
+    const ready = player.cds[i] <= 0;
+    ctx.fillStyle = ready ? player.char.moves[i].color || "#fff" : "rgba(255,255,255,0.2)";
+    ctx.beginPath();
+    ctx.arc(cx0 + i * 22, cyy, 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // ult indicator
+  ctx.fillStyle = player.ultReady ? "#ffd23f" : "rgba(255,255,255,0.2)";
+  ctx.beginPath();
+  ctx.arc(cx0 + 3 * 22 + 8, cyy, 8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function roundRect(x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function render() {
+  ctx.save();
+  if (screenShake > 0) {
+    ctx.translate((Math.random() - 0.5) * screenShake * 24, (Math.random() - 0.5) * screenShake * 24);
+  }
+  drawBackground();
+  drawProjectiles();
+  drawFighter(player);
+  drawFighter(enemy);
+  drawParticles();
+  drawMessages();
+  if (game.state === "playing" || game.state === "pause") drawHUDCanvas();
+  ctx.restore();
+}
+
+/* ================= 9. OVERLAY UI (injected DOM) ================= */
+const OVERLAY_CSS = `
+.al-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(10,5,25,0.88); color:#fff; z-index:10; text-align:center; font-family:'Courier New',monospace; }
+.al-overlay.hidden { display:none; }
+.al-overlay h1 { font-size:clamp(30px,7vw,58px); letter-spacing:4px; color:#ffd23f; text-shadow:0 0 20px rgba(255,210,63,0.8),3px 3px 0 #7a2d2d; margin-bottom:6px; }
+.al-overlay h2 { font-size:clamp(22px,4.5vw,36px); margin-bottom:12px; color:#4dd0e1; text-shadow:0 0 14px rgba(77,208,225,0.6); }
+.al-overlay p { font-size:clamp(13px,2.2vw,17px); line-height:1.7; margin-bottom:6px; color:#d6c8ff; }
+.al-overlay .big-btn { margin-top:18px; font-family:inherit; font-size:clamp(16px,3vw,22px); font-weight:bold; padding:12px 34px; background:linear-gradient(#ffd23f,#ff8c1a); color:#3a1a00; border:3px solid #fff; border-radius:12px; cursor:pointer; box-shadow:0 5px 0 #8a3a00; letter-spacing:2px; }
+.al-overlay .big-btn:active { transform:translateY(4px); box-shadow:0 1px 0 #8a3a00; }
+.al-overlay .keys { margin-top:16px; font-size:13px; color:#a99ad8; line-height:2; }
+.al-overlay .keys b { color:#ffd23f; }
+.al-hud { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:center; padding:8px 14px; pointer-events:none; z-index:5; font-family:'Courier New',monospace; }
+.al-hud-box { background:rgba(0,0,0,0.5); border:2px solid rgba(255,210,63,0.5); border-radius:8px; color:#fff; font-size:14px; font-weight:bold; padding:4px 12px; letter-spacing:1px; display:flex; gap:12px; align-items:center; }
+.al-mute-btn { pointer-events:auto; cursor:pointer; background:rgba(0,0,0,0.5); border:2px solid rgba(255,210,63,0.5); border-radius:8px; color:#fff; font-size:16px; width:40px; height:34px; }
+.al-select-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; max-width:820px; width:90%; max-height:52vh; overflow-y:auto; margin-top:14px; padding:10px; }
+.al-char-card { background:rgba(30,15,60,0.9); border:2px solid rgba(255,255,255,0.25); border-radius:10px; padding:10px 6px; cursor:pointer; color:#fff; transition:transform .1s, border-color .1s; }
+.al-char-card:hover { transform:scale(1.06); border-color:#ffd23f; }
+.al-char-card .cc-name { font-weight:bold; font-size:13px; color:#ffd23f; }
+.al-char-card .cc-series { font-size:10px; color:#a99ad8; }
+.al-char-card .cc-dot { display:inline-block; width:12px; height:12px; border-radius:50%; border:2px solid #fff; margin-bottom:2px; }
+.al-touch { position:absolute; bottom:0; left:0; right:0; display:none; justify-content:space-between; align-items:flex-end; padding:12px 16px; z-index:8; pointer-events:none; }
+body.touch .al-touch { display:flex; }
+.al-tbtn { pointer-events:auto; width:64px; height:64px; border-radius:50%; background:rgba(255,255,255,0.15); border:3px solid rgba(255,255,255,0.5); color:#fff; font-size:24px; font-weight:bold; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; }
+.al-tbtn.small { width:54px; height:54px; font-size:16px; }
+.al-tcluster { display:flex; gap:10px; }
+.al-tright { display:flex; gap:8px; }
+`;
+
+function buildOverlayUI(container: HTMLElement) {
+  const style = document.createElement("style");
+  style.textContent = OVERLAY_CSS;
+  container.appendChild(style);
+
+  const hud = document.createElement("div");
+  hud.className = "al-hud";
+  hud.innerHTML = `
+    <div class="al-hud-box">
+      <span>ROUND <span id="hud-round">1/8</span></span>
+      <span>SCORE <span id="hud-score">0</span></span>
+    </div>
+    <button id="mute-btn" class="al-mute-btn" title="Mute (M)">&#128266;</button>`;
+  container.appendChild(hud);
+
+  const mk = (id: string, inner: string, hidden = false) => {
+    const el = document.createElement("div");
+    el.className = "al-overlay" + (hidden ? " hidden" : "");
+    el.id = id;
+    el.innerHTML = inner;
+    container.appendChild(el);
+    return el;
+  };
+
+  mk("screen-start", `
+    <h1>ANIME LEGENDS</h1>
+    <h2>Ultimate Arena</h2>
+    <p>24 ikonik anime karakteri. Turnuvada 8 rakibi yen, şampiyon ol! 🏆</p>
+    <button class="big-btn" id="btn-start">SELECT FIGHTER</button>
+    <div class="keys">
+      <b>A/D or &#8592;/&#8594;</b> move &nbsp; &middot; &nbsp; <b>W/Space</b> jump &nbsp; &middot; &nbsp; <b>Q/E</b> dash<br>
+      <b>J / K / L</b> moves 1-2-3 &nbsp; &middot; &nbsp; <b>U</b> ultimate &nbsp; &middot; &nbsp; <b>P</b> pause &nbsp; &middot; &nbsp; <b>M</b> mute
+    </div>`);
+
+  mk("screen-select", `
+    <h2 style="margin-bottom:2px">CHOOSE YOUR FIGHTER</h2>
+    <div class="al-select-grid" id="select-grid"></div>
+    <div class="keys" style="margin-top:8px">Tap a card to fight through the tournament</div>`, true);
+
+  mk("screen-pause", `
+    <h2>PAUSED</h2>
+    <p>The arena awaits...</p>
+    <button class="big-btn" id="btn-resume">RESUME</button>
+    <button class="big-btn" id="btn-restart-pause" style="background:linear-gradient(#9aa5d1,#5c6bc0);box-shadow:0 0 14px rgba(154,165,209,0.6),0 5px 0 #283593;color:#fff">RESTART</button>`, true);
+
+  mk("screen-gameover", `
+    <h2 style="color:#ff5d73">DEFEATED!</h2>
+    <p>Your legend ends here... for now.</p>
+    <div id="final-stats" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
+    <button class="big-btn" id="btn-retry">TRY AGAIN</button>`, true);
+
+  mk("screen-victory", `
+    <h1>CHAMPION!</h1>
+    <p>You defeated every rival in the arena! 🏆</p>
+    <div id="final-stats-v" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
+    <button class="big-btn" id="btn-play-again">PLAY AGAIN</button>`, true);
+
+  const touch = document.createElement("div");
+  touch.className = "al-touch";
+  touch.innerHTML = `
+    <div class="al-tcluster">
+      <div class="al-tbtn" id="t-left">&#9664;</div>
+      <div class="al-tbtn" id="t-right">&#9654;</div>
+      <div class="al-tbtn" id="t-jump">&#9650;</div>
+    </div>
+    <div class="al-tright">
+      <div class="al-tbtn small" id="t-a0">1</div>
+      <div class="al-tbtn small" id="t-a1">2</div>
+      <div class="al-tbtn small" id="t-a2">3</div>
+      <div class="al-tbtn small" id="t-ult" style="border-color:#ffd23f">ULT</div>
+    </div>`;
+  container.appendChild(touch);
+
+  const on = (id: string, fn: () => void) => {
+    const el = document.getElementById(id);
+    el?.addEventListener("click", fn);
+  };
+  on("btn-start", () => game.startSelect());
+  on("btn-resume", () => game.togglePause());
+  on("btn-restart-pause", () => game.startSelect());
+  on("btn-retry", () => game.startSelect());
+  on("btn-play-again", () => game.startSelect());
+  on("mute-btn", () => game.toggleMute());
+}
+
+function buildSelectGrid() {
+  const grid = document.getElementById("select-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  for (const c of CHARACTERS) {
+    const card = document.createElement("div");
+    card.className = "al-char-card";
+    card.innerHTML = `
+      <span class="cc-dot" style="background:${c.hair}"></span><br>
+      <span class="cc-name">${c.name}</span><br>
+      <span class="cc-series">${c.series}</span>`;
+    card.addEventListener("click", () => game.pickCharacter(c));
+    grid.appendChild(card);
+  }
+}
+
+function show(id: string) { document.getElementById(id)?.classList.remove("hidden"); }
+function hide(id: string) { document.getElementById(id)?.classList.add("hidden"); }
+function hideAllScreens() {
+  ["screen-start", "screen-select", "screen-pause", "screen-gameover", "screen-victory"].forEach(hide);
+}
+
+/* ================= 10. MAIN LOOP & PUBLIC API ================= */
+export function startGame(canvas: HTMLCanvasElement): () => void {
+  ctx = canvas.getContext("2d")!;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:relative;display:flex;align-items:center;justify-content:center;width:100%;height:100%;";
+  canvas.parentNode?.insertBefore(wrap, canvas);
+  wrap.appendChild(canvas);
+  buildOverlayUI(wrap);
+
+  const resize = () => {
+    const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+    canvas.style.width = W * scale + "px";
+    canvas.style.height = H * scale + "px";
+  };
+  resize();
+  window.addEventListener("resize", resize);
+
+  Input.init();
+
+  let raf = 0;
+  let lastTime = 0;
+  const loop = (ts: number) => {
+    const dt = Math.min(0.033, (ts - lastTime) / 1000 || 0.016);
+    lastTime = ts;
+    game.update(dt);
+    render();
+    raf = requestAnimationFrame(loop);
+  };
+  raf = requestAnimationFrame(loop);
+
+  return () => {
+    cancelAnimationFrame(raf);
+    window.removeEventListener("resize", resize);
+    wrap.remove();
+    document.body.classList.remove("touch");
+  };
+}

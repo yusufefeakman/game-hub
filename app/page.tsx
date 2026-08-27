@@ -48,6 +48,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "anime-legends",
+    title: "Anime Legends",
+    subtitle: "Ultimate Arena",
+    emoji: "🥷",
+    artClass: "art-2",
+    description:
+      "24 ikonik anime karakteriyle dövüş turnuvası! Naruto, Goku, Luffy, Ichigo, Gojo ve daha fazlası. Karakterini seç, 8 rakibi yen, şampiyon ol. A/D hareket, J/K/L saldırı, U ultimate.",
+    route: "/games/anime-legends",
+    status: "playable" as const,
+  },
+  {
     id: "astro-blaster",
     title: "Astro Blaster",
     subtitle: "Uzay Blok Patlatma",
