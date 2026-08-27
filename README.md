@@ -8,6 +8,7 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 
 | Oyun | Açıklama | Route |
 |---|---|---|
+| **Astro Blaster** 🛸 | Uzay temalı blok kırma (Breakout): 5 seviye, 4 blok tipi, güçlendirmeler | `/game-hub/games/astro-blaster` |
 | **Neon Rivals** 🥋 | 3D dövüş oyunu: 4 karakter (Kairo, Vexa, Rokan, Nyra), 2'şer özel saldırı, 3 arena, training modu, tuş yeniden atama, EASY/NORMAL/HARD yapay zekâ | `/game-hub/fighting` |
 | **Dövüş Arenası** 🥊 | 3D dövüş oyunu: 4 savaşçı (Kor, Bora, Çelik, Gölge), enerji sistemi, 1P vs CPU / 2P | `/game-hub/games/fighter` |
 | **Royal Chess** ♞ | Tam kurallı 3D satranç (rok, en passant, terfi, şah mat) — yerel 2P veya bilgisayar | `/game-hub/games/chess` |
@@ -15,6 +16,26 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 | **Sürat Teknesi Hücumu** 🚤 | 3D sürat teknesi yarışı | `/game-hub/games/powerboat` |
 | **World War Z** 🧟 | 3D FPS zombi hayatta kalma | `/game-hub/games/world-war-z` |
 | **Pixel Pals** 🌟 | Platform macerası | `/game-hub/games/pixel-pals` |
+
+## 🚀 Tek tıkla yayınla (Vercel / Netlify)
+
+Bu repoyu kendi hesabına **tek tıkla** dağıtabilirsin — token gerekmez, buton hesabına yönlendirir:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fyusufefeakman%2Fgame-hub)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/yusufefeakman/game-hub)
+
+> Not: Vercel/Netlify'da `basePath` uyumsuzluğu yaşarsan `Environment Variables` kısmına `BASE_PATH=""` ekle.
+
+## 🕹️ itch.io'ya yükleme
+
+Oyunun tek dosyalık oynanabilir sürümü: `public/astro-blaster.html` (GitHub Pages'te canlı:
+[astro-blaster.html](https://yusufefeakman.github.io/game-hub/astro-blaster.html)).
+
+itch.io'ya yüklemek için:
+1. itch.io'da yeni proje oluştur → **Kind: HTML** seç.
+2. `public/astro-blaster.html` dosyasını **Uploads** alanına sürükle.
+3. (İsteğe bağlı) Çözünürlük: 960×540, **Embed options** → **Fullscreen** aç.
+4. Yayınla! 🎉
 
 ## 🚀 Çalıştırma
 
