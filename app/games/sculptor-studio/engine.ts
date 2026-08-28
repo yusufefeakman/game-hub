@@ -269,6 +269,10 @@ function refreshGridSort() {
 }
 
 function placeAtHit(hit: THREE.Intersection) {
+  if (statueMode) {
+    placeStatueAt(hit.point.x, hit.point.z);
+    return;
+  }
   const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
   const px = snap(hit.point.x + n.x * (BLOCK / 2));
   const py = snap(hit.point.y + n.y * (BLOCK / 2));
@@ -281,6 +285,7 @@ function placeAtHit(hit: THREE.Intersection) {
 function pickables(): THREE.Object3D[] {
   const arr: THREE.Object3D[] = [ground];
   for (const b of blocks) arr.push(b);
+  for (const s of statues) arr.push(s.group);
   return arr;
 }
 
@@ -295,9 +300,18 @@ function computeHover(clientX: number, clientY: number) {
   if (hits.length === 0) {
     hovered.valid = false;
     if (hoverMesh) { hoverMesh.visible = false; hoverMesh = null; }
+    updateGhostStatue(null);
     return;
   }
   const hit = hits[0];
+
+  // ghost statue preview in statue mode
+  if (statueMode) {
+    updateGhostStatue(hit);
+    if (hoverMesh) { hoverMesh.visible = false; }
+    return;
+  }
+
   const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
   hovered.x = snap(hit.point.x + n.x * (BLOCK / 2));
   hovered.y = snap(hit.point.y + n.y * (BLOCK / 2));
@@ -311,9 +325,361 @@ function computeHover(clientX: number, clientY: number) {
   hoverMesh.visible = true;
 }
 
+/* ================= 4.5 GOD STATUES =================
+   Smooth, high-quality humanoid statues of Greek gods built from
+   primitives (capsule limbs, lathe torso, sphere head) with marble
+   bodies and gold/bronze armor — inspired by God of War. */
+type GodId = "zeus" | "athena" | "ares" | "poseidon";
+
+interface GodDef {
+  id: GodId;
+  name: string;
+  emoji: string;
+  title: string;
+  accent: number; // armor color
+  hair: number;
+}
+
+const GODS: GodDef[] = [
+  { id: "zeus", name: "Zeus", emoji: "⚡", title: "Gökyüzü Kralı", accent: 0xd4af37, hair: 0xe8e8e8 },
+  { id: "athena", name: "Athena", emoji: "🦉", title: "Bilgelik Tanrıçası", accent: 0xb08d57, hair: 0x8a5a2b },
+  { id: "ares", name: "Ares", emoji: "⚔️", title: "Savaş Tanrısı", accent: 0x8c1f1f, hair: 0x2b2b2b },
+  { id: "poseidon", name: "Poseidon", emoji: "🔱", title: "Denizler Tanrısı", accent: 0x2e6e8e, hair: 0x3d5a3d },
+];
+
+let statues: { group: THREE.Group; god: GodId }[] = [];
+let statueMode: GodId | null = null; // null = block mode
+let ghostStatue: THREE.Group | null = null;
+
+// shared statue materials (high quality PBR)
+let statueMarble: THREE.MeshPhysicalMaterial | null = null;
+let statueBronze: THREE.MeshPhysicalMaterial | null = null;
+let statueGold: THREE.MeshPhysicalMaterial | null = null;
+
+function initStatueMaterials() {
+  if (statueMarble) return;
+  statueMarble = new THREE.MeshPhysicalMaterial({ color: 0xf2efe8, roughness: 0.28, metalness: 0.02, clearcoat: 0.7, clearcoatRoughness: 0.15 });
+  statueBronze = new THREE.MeshPhysicalMaterial({ color: 0x8c6a3a, roughness: 0.32, metalness: 0.9, clearcoat: 0.4 });
+  statueGold = new THREE.MeshPhysicalMaterial({ color: 0xffd75e, roughness: 0.18, metalness: 1, clearcoat: 0.5, envMapIntensity: 1.3 });
+}
+
+function statueBody(): THREE.MeshPhysicalMaterial { initStatueMaterials(); return statueMarble!; }
+function statueArmor(accent: number): THREE.MeshPhysicalMaterial {
+  initStatueMaterials();
+  return new THREE.MeshPhysicalMaterial({ color: accent, roughness: 0.3, metalness: 0.85, clearcoat: 0.35, envMapIntensity: 1.2 });
+}
+function statueGoldMat(): THREE.MeshPhysicalMaterial { initStatueMaterials(); return statueGold!; }
+
+/** Build a complete god statue as a smooth group, standing on a plinth. */
+function buildGodStatue(god: GodId): THREE.Group {
+  const root = new THREE.Group();
+  const body = statueBody();
+  const godDef = GODS.find((g) => g.id === god)!;
+  const armor = statueArmor(godDef.accent);
+  const gold = statueGoldMat();
+  const skin = new THREE.MeshPhysicalMaterial({ color: 0xead9c0, roughness: 0.5, metalness: 0, clearcoat: 0.35 });
+
+  // ---- plinth (base) ----
+  const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.0, 0.5, 28), body);
+  plinth.position.y = 0.25;
+  plinth.castShadow = true;
+  plinth.receiveShadow = true;
+  root.add(plinth);
+  const plinthRing = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.06, 10, 30), gold);
+  plinthRing.rotation.x = Math.PI / 2;
+  plinthRing.position.y = 0.52;
+  root.add(plinthRing);
+
+  // ---- legs (capsules) ----
+  const legGeo = new THREE.CapsuleGeometry(0.16, 0.85, 6, 14);
+  for (const side of [-1, 1] as const) {
+    const leg = new THREE.Mesh(legGeo, body);
+    leg.position.set(side * 0.26, 1.12, 0);
+    leg.scale.set(1, 1.05, 1);
+    leg.castShadow = true;
+    root.add(leg);
+    // greaves (shin armor)
+    const greave = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.15, 0.62, 16), armor);
+    greave.position.set(side * 0.26, 0.85, 0);
+    greave.castShadow = true;
+    root.add(greave);
+  }
+
+  // ---- torso (lathe: chest -> waist) ----
+  const torsoPts = [
+    new THREE.Vector2(0.2, 0.0),
+    new THREE.Vector2(0.28, 0.22),
+    new THREE.Vector2(0.34, 0.44), // chest
+    new THREE.Vector2(0.36, 0.6),
+    new THREE.Vector2(0.3, 0.76), // shoulders
+    new THREE.Vector2(0.22, 0.86),
+  ];
+  const torso = new THREE.Mesh(new THREE.LatheGeometry(torsoPts, 24), body);
+  torso.position.y = 1.52;
+  torso.scale.set(1, 1.08, 0.92);
+  torso.castShadow = true;
+  root.add(torso);
+
+  // pectoral armor plate
+  const chestPlate = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 14), armor);
+  chestPlate.scale.set(1.15, 0.62, 0.42);
+  chestPlate.position.set(0, 2.22, 0.02);
+  chestPlate.castShadow = true;
+  root.add(chestPlate);
+  // gold chest emblem
+  const emblem = new THREE.Mesh(new THREE.CircleGeometry(0.11, 20), gold);
+  emblem.rotation.x = -Math.PI / 2 + 0.25;
+  emblem.position.set(0, 2.24, 0.3);
+  root.add(emblem);
+
+  // shoulder pauldrons
+  for (const side of [-1, 1] as const) {
+    const pauldron = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), armor);
+    pauldron.scale.set(1.25, 0.8, 1.1);
+    pauldron.position.set(side * 0.34, 2.44, 0);
+    pauldron.castShadow = true;
+    root.add(pauldron);
+  }
+
+  // ---- arms (capsules) ----
+  const armGeo = new THREE.CapsuleGeometry(0.1, 0.62, 6, 12);
+  const armR = new THREE.Mesh(armGeo, skin);
+  armR.position.set(0.44, 2.28, 0);
+  armR.rotation.z = -0.28;
+  armR.castShadow = true;
+  root.add(armR);
+  const armL = new THREE.Mesh(armGeo, skin);
+  armL.position.set(-0.44, 2.28, 0);
+  armL.rotation.z = 0.28;
+  armL.castShadow = true;
+  root.add(armL);
+
+  // ---- head ----
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.18, 14), body);
+  neck.position.y = 2.72;
+  root.add(neck);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 24, 18), body);
+  head.position.y = 2.98;
+  head.scale.set(1, 1.12, 0.95);
+  head.castShadow = true;
+  root.add(head);
+  // face: brows + nose + mouth hint
+  const browGeo = new THREE.BoxGeometry(0.09, 0.025, 0.02);
+  for (const side of [-1, 1] as const) {
+    const brow = new THREE.Mesh(browGeo, body);
+    brow.position.set(side * 0.1, 3.06, 0.215);
+    brow.rotation.z = side * -0.15;
+    root.add(brow);
+  }
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.1, 10), body);
+  nose.position.set(0, 2.99, 0.24);
+  nose.rotation.x = 0.5;
+  root.add(nose);
+  // eyes (hollow marble look)
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x2b2622, roughness: 0.4 });
+  for (const side of [-1, 1] as const) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), eyeMat);
+    eye.position.set(side * 0.105, 3.05, 0.215);
+    root.add(eye);
+  }
+
+  // ---- god-specific: hair / helm / props ----
+  switch (god) {
+    case "zeus": {
+      // long hair + beard (marble)
+      const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.25, 18, 12), body);
+      hairBack.scale.set(1, 1.05, 0.8);
+      hairBack.position.set(0, 3.02, -0.12);
+      root.add(hairBack);
+      const beard = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.42, 14), body);
+      beard.position.set(0, 2.74, 0.14);
+      beard.rotation.x = 0.32;
+      root.add(beard);
+      // gold laurel crown
+      const crown = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.035, 8, 26), gold);
+      crown.position.set(0, 3.24, -0.01);
+      crown.rotation.x = 0.12;
+      root.add(crown);
+      // raised arm holding lightning bolt
+      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.5, 6, 12), skin);
+      fore.position.set(0.52, 2.72, 0);
+      fore.rotation.z = -1.9;
+      root.add(fore);
+      // lightning bolt (zigzag tube)
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i < 7; i++) {
+        pts.push(new THREE.Vector3(0.62 + i * 0.16, 3.2 + i * 0.09, (i % 2 === 0 ? 1 : -1) * 0.05));
+      }
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const bolt = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.05, 8, false), gold);
+      bolt.castShadow = true;
+      root.add(bolt);
+      // bolt tip (star-like)
+      const tip = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), gold);
+      tip.position.set(0.62 + 6 * 0.16, 3.2 + 6 * 0.09, 0.05);
+      root.add(tip);
+      break;
+    }
+    case "poseidon": {
+      // long flowing hair + beard
+      const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.26, 18, 12), body);
+      hairBack.scale.set(1, 1.1, 0.85);
+      hairBack.position.set(0, 3.0, -0.13);
+      root.add(hairBack);
+      const beard = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.46, 14), body);
+      beard.position.set(0, 2.72, 0.15);
+      beard.rotation.x = 0.3;
+      root.add(beard);
+      // golden trident (held in raised right hand)
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.7, 12), gold);
+      shaft.position.set(0.6, 3.6, 0);
+      shaft.rotation.z = 0.12;
+      root.add(shaft);
+      for (const side of [-1, 0, 1] as const) {
+        const prong = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.34, 10), gold);
+        prong.position.set(0.6 + side * 0.11, 4.45, 0);
+        prong.rotation.z = 0.12;
+        root.add(prong);
+      }
+      // raised forearm
+      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.5, 6, 12), skin);
+      fore.position.set(0.54, 2.8, 0);
+      fore.rotation.z = -1.55;
+      root.add(fore);
+      // shell motif on chest
+      const shell = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16), gold);
+      shell.rotation.x = -Math.PI / 2 + 0.22;
+      shell.position.set(0.12, 2.24, 0.28);
+      root.add(shell);
+      break;
+    }
+    case "ares": {
+      // battle helm with crest
+      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.25, 20, 14), armor);
+      helm.scale.set(1, 1.05, 0.98);
+      helm.position.set(0, 3.05, -0.04);
+      root.add(helm);
+      const crest = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.5, 10), armor);
+      crest.position.set(0, 3.5, -0.04);
+      root.add(crest);
+      // sword in right hand
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.0, 0.03), gold);
+      blade.position.set(0.5, 2.4, 0.12);
+      blade.rotation.z = 0.35;
+      root.add(blade);
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, 0.05), armor);
+      guard.position.set(0.46, 2.02, 0.12);
+      guard.rotation.z = 0.35;
+      root.add(guard);
+      // shield on left arm
+      const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.09, 22), armor);
+      shield.rotation.z = Math.PI / 2;
+      shield.position.set(-0.5, 2.3, 0.12);
+      root.add(shield);
+      const shieldBoss = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), gold);
+      shieldBoss.position.set(-0.5, 2.3, 0.18);
+      root.add(shieldBoss);
+      break;
+    }
+    case "athena": {
+      // crested helm, spear, shield
+      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.25, 20, 14), armor);
+      helm.scale.set(1, 1.05, 0.98);
+      helm.position.set(0, 3.05, -0.04);
+      root.add(helm);
+      const crest = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.4, 10), gold);
+      crest.position.set(0, 3.46, -0.04);
+      root.add(crest);
+      // spear (vertical in right hand)
+      const spear = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 2.2, 12), gold);
+      spear.position.set(0.56, 3.7, 0.1);
+      spear.rotation.z = -0.06;
+      root.add(spear);
+      const spearTip = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 10), gold);
+      spearTip.position.set(0.58, 4.9, 0.1);
+      spearTip.rotation.z = -0.06;
+      root.add(spearTip);
+      // round shield (owl emblem)
+      const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.08, 22), armor);
+      shield.rotation.z = Math.PI / 2;
+      shield.position.set(-0.5, 2.28, 0.1);
+      root.add(shield);
+      const owl = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), gold);
+      owl.scale.set(1.2, 0.9, 0.6);
+      owl.position.set(-0.5, 2.28, 0.16);
+      root.add(owl);
+      break;
+    }
+  }
+
+  return root;
+}
+
+function selectStatueMode(god: GodId | null) {
+  statueMode = god;
+  if (ghostStatue) { scene.remove(ghostStatue); ghostStatue = null; }
+  document.querySelectorAll<HTMLElement>(".ss-god").forEach((el) => {
+    el.classList.toggle("active", el.dataset.god === god);
+  });
+  const modeEl = document.getElementById("ss-mode");
+  if (modeEl) modeEl.textContent = god ? `${GODS.find((g) => g.id === god)!.name} Heykeli` : "Blok Modu";
+  if (god) flash(`${GODS.find((g) => g.id === god)!.name} heykeli seçildi — zemine tıkla`);
+  else flash("Blok modu");
+}
+
+function placeStatueAt(x: number, z: number) {
+  if (!statueMode) return;
+  const sx = Math.round(x * 2) / 2;
+  const sz = Math.round(z * 2) / 2;
+  if (Math.abs(sx) > GRID - 1 || Math.abs(sz) > GRID - 1) return;
+  const group = buildGodStatue(statueMode);
+  group.position.set(sx, 0, sz);
+  group.userData.isStatue = true;
+  group.userData.god = statueMode;
+  scene.add(group);
+  statues.push({ group, god: statueMode });
+  AudioSys.place();
+}
+
+function removeStatue(group: THREE.Group) {
+  scene.remove(group);
+  const i = statues.findIndex((s) => s.group === group);
+  if (i >= 0) statues.splice(i, 1);
+  AudioSys.remove();
+}
+
+function updateGhostStatue(hit: THREE.Intersection | null) {
+  if (!statueMode) {
+    if (ghostStatue) { scene.remove(ghostStatue); ghostStatue = null; }
+    return;
+  }
+  if (!ghostStatue) {
+    ghostStatue = buildGodStatue(statueMode);
+    ghostStatue.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) {
+        m.material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false });
+      }
+    });
+    scene.add(ghostStatue);
+  }
+  if (hit) {
+    const sx = Math.round(hit.point.x * 2) / 2;
+    const sz = Math.round(hit.point.z * 2) / 2;
+    ghostStatue.position.set(sx, 0, sz);
+    ghostStatue.visible = true;
+  } else {
+    ghostStatue.visible = false;
+  }
+}
+
 /* ================= 5. SAVE / LOAD ================= */
 function save() {
-  const data = blocks.map((b) => ({ x: b.position.x, y: b.position.y, z: b.position.z, m: b.userData.matId as string }));
+  const data = {
+    v: 2,
+    blocks: blocks.map((b) => ({ x: b.position.x, y: b.position.y, z: b.position.z, m: b.userData.matId as string })),
+    statues: statues.map((s) => ({ god: s.god, x: s.group.position.x, z: s.group.position.z })),
+  };
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     flash("Kaydedildi ✓");
@@ -324,16 +690,34 @@ function load() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) { flash("Kayıt yok"); return; }
-    const data = JSON.parse(raw) as { x: number; y: number; z: number; m: string }[];
+    const data = JSON.parse(raw);
     clearBlocks();
-    for (const d of data) addBlock(d.x, d.y, d.z, materialById.has(d.m) ? d.m : "marble");
-    flash(`${data.length} blok yüklendi ✓`);
+    if (Array.isArray(data)) {
+      // legacy v1 format
+      for (const d of data as { x: number; y: number; z: number; m: string }[]) addBlock(d.x, d.y, d.z, materialById.has(d.m) ? d.m : "marble");
+      flash(`${(data as unknown[]).length} blok yüklendi ✓`);
+    } else {
+      for (const d of data.blocks as { x: number; y: number; z: number; m: string }[]) addBlock(d.x, d.y, d.z, materialById.has(d.m) ? d.m : "marble");
+      for (const st of data.statues as { god: string; x: number; z: number }[]) {
+        if (GODS.some((g) => g.id === st.god)) {
+          const group = buildGodStatue(st.god as GodId);
+          group.position.set(st.x, 0, st.z);
+          group.userData.isStatue = true;
+          group.userData.god = st.god;
+          scene.add(group);
+          statues.push({ group, god: st.god as GodId });
+        }
+      }
+      flash(`${data.blocks.length} blok + ${data.statues.length} heykel yüklendi ✓`);
+    }
   } catch { flash("Yükleme başarısız"); }
 }
 
 function clearBlocks() {
   for (const b of blocks) scene.remove(b);
   blocks = [];
+  for (const s of statues) scene.remove(s.group);
+  statues = [];
   refreshGridSort();
 }
 
@@ -412,6 +796,7 @@ function bindControls(canvas: HTMLCanvasElement) {
       } else if (e.button === 2 && hits.length > 0) {
         const h = hits[0].object;
         if (h.userData.isBlock) removeBlock(h as THREE.Mesh);
+        else if (h.userData.isStatue) removeStatue(h.parent as THREE.Group);
       }
     }
     pointer.down = false;
@@ -439,6 +824,11 @@ function bindKeys() {
     else if (k === "s") save();
     else if (k === "l") load();
     else if (k === "c") { clearBlocks(); flash("Alan temizlendi"); }
+    else if (k === "b") selectStatueMode(null);
+    else if (k === "g") selectStatueMode("zeus");
+    else if (k === "h") selectStatueMode("athena");
+    else if (k === "r") selectStatueMode("ares");
+    else if (k === "p") selectStatueMode("poseidon");
   };
   window.addEventListener("keydown", down);
 }
@@ -585,6 +975,14 @@ const OVERLAY_CSS = `
 .ss-btns { display:flex; gap:6px; margin-top:8px; }
 .ss-btn { font-family:inherit; font-size:12px; font-weight:bold; padding:6px 12px; border-radius:8px; border:2px solid rgba(255,255,255,0.45); background:rgba(255,255,255,0.12); color:#fff; cursor:pointer; letter-spacing:1px; }
 .ss-btn:hover { background:rgba(255,255,255,0.25); }
+.ss-gods { display:grid; grid-template-columns:repeat(2, auto); gap:6px; }
+.ss-god { display:flex; flex-direction:column; align-items:center; gap:2px; width:86px; padding:7px 6px; border-radius:10px; border:2px solid rgba(255,255,255,0.35); background:rgba(255,255,255,0.07); color:#fff; cursor:pointer; transition:transform .08s, border-color .08s, background .08s; }
+.ss-god:hover { background:rgba(255,255,255,0.16); transform:translateY(-2px); }
+.ss-god.active { border-color:#ffd23f; background:rgba(255,210,63,0.18); box-shadow:0 0 12px rgba(255,210,63,0.6); }
+.ss-god .g-emoji { font-size:24px; }
+.ss-god .g-name { font-size:12px; font-weight:bold; color:#ffd23f; }
+.ss-god .g-title { font-size:9px; color:#b9c7ff; }
+.ss-mode-tag { display:inline-block; margin-top:6px; font-size:11px; font-weight:bold; color:#4dd0e1; letter-spacing:1px; }
 .ss-help { font-size:11px; color:#b9c7ff; line-height:1.7; }
 .ss-help b { color:#ffd23f; }
 .ss-toast { position:absolute; top:64px; left:50%; transform:translateX(-50%) translateY(-8px); background:rgba(10,14,30,0.9); border:2px solid #7ee081; color:#7ee081; font-family:'Courier New',monospace; font-weight:bold; font-size:15px; padding:8px 20px; border-radius:10px; opacity:0; transition:opacity .2s, transform .2s; pointer-events:none; z-index:7; }
@@ -606,6 +1004,13 @@ function buildOverlayUI(container: HTMLElement) {
   const matsHtml = MATERIALS.map((m, i) => `
     <div class="ss-mat ${i === 0 ? "active" : ""}" data-i="${i}" title="${m.name} (${i < 10 ? i + 1 : i === 10 ? "Q" : "E"})" style="background:${m.color}">${m.name.slice(0, 3)}</div>`).join("");
 
+  const godsHtml = GODS.map((g) => `
+    <div class="ss-god" data-god="${g.id}" title="${g.name} — ${g.title} (${g.id === "zeus" ? "G" : g.id === "athena" ? "H" : g.id === "ares" ? "R" : "P"})">
+      <span class="g-emoji">${g.emoji}</span>
+      <span class="g-name">${g.name}</span>
+      <span class="g-title">${g.title}</span>
+    </div>`).join("");
+
   const hud = document.createElement("div");
   hud.className = "ss-hud";
   hud.innerHTML = `
@@ -618,13 +1023,20 @@ function buildOverlayUI(container: HTMLElement) {
           <button class="ss-btn" id="ss-load">📂 Yükle (L)</button>
           <button class="ss-btn" id="ss-clear">🧹 Temizle (C)</button>
         </div>
+        <div class="ss-mode-tag" id="ss-mode">Blok Modu</div>
+      </div>
+      <div class="ss-panel">
+        <h3>🏛️ YUNAN TANRILARI</h3>
+        <div class="ss-gods">${godsHtml}</div>
+        <div class="ss-help" style="margin-top:6px">Heykel seçiliyken <b>sol tık</b> ile zemine dik, <b>sağ tık</b> ile sil</div>
       </div>
       <div class="ss-panel">
         <h3>KONTROL</h3>
         <div class="ss-help">
-          <b>Sol sürükle</b> kamera &nbsp;·&nbsp; <b>Sol tık</b> blok koy<br>
+          <b>Sol sürükle</b> kamera &nbsp;·&nbsp; <b>Sol tık</b> blok/heykel koy<br>
           <b>Sağ tık</b> sil &nbsp;·&nbsp; <b>Orta sürükle</b> kaydır &nbsp;·&nbsp; <b>Tekerlek</b> zoom<br>
-          <b>1-0, Q, E</b> malzeme &nbsp;·&nbsp; <b>S/L/C</b> kaydet/yükle/temizle
+          <b>1-0, Q, E</b> malzeme &nbsp;·&nbsp; <b>B</b> blok &nbsp;·&nbsp; <b>G/H/R/P</b> Zeus/Athena/Ares/Poseidon<br>
+          <b>S/L/C</b> kaydet/yükle/temizle
         </div>
       </div>
     </div>
@@ -636,14 +1048,18 @@ function buildOverlayUI(container: HTMLElement) {
   start.id = "ss-start";
   start.innerHTML = `
     <h1>SCULPTOR'S STUDIO</h1>
-    <h2>Heykel Atölyesi 🗿</h2>
-    <p>Dümdüz açık bir alanda, 12 farklı malzemeyle<br>istediğin heykeli blok blok inşa et!</p>
-    <p style="color:#7ee081">Mermer, altın, cam, neon, lav, obsidyen... hepsi yüksek kaliteli dokularla</p>
+    <h2>Heykel Atölyesi 🏛️</h2>
+    <p>Dümdüz açık bir alanda 12 malzemeyle blok heykeller inşa et,<br>
+       ya da <b style="color:#ffd23f">Yunan tanrılarını</b> dik — Zeus, Athena, Ares, Poseidon!</p>
+    <p style="color:#7ee081">Mermer gövde, altın zırhlar, pürüzsüz heykeller — God of War tarzı</p>
     <button class="big-btn" id="btn-start">INŞA ETMEYE BAŞLA</button>`;
   container.appendChild(start);
 
   container.querySelectorAll<HTMLElement>(".ss-mat").forEach((el) => {
     el.addEventListener("click", () => selectMaterial(Number(el.dataset.i)));
+  });
+  container.querySelectorAll<HTMLElement>(".ss-god").forEach((el) => {
+    el.addEventListener("click", () => selectStatueMode(el.dataset.god as GodId));
   });
   const on = (id: string, fn: () => void) => document.getElementById(id)?.addEventListener("click", fn);
   on("btn-start", () => {
@@ -726,10 +1142,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   bindKeys();
   buildOverlayUI(canvas.parentElement || canvas.parentNode as HTMLElement);
 
-  // start with a small demo plinth
+  // start with a small demo: marble plinth + a Zeus statue
   addBlock(0, 0.5, 0, "marble");
   addBlock(0, 1.5, 0, "marble");
   addBlock(0, 2.5, 0, "gold");
+  initStatueMaterials();
+  const demoZeus = buildGodStatue("zeus");
+  demoZeus.position.set(6, 0, 0);
+  demoZeus.userData.isStatue = true;
+  demoZeus.userData.god = "zeus";
+  scene.add(demoZeus);
+  statues.push({ group: demoZeus, god: "zeus" });
 
   const resize = () => {
     const w = canvas.clientWidth || window.innerWidth;
