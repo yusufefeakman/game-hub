@@ -48,6 +48,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "cube-master",
+    title: "Cube Master",
+    subtitle: "Akıl Küpü",
+    emoji: "🧩",
+    artClass: "art-1",
+    description:
+      "Yüksek kaliteli 3D Rubik küpü! Akıcı animasyonlarla yüzleri çevir, karıştır, çöz ve rekorunu kır. Fareyle küpü döndür, yüzlerde sürükleyerek katman çevir, U/D/L/R/F/B tuşlarıyla hamle yap.",
+    route: "/games/cube-master",
+    status: "playable" as const,
+  },
+  {
     id: "anime-legends",
     title: "Anime Legends",
     subtitle: "Ultimate Arena",
