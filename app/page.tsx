@@ -48,17 +48,6 @@ const GAMES = [
     status: "playable" as const,
   },
   {
-    id: "sculptor-studio",
-    title: "Sculptor's Studio",
-    subtitle: "Heykel Atölyesi",
-    emoji: "🗿",
-    artClass: "art-1",
-    description:
-      "Yüksek kaliteli 3D heykel atölyesi! Dümdüz açık alanda 12 farklı malzemeyle (mermer, altın, cam, neon, lav...) blok blok heykeller inşa et. Bloom, gölgeler ve PBR dokularla sinematik görünüm. Kaydet/yükle, istediğin heykeli yap.",
-    route: "/games/sculptor-studio",
-    status: "playable" as const,
-  },
-  {
     id: "anime-legends",
     title: "Anime Legends",
     subtitle: "Ultimate Arena",
