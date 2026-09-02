@@ -294,7 +294,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.setClearColor(0x12121f, 1);
 
   /* ---------- background: premium dark gradient ---------- */

@@ -711,7 +711,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(canvas.clientWidth || W, canvas.clientHeight || H, false);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
 
@@ -797,13 +797,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   resize();
   window.addEventListener("resize", resize);
 
-  const clock = new THREE.Clock();
   let raf = 0;
   let lastSolvedCheck = 0;
+  let lastTs = performance.now();
 
-  const loop = () => {
+  const loop = (ts: number) => {
     if (disposed) return;
-    const dt = Math.min(0.05, clock.getDelta());
+    const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0.016);
+    lastTs = ts;
 
     // idle auto-spin for a lively look (pauses while you're solving)
     const paused = !document.getElementById("screen-pause")?.classList.contains("hidden");

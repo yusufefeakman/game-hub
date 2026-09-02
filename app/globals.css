@@ -226,8 +226,10 @@ a {
 }
 
 .game-canvas-wrap canvas {
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  /* Games render at their own resolution (2D canvas / Three.js);
+     do NOT force pixelated upscaling or the 3D + smooth 2D games
+     look blocky and low-quality. */
+  image-rendering: auto;
   max-width: 100%;
   max-height: 100%;
 }
