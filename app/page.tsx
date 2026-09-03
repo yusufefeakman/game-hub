@@ -48,6 +48,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "doping-runner",
+    title: "Doping Runner",
+    subtitle: "Sonsuz Koşu ⚡",
+    emoji: "⚡",
+    artClass: "art-2",
+    description:
+      "Neon şehirde sonsuz koşu! Doping kapsüllerini topla, süper hıza ulaş, engellerden kaç ve rekor kır. Space ile zıpla (çift zıplama var), mobilde butonlarla oyna.",
+    route: "/games/doping-runner",
+    status: "playable" as const,
+  },
+  {
     id: "cube-master",
     title: "Cube Master",
     subtitle: "Akıl Küpü",
