@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b0f2a">
+  <title>Doping Challenge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- OYUN ÇEVRESİ -->
+  <div id="game-shell">
+    <div id="stage">
+      <canvas id="game"></canvas>
+
+      <!-- ===== 1. ANA MENÜ ===== -->
+      <div class="screen" id="screen-menu">
+        <div class="logo">⚡</div>
+        <h1 class="title">DOPING<br>CHALLENGE</h1>
+        <p class="tagline">Koş · Zıpla · Rekoru kır!</p>
+        <div class="best-chip">🏆 En Yüksek Skor: <b id="menu-best">0</b></div>
+        <button class="btn primary" id="btn-play">▶ BAŞLA</button>
+        <button class="btn ghost" id="btn-how">❓ Nasıl Oynanır</button>
+        <p class="disclaimer">Kurgusal bir oyundur — gerçek hayattaki dopingi teşvik etmez.</p>
+      </div>
+
+      <!-- ===== NASIL OYNANIR ===== -->
+      <div class="screen hidden" id="screen-how">
+        <h2 class="how-title">Nasıl Oynanır?</h2>
+        <div class="how-body">
+          <div class="how-row"><span class="ico safe">🟢</span> <span><b>Yeşil enerji içeceği:</b> enerjini doldurur + puan.</span></div>
+          <div class="how-row"><span class="ico bonus">⭐</span> <span><b>Yıldız:</b> bonus puan verir.</span></div>
+          <div class="how-row"><span class="ico risk">🔴</span> <span><b>Kırmızı şırınga (YASAK):</b> sakın toplama! Puan kaybettirir ve seni sersemletir.</span></div>
+          <div class="how-row"><span class="ico bad">🧱</span> <span><b>Engeller:</b> çarparsan oyun biter.</span></div>
+          <div class="how-row"><span class="ico tap">👆</span> <span>Ekrana <b>dokun</b> → zıpla. Havadayken tekrar dokun → <b>çift zıplama</b>.</span></div>
+          <div class="how-row"><span class="ico lvl">📈</span> <span>Her <b>1000 puan</b>da hız artar (seviye atlarsın).</span></div>
+          <div class="how-row"><span class="ico energy">🔋</span> <span>Enerjin biterse koşamazsın — dikkat!</span></div>
+        </div>
+        <button class="btn primary" id="btn-how-back">← Geri</button>
+      </div>
+
+      <!-- ===== OYUN HUD ===== -->
+      <div id="hud" class="hidden">
+        <div class="hud-top">
+          <button class="hud-btn" id="btn-pause">⏸</button>
+          <div class="hud-center">
+            <div class="score-row"><span id="score">0</span> <span class="score-lvl">Lv <span id="level">1</span></span></div>
+            <div class="energy-wrap"><div class="energy-fill" id="energy"></div></div>
+          </div>
+          <div class="hud-best">🏆<span id="hud-best">0</span></div>
+        </div>
+        <div class="combo-tip hidden" id="combo-tip"></div>
+      </div>
+
+      <!-- ===== 3. DURAKLATMA MENÜSÜ ===== -->
+      <div class="screen hidden" id="screen-pause">
+        <h2 class="screen-title">⏸ Duraklatıldı</h2>
+        <div class="pause-score">Skor: <b id="pause-score">0</b></div>
+        <button class="btn primary" id="btn-resume">▶ Devam Et</button>
+        <button class="btn ghost" id="btn-restart">🔄 Yeniden Başlat</button>
+        <button class="btn ghost" id="btn-quit">🏠 Ana Menü</button>
+      </div>
+
+      <!-- ===== 4. OYUN BİTTİ ===== -->
+      <div class="screen hidden" id="screen-over">
+        <h2 class="over-title">🏁 BİTTİ!</h2>
+        <div class="final-card">
+          <div class="final-row">Skor <b id="final-score">0</b></div>
+          <div class="final-row">En Yüksek <b id="final-best">0</b></div>
+          <div class="final-row">Mesafe <b id="final-dist">0</b> m</div>
+          <div class="final-row">Seviye <b id="final-lvl">1</b></div>
+        </div>
+        <div class="new-record hidden" id="new-record">🎉 YENİ REKOR!</div>
+        <button class="btn primary" id="btn-replay">▶ TEKRAR OYNA</button>
+        <button class="btn ghost" id="btn-menu">🏠 Ana Menü</button>
+      </div>
+
+      <!-- Risk efekti katmanı -->
+      <div id="risk-flash" class="hidden"></div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
