@@ -455,14 +455,20 @@ const Asteroids = {
       a.t += dt;
       a.mesh.position.x += a.vx * dt + Math.sin(a.t * 0.7) * 0.4;
       a.mesh.position.y += a.vy * dt + Math.cos(a.t * 0.6) * 0.4;
-      a.mesh.position.z += a.vz * dt;
+      // Flow speed follows the world cruise (boosts accelerate the whole field),
+      // keeping the per-rock drift from spawn (a.vz - CRUISE) intact.
+      a.mesh.position.z += (cruise + (a.vz - CRUISE)) * dt;
       a.mesh.rotation.x += a.spin.x * dt;
       a.mesh.rotation.y += a.spin.y * dt;
       a.mesh.rotation.z += a.spin.z * dt;
       if (a.mesh.position.z > KILL_Z) {
-        // Flew past — recycle as a fresh rock ahead
+        // Flew past — recycle as a fresh rock ahead with new drift & spin
         const side = Math.random() < 0.5 ? -1 : 1;
         a.mesh.position.set(side * (20 + Math.random() * 100), (Math.random() * 2 - 1) * 70, SPAWN_Z - Math.random() * 200);
+        a.vx = (Math.random() * 2 - 1) * 8;
+        a.vy = (Math.random() * 2 - 1) * 8;
+        a.vz = CRUISE + (Math.random() * 2 - 1) * 6;
+        a.spin.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(0.6 + Math.random());
         a.mesh.visible = true;
       }
     }
@@ -1014,7 +1020,7 @@ function updateHUD() {
   const hull = document.getElementById("ss-hull-fill");
   if (hull) hull.style.width = Math.max(0, game.hull) + "%";
   const shield = document.getElementById("ss-shield-fill");
-  if (shield) shield.style.width = Math.max(0, ShipShield.value) + "%";
+  if (shield) shield.style.width = Math.max(0, Math.min(100, (ShipShield.value / 60) * 100)) + "%";
   const comboEl = document.getElementById("ss-combo");
   if (comboEl) {
     if (game.multiplier > 1) {
@@ -1077,15 +1083,16 @@ const game = {
     updateHUD();
   },
   restart() {
-    if (this.state === "playing") {
+    if (this.state === "menu") {
+      // Already at the menu — just reset and stay there.
       this.resetRun();
-      hideAllScreens();
-      this.state = "playing";
-    } else {
       show("ss-screen-start");
-      this.state = "menu";
-      this.resetRun();
+      return;
     }
+    // From playing, paused or game-over: start a fresh run immediately.
+    this.resetRun();
+    hideAllScreens();
+    this.state = "playing";
   },
   togglePause() {
     if (this.state === "playing") {
