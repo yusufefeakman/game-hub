@@ -35,10 +35,11 @@ export const B = {
   FLOWER_YELLOW: 25,
   TALL_GRASS: 26,
   MOSSY_COBBLE: 27,
+  CRAFTING_TABLE: 28,
 } as const;
 export type BlockId = (typeof B)[keyof typeof B];
 
-export const COUNT = 28;
+export const COUNT = 29;
 
 /* ------------------- doku yardımcıları ------------------- */
 // Deterministik 0..1
@@ -122,6 +123,9 @@ export function buildAtlas() {
   regTile("log_side", (c) => { base(c, [110, 80, 50]); for (let y = 0; y < 16; y += 4) { c.fillStyle = "rgb(145,110,70)"; c.fillRect(0, y + 1, 16, 1); } for (let x = 2; x < 16; x += 5) { c.fillStyle = "rgb(90,62,38)"; c.fillRect(x, 0, 1, 16); } });
   regTile("leaves", (c) => { base(c, [58, 132, 50]); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 3.3 + y * 7.9 + 30); if (n > 0.4) { c.fillStyle = n > 0.75 ? "rgb(92,170,80)" : "rgb(36,96,34)"; c.fillRect(x, y, 1, 1); } } });
   regTile("planks", (c) => { base(c, [176, 136, 90]); for (let y = 0; y < 16; y += 4) { c.fillStyle = "rgb(120,88,55)"; c.fillRect(0, y, 16, 1); } c.fillStyle = "rgb(200,160,110)"; for (let x = 0; x < 16; x += 4) { c.fillRect(x, 2, 1, 2); c.fillRect(x + 2, 6, 1, 2); c.fillRect(x, 10, 1, 2); c.fillRect(x + 2, 14, 1, 2); } });
+  // Üretim masası: üst yüzde iş kılavuzu, yanda çekiç/testere izlenimi
+  regTile("craft_top", (c) => { base(c, [176, 136, 90]); c.fillStyle = "rgb(120,88,55)"; for (let y = 0; y < 16; y += 4) c.fillRect(0, y, 16, 1); c.fillStyle = "rgb(200,160,110)"; for (let x = 0; x < 16; x += 4) { c.fillRect(x, 2, 1, 2); c.fillRect(x + 2, 6, 1, 2); c.fillRect(x, 10, 1, 2); c.fillRect(x + 2, 14, 1, 2); } c.fillStyle = "rgba(96,66,38,.8)"; c.fillRect(1, 1, 14, 1); c.fillRect(1, 14, 14, 1); c.fillRect(1, 1, 1, 14); c.fillRect(14, 1, 1, 14); c.fillRect(6, 6, 4, 1); c.fillRect(6, 9, 4, 1); });
+  regTile("craft_side", (c) => { base(c, [156, 116, 72]); c.fillStyle = "rgb(110,80,50)"; for (let y = 0; y < 16; y += 4) c.fillRect(0, y, 16, 1); c.fillStyle = "rgb(96,66,38)"; c.fillRect(0, 0, 16, 2); c.fillStyle = "rgb(196,160,112)"; c.fillRect(2, 6, 12, 4); c.fillStyle = "rgb(120,88,55)"; c.fillRect(6, 10, 4, 6); c.fillStyle = "rgb(90,62,38)"; c.fillRect(7, 11, 2, 4); });
 
   regTile("glass", (c) => { base(c, [210, 240, 245]); c.fillStyle = "rgba(255,255,255,0.5)"; c.fillRect(0, 0, 16, 2); c.fillRect(0, 0, 2, 16); c.strokeStyle = "rgb(170,215,225)"; c.strokeRect(0.5, 0.5, 15, 15); });
 
@@ -212,6 +216,7 @@ export function initBlocks() {
   def(B.FLOWER_YELLOW, "Sarı Çiçek", [ti("flower_yellow"), ti("flower_yellow"), ti("flower_yellow"), ti("flower_yellow"), ti("flower_yellow"), ti("flower_yellow")], false, 0, { transparent: true });
   def(B.TALL_GRASS, "Uzun Çimen", [ti("tall_grass"), ti("tall_grass"), ti("tall_grass"), ti("tall_grass"), ti("tall_grass"), ti("tall_grass")], false, 0, { transparent: true });
   def(B.MOSSY_COBBLE, "Yosunlu Arnavut", [ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble")], true, 2.0);
+  def(B.CRAFTING_TABLE, "Üretim Masası", [ti("craft_top"), ti("planks"), ti("craft_side"), ti("craft_side"), ti("craft_side"), ti("craft_side")], true, 2.5);
 }
 
 export function blockName(id: number): string {

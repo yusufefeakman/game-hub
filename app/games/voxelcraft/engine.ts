@@ -12,7 +12,8 @@
      WASD / Oklar   hareket · Space zıpla · Shift koş
      1-9 / tekerlek hotbar'dan blok seç
      Sol tık        bloğu kır
-     Sağ tık        seçili bloğu yerleştir
+     Sağ tık        seçili bloğu yerleştir (üretim masasına = 3×3 aç)
+     E              envanter + üretim (2×2) aç/kapat
      Esc            pointer lock'tan çık (menü)
      M              ses aç/kapat
 
@@ -22,9 +23,11 @@
 import * as THREE from "three";
 import {
   B, BLOCKS, ATLAS_CANVAS, tileUV,
-  blockName, isSolid, isTransparent, isLiquid, isBreakable, initBlocks,
+  isSolid, isTransparent, isLiquid, isBreakable, initBlocks,
 } from "./blocks";
-import { Inventory, dropsFor, ITEM_NAME } from "./inventory";
+import { Inventory, dropsFor } from "./inventory";
+import { iconDataUrl, itemNameOf } from "./crafting";
+import { openInventoryScreen, type InvHost } from "./invui";
 
 /* ================= 1. CONSTANTS ================= */
 const WORLD_X = 128;
@@ -397,6 +400,7 @@ function starterInventory() {
   inventory.add(B.DIRT, 32);
   inventory.add(B.COBBLE, 24);
   inventory.add(B.GLASS, 8);
+  inventory.add(B.CRAFTING_TABLE, 1);
 }
 
 let selectedSlot = 0;
@@ -407,25 +411,6 @@ let state: "menu" | "play" | "dead" = "menu";
 let playerChunkX = 0, playerChunkZ = 0;
 
 const RENDER_RADIUS = 5; // chunk cinsinden görüş yarıçapı
-
-// blok/eşya önizleme rengi (UI ikonları için)
-function itemColor(id: number): string {
-  const d = BLOCKS[id];
-  if (!d) return "#888";
-  // atlas'tan ortalama renk yaklaşık: tile index 0'ın pikselinden almak yerine sabit palet
-  const pal: Record<number, string> = {
-    [B.GRASS]: "#5fae4a", [B.DIRT]: "#8a5a2b", [B.STONE]: "#8f8f96",
-    [B.SAND]: "#e6d7a0", [B.WOOD]: "#6e4a23", [B.LEAVES]: "#3f8f3f",
-    [B.PLANKS]: "#b58a4f", [B.GLASS]: "#aee8f2", [B.COBBLE]: "#7a7a82",
-    [B.BRICK]: "#b04a3a", [B.STONE_BRICKS]: "#9a9aa2", [B.GRAVEL]: "#7e746e",
-    [B.CLAY]: "#9498a8", [B.SNOW]: "#eef4fa", [B.ICE]: "#8ccdeb",
-    [B.COAL_ORE]: "#3a3a3a", [B.IRON_ORE]: "#d6a06e", [B.GOLD_ORE]: "#f5dc50",
-    [B.DIAMOND_ORE]: "#5fe1e1", [B.OBSIDIAN]: "#181226", [B.SANDSTONE]: "#ded2a0",
-    [B.FLOWER_RED]: "#dc3c3c", [B.FLOWER_YELLOW]: "#f5dc50", [B.TALL_GRASS]: "#46a046",
-    [B.MOSSY_COBBLE]: "#6a7a6a",
-  };
-  return pal[id] || "#888";
-}
 
 /* ================= 6. RAYCAST (DDA) ================= */
 function raycast(maxDist: number): { x: number; y: number; z: number; nx: number; ny: number; nz: number } | null {
@@ -612,9 +597,41 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   buildUI(wrap);
   updatePlayerUI();
 
+  /* -------- envanter ekranı (E) & üretim masası (sağ tık) -------- */
+  let invOpen = false;
+  let invCleanup: (() => void) | null = null;
+  let disposed = false;
+  const invHost: InvHost = {
+    inventory,
+    onChanged() { refreshHotbarUI(); },
+    toast: (m) => showToast(m),
+    click: () => AudioSys.click(),
+    closed() { if (!disposed) canvas.requestPointerLock?.(); },
+  };
+  function openInv(mode: 2 | 3) {
+    if (invOpen || disposed) return;
+    invOpen = true;
+    keys.f = keys.b = keys.l = keys.r = keys.jump = keys.run = false;
+    document.exitPointerLock?.();
+    invCleanup = openInventoryScreen(wrap, invHost, mode);
+  }
+  function closeInv() {
+    if (!invOpen) return;
+    invOpen = false;
+    const fn = invCleanup;
+    invCleanup = null;
+    if (fn) fn(); // grid+imleç envantere döner; closed() pointer lock'u geri ister
+  }
+
   /* -------- input -------- */
   const onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
+    if (invOpen) {
+      if (k === "e" || k === "escape") { e.preventDefault(); closeInv(); }
+      else if (k === "m") { AudioSys.setMuted(!AudioSys.muted); }
+      return; // ekran açıkken hareket/işlem tuşları çalışmaz
+    }
+    if (k === "e" && state === "play") { openInv(2); return; }
     if (["w", "a", "s", "d", " ", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
     if (k === "w" || k === "arrowup") keys.f = true;
     if (k === "s" || k === "arrowdown") keys.b = true;
@@ -655,7 +672,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.addEventListener("click", onCanvasClick);
   document.addEventListener("pointerlockchange", () => {
     pointerLocked = document.pointerLockElement === canvas;
-    if (!pointerLocked && state === "play") {
+    // Envanter açıkken lock düşmesi menüye atmaz (bilerek çıkıldı)
+    if (!pointerLocked && state === "play" && !invOpen) {
       state = "menu";
       setMenuVisible(true);
     }
@@ -669,14 +687,24 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (state !== "play" || !pointerLocked) return;
     e.preventDefault();
     if (e.button === 0) breakBlock();
-    else if (e.button === 2) placeBlock();
+    else if (e.button === 2) onInteract();
   });
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("wheel", (e) => {
-    if (state !== "play") return;
+    if (state !== "play" || invOpen) return;
     e.preventDefault();
     selectSlot((selectedSlot + (e.deltaY > 0 ? 1 : 9)) % 10);
   }, { passive: false });
+
+  // Sağ tık: bakılan blok üretim masasıysa 3×3 aç; değilse blok yerleştir
+  function onInteract() {
+    const hit = raycast(5.5);
+    if (hit && getBlock(hit.x, hit.y, hit.z) === B.CRAFTING_TABLE) {
+      openInv(3);
+      return;
+    }
+    placeBlock();
+  }
 
   function setBlock(x: number, y: number, z: number, id: number) {
     if (x < 0 || x >= WORLD_X || y < 1 || y >= WORLD_Y || z < 0 || z >= WORLD_Z) return;
@@ -787,7 +815,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   function updatePlayer(dt: number) {
     const p = player;
-    if (state !== "play") return;
+    if (state !== "play" || invOpen) return; // envanter açıkken dünya duraklar
     const wasOnGround = p.onGround;
     const fallStartY = p.fallStart;
     const prevY = p.y;
@@ -873,6 +901,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     bits = [];
   };
   return () => {
+    disposed = true;
+    if (invOpen) closeInv();
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     window.removeEventListener("keydown", onKeyDown);
@@ -919,15 +949,24 @@ function refreshHotbarUI() {
     const el = kids[i] as HTMLElement;
     const slot = inventory.slots[i];
     const id = slot ? slot.id : null;
-    el.style.background = id !== null ? itemColor(id) : "rgba(0,0,0,.35)";
-    el.style.opacity = id !== null ? "1" : "0.4";
-    el.innerHTML = id !== null ? `${i + 1}<span class="cnt">${slot!.count}</span>` : `${i + 1}`;
-    el.title = id !== null ? `${ITEM_NAME[id] || blockName(id)} ×${slot!.count}` : "Boş";
+    if (id !== null) {
+      el.style.backgroundImage = `url(${iconDataUrl(id)})`;
+      el.style.backgroundColor = "rgba(0,0,0,.55)";
+      el.style.opacity = "1";
+      el.innerHTML = `${i + 1}<span class="cnt">${slot!.count}</span>`;
+      el.title = `${itemNameOf(id)} ×${slot!.count}`;
+    } else {
+      el.style.backgroundImage = "none";
+      el.style.backgroundColor = "rgba(0,0,0,.35)";
+      el.style.opacity = "0.4";
+      el.innerHTML = `${i + 1}`;
+      el.title = "Boş";
+    }
   }
   // seçili slot adı
   const sel = inventory.slots[selectedSlot];
   const nm = document.getElementById("vcx-sel-name");
-  if (nm) nm.textContent = sel ? (ITEM_NAME[sel.id] || blockName(sel.id)) : "Boş";
+  if (nm) nm.textContent = sel ? itemNameOf(sel.id) : "Boş";
 }
 
 function selectSlot(i: number) {
@@ -981,7 +1020,7 @@ function buildUI(container: HTMLElement) {
 .vcx-play:active{transform:translateY(4px);box-shadow:0 2px 0 #1d6b2c}
 .vcx-hud-root{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none}
 .vcx-hotbar{display:flex;gap:4px;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.45);border-radius:10px;padding:4px;pointer-events:auto}
-.vcx-slot{width:46px;height:46px;border-radius:7px;border:2px solid rgba(255,255,255,.25);position:relative;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer;transition:transform .06s,border-color .06s;font-size:13px;display:flex;align-items:center;justify-content:center;background-size:cover}
+.vcx-slot{width:46px;height:46px;border-radius:7px;border:2px solid rgba(255,255,255,.25);position:relative;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer;transition:transform .06s,border-color .06s;font-size:13px;display:flex;align-items:center;justify-content:center;background-size:cover;background-repeat:no-repeat;image-rendering:pixelated}
 .vcx-slot .cnt{position:absolute;right:3px;bottom:1px;font-size:11px;color:#fff;text-shadow:0 1px 2px #000}
 .vcx-slot.active{border-color:#ffd23f;transform:translateY(-3px);box-shadow:0 0 12px rgba(255,210,63,.9)}
 .vcx-sel{font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,.6);padding:2px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.3)}
@@ -1035,7 +1074,7 @@ function buildUI(container: HTMLElement) {
 
   const tip = document.createElement("div");
   tip.className = "vcx-tip";
-  tip.textContent = "Sol tık: kır · Sağ tık: yerleştir · E: envanter · Esc: menü";
+  tip.textContent = "Sol tık: kır · Sağ tık: yerleştir (masaya: 3×3 üret) · E: envanter · Esc: menü";
   container.appendChild(tip);
 
   // hotbar'ı 9 boş slot ile kur (içerik refreshHotbarUI ile dolar)
@@ -1057,7 +1096,8 @@ function buildUI(container: HTMLElement) {
     <h2>Minecraft benzeri blok dünyası</h2>
     <p class="row"><span class="k">W A S D</span> hareket &nbsp;&nbsp;<span class="k">Space</span> zıpla &nbsp;&nbsp;<span class="k">Shift</span> koş</p>
     <p class="row"><span class="k">Sol tık</span> kır &nbsp;&nbsp;<span class="k">Sağ tık</span> yerleştir &nbsp;&nbsp;<span class="k">1-9</span>/tekerlek blok</p>
-    <p class="row">Tepeleri aş, maden kaz, blok topla, kendi yapını kur!</p>
+    <p class="row"><span class="k">E</span> envanter+üretim &nbsp;&nbsp;<span class="k">Sağ tık</span> üretim masası: 3×3</p>
+    <p class="row">Tepeleri aş, maden kaz, blok topla, odun → kalas → masa ile üret!</p>
     <button class="vcx-play" id="vcx-play">▶ OYNA</button>`;
   container.appendChild(menu);
   document.getElementById("vcx-play")!.addEventListener("click", () => {

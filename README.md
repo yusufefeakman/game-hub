@@ -8,7 +8,7 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 
 | Oyun | Açıklama | Route |
 |---|---|---|
-| **VoxelCraft** ⛏️ | Minecraft benzeri blok dünyası: prosedürel arazi, kazı/inşa, ağaçlar | `/game-hub/games/voxelcraft` |
+| **VoxelCraft** ⛏️ | Minecraft tarzı hayatta kalma: prosedürel arazi, can/açlık, envanter (E), 2×2/3×3 üretim, kazı/inşa | `/game-hub/games/voxelcraft` |
 | **Doping Runner** ⚡ | Neon şehirde sonsuz koşu: doping topla, hızlan, engellerden kaç — mobil uyumlu | `/game-hub/games/doping-runner` |
 | **Cube Master** 🧩 | Yüksek kaliteli 3D Rubik küpü: akıcı animasyonlar, rekor takibi, fare + klavye kontrolleri | `/game-hub/games/cube-master` |
 | **Anime Legends** 🥷 | 24 ikonik anime karakteriyle dövüş turnuvası: Naruto, Goku, Luffy, Gojo, Saitama... 8 rakibi yen, şampiyon ol | `/game-hub/games/anime-legends` |

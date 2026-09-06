@@ -19,6 +19,7 @@ export const ITEM_NAME: Record<number, string> = {
   [B.OBSIDIAN]: "Obsidyen", [B.SANDSTONE]: "Kumtaşı",
   [B.FLOWER_RED]: "Kırmızı Çiçek", [B.FLOWER_YELLOW]: "Sarı Çiçek",
   [B.TALL_GRASS]: "Uzun Çimen", [B.MOSSY_COBBLE]: "Yosunlu Arnavut",
+  [B.CRAFTING_TABLE]: "Üretim Masası",
 };
 
 // Bu bloklar kırılınca düşer; gerisi (bedrock, su, hava) düşürmez.

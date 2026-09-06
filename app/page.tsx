@@ -39,11 +39,11 @@ const GAMES = [
   {
     id: "voxelcraft",
     title: "VoxelCraft",
-    subtitle: "Blok Dünyası",
+    subtitle: "Survival Blok Dünyası",
     emoji: "⛏️",
     artClass: "art-2",
     description:
-      "Minecraft benzeri blok dünyası! Prosedürel araziyi keşfet, ağaçları kes, blokları kır ve yerleştir, kendi yapını kur. WASD ile hareket, sol tık kır, sağ tık yerleştir.",
+      "Minecraft benzeri hayatta kalma! Prosedürel arazi, can/açlık, envanter (E), 2×2/3×3 üretim masası ve blok yerleştirme. WASD hareket, sol tık kır, sağ tık yerleştir.",
     route: "/games/voxelcraft",
     status: "playable" as const,
   },
