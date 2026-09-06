@@ -37,6 +37,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "voxelcraft",
+    title: "VoxelCraft",
+    subtitle: "Blok Dünyası",
+    emoji: "⛏️",
+    artClass: "art-2",
+    description:
+      "Minecraft benzeri blok dünyası! Prosedürel araziyi keşfet, ağaçları kes, blokları kır ve yerleştir, kendi yapını kur. WASD ile hareket, sol tık kır, sağ tık yerleştir.",
+    route: "/games/voxelcraft",
+    status: "playable" as const,
+  },
+  {
     id: "spaceship",
     title: "Yıldız Vurucu",
     subtitle: "Asteroid Saldırısı",
