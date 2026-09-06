@@ -4,6 +4,9 @@
    kırma / yerleştirme ve hotbar. Tüm grafikler prosedürel; sesler
    Web Audio ile sentezlenir. Harici asset yok.
 
+   Çekirdek sistemler (fizik, raycast, kontroller, pointer-lock, UI)
+   mevcut mimari korunarak blocks.ts modülüne bağlanmıştır.
+
    Kontroller:
      Oyna'ya tıkla  → pointer lock (fare bakışı)
      WASD / Oklar   hareket · Space zıpla · Shift koş
@@ -17,40 +20,30 @@
      startGame(canvas) -> () => void
    ===================================================================== */
 import * as THREE from "three";
+import {
+  B, BLOCKS, ATLAS_CANVAS, tileUV,
+  blockName, isSolid, isTransparent, isLiquid, isBreakable, initBlocks,
+} from "./blocks";
 
 /* ================= 1. CONSTANTS ================= */
-const WORLD_X = 96;
-const WORLD_Z = 96;
-const WORLD_Y = 48;
-const SEA_LEVEL = 12;
-const VIEW_DIST = 150;
-
-const B = {
-  AIR: 0,
-  GRASS: 1,
-  DIRT: 2,
-  STONE: 3,
-  SAND: 4,
-  WOOD: 5,
-  LEAVES: 6,
-  PLANKS: 7,
-  GLASS: 8,
-  COBBLE: 9,
-  BRICK: 10,
-  BEDROCK: 11,
-};
+const WORLD_X = 128;
+const WORLD_Z = 128;
+const WORLD_Y = 56;
+const SEA_LEVEL = 13;
+const VIEW_DIST = 170;
+const CHUNK = 16; // chunk genişliği (x/z)
 
 const HOTBAR: { id: number; name: string; color: string }[] = [
   { id: B.GRASS, name: "Çimen", color: "#5fae4a" },
   { id: B.DIRT, name: "Toprak", color: "#8a5a2b" },
   { id: B.STONE, name: "Taş", color: "#8f8f96" },
-  { id: B.SAND, name: "Kum", color: "#e6d7a0" },
-  { id: B.WOOD, name: "Odun", color: "#6e4a23" },
-  { id: B.LEAVES, name: "Yaprak", color: "#3f8f3f" },
   { id: B.PLANKS, name: "Kalas", color: "#b58a4f" },
+  { id: B.WOOD, name: "Odun", color: "#6e4a23" },
   { id: B.GLASS, name: "Cam", color: "#aee8f2" },
   { id: B.COBBLE, name: "Arnavut", color: "#7a7a82" },
   { id: B.BRICK, name: "Tuğla", color: "#b04a3a" },
+  { id: B.STONE_BRICKS, name: "Taş Tuğla", color: "#9a9aa2" },
+  { id: B.SAND, name: "Kum", color: "#e6d7a0" },
 ];
 
 /* ================= 2. AUDIO ================= */
@@ -100,10 +93,15 @@ function getBlock(x: number, y: number, z: number): number {
   if (x < 0 || x >= WORLD_X || z < 0 || z >= WORLD_Z) return B.AIR;
   return world[idx(x, y, z)];
 }
-const isSolid = (id: number) => id !== B.AIR; // used for collisions & picking (glass counts solid)
+const solidAt = (bx: number, by: number, bz: number) => isSolid(getBlock(bx, by, bz));
 
 function hash2(x: number, z: number): number {
   let n = x * 374761393 + z * 668265263;
+  n = (n ^ (n >> 13)) * 1274126177;
+  return ((n ^ (n >> 16)) >>> 0) / 4294967296;
+}
+function hash3(x: number, y: number, z: number): number {
+  let n = x * 374761393 + y * 668265263 + z * 2147483647;
   n = (n ^ (n >> 13)) * 1274126177;
   return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
@@ -116,177 +114,280 @@ function noise2(x: number, z: number): number {
   return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
 }
 function fbm(x: number, z: number): number {
-  return noise2(x * 0.02, z * 0.02) * 0.6 + noise2(x * 0.07 + 40, z * 0.07 + 40) * 0.3 + noise2(x * 0.16, z * 0.16) * 0.1;
+  return noise2(x * 0.014, z * 0.014) * 0.55
+    + noise2(x * 0.05 + 40, z * 0.05 + 40) * 0.3
+    + noise2(x * 0.13, z * 0.13) * 0.15;
 }
 function heightAt(x: number, z: number): number {
   const n = fbm(x, z);
-  return Math.max(4, Math.min(WORLD_Y - 8, Math.round(SEA_LEVEL + n * 22)));
+  return Math.max(5, Math.min(WORLD_Y - 12, Math.round(SEA_LEVEL + 1 + n * 26)));
+}
+
+// 3D gürültü (mağaralar için)
+function noise3(x: number, y: number, z: number): number {
+  return (noise2(x * 0.09, z * 0.09) + noise2(z * 0.09 + 7, y * 0.11 + 3)) * 0.5;
 }
 
 function buildWorldData() {
   world = new Uint8Array(WORLD_X * WORLD_Y * WORLD_Z);
+  // terrain columns
   for (let x = 0; x < WORLD_X; x++) {
     for (let z = 0; z < WORLD_Z; z++) {
       const h = heightAt(x, z);
-      for (let y = 0; y <= h; y++) {
-        let id = B.STONE;
+      const isBeach = h <= SEA_LEVEL + 1;
+      for (let y = 0; y <= Math.max(h, SEA_LEVEL); y++) {
+        let id: number;
         if (y === 0) id = B.BEDROCK;
+        else if (y <= 1) id = B.STONE;
         else if (y === h) {
-          const n = noise2(x * 0.3, z * 0.3);
-          if (h <= SEA_LEVEL + 1) id = B.SAND;
-          else if (n > 0.55 && h > 17) id = B.STONE;
+          if (isBeach) id = B.SAND;
+          else if (noise2(x * 0.3 + 5, z * 0.3 + 9) > 0.55 && h > 18) id = B.STONE;
           else id = B.GRASS;
-        } else if (y >= h - 3) id = B.DIRT;
+        } else if (y >= h - 3) {
+          id = isBeach ? B.SAND : B.DIRT;
+          if (isBeach && y >= h - 1) id = B.SAND;
+        } else if (y < h - 8 && y > 2 && noise2(x * 0.2, z * 0.2) > 0.78 && y >= h - 12 && h > SEA_LEVEL + 6) {
+          id = B.GRAVEL; // gravel pockets below surface
+        } else {
+          id = B.STONE;
+        }
+        if (y > h && y <= SEA_LEVEL) id = B.WATER;
+        if (y > h) continue;
         world[idx(x, y, z)] = id;
+      }
+      // water fill handled by loop above (y<=SEA_LEVEL & y>h)
+    }
+  }
+  // --- ores & caves (3D pass) ---
+  for (let x = 0; x < WORLD_X; x++) {
+    for (let z = 0; z < WORLD_Z; z++) {
+      for (let y = 2; y < WORLD_Y - 4; y++) {
+        const id = world[idx(x, y, z)];
+        if (id !== B.STONE) continue;
+        const cave = noise3(x, y, z);
+        if (cave > 0.58) { world[idx(x, y, z)] = B.AIR; continue; }
+        const r = hash3(x, y, z);
+        // ores by depth
+        const ore = r > 0.985 && y < 14 ? B.DIAMOND_ORE
+          : r > 0.96 && y < 22 ? B.GOLD_ORE
+            : r > 0.90 && y < 34 ? B.IRON_ORE
+              : r > 0.80 ? B.COAL_ORE : 0;
+        if (ore) world[idx(x, y, z)] = ore;
       }
     }
   }
-  // trees (second pass so terrain heights are final)
+  // --- surface features: trees, flowers, clay under water, snow peaks ---
   for (let x = 3; x < WORLD_X - 3; x++) {
     for (let z = 3; z < WORLD_Z - 3; z++) {
       const h = heightAt(x, z);
-      if (h <= SEA_LEVEL + 2 || h >= WORLD_Y - 10) continue;
-      if (getBlock(x, h, z) !== B.GRASS) continue; // only on grass
-      if (hash2(x * 31 + 7, z * 57 + 13) > 0.014) continue;
-      // canopy must not collide with another tree's trunk zone
-      let clash = false;
-      for (let dx = -2; dx <= 2 && !clash; dx++)
-        for (let dz = -2; dz <= 2 && !clash; dz++)
-          if (getBlock(x + dx, h + 1, z + dz) !== B.AIR) clash = true;
-      if (clash) continue;
-      const trunk = 4 + Math.floor(hash2(x + 99, z + 99) * 3); // 4..6
-      const topY = h + trunk;
-      for (let t = 1; t <= trunk; t++) world[idx(x, h + t, z)] = B.WOOD;
-      // classic canopy: layers of leaves, widening then closing at the top
-      const canopy = [
-        { off: 2, rad: 1 }, // top cap
-        { off: 1, rad: 2 }, // wide layer
-        { off: 0, rad: 2 }, // widest layer
-        { off: -1, rad: 1 }, // skirt, leaves trunk base clear
-      ];
-      for (const layer of canopy) {
-        const yy = topY + layer.off;
-        if (yy >= WORLD_Y) continue;
-        for (let dx = -layer.rad; dx <= layer.rad; dx++)
-          for (let dz = -layer.rad; dz <= layer.rad; dz++) {
-            // rounded corners
-            if (Math.abs(dx) === layer.rad && Math.abs(dz) === layer.rad && layer.rad > 1) continue;
-            // keep the trunk column wood-visible on the widest layer centre
-            if (dx === 0 && dz === 0 && layer.off === 0) continue;
-            const bx = x + dx, bz = z + dz;
-            if (getBlock(bx, yy, bz) === B.AIR) world[idx(bx, yy, bz)] = B.LEAVES;
-          }
+      const top = getBlock(x, h, z);
+      // replace grassy caps of tall peaks with snow/stone
+      if (h > SEA_LEVEL + 9 && top === B.GRASS) {
+        const n = fbm(x * 0.4 + 3, z * 0.4 + 3);
+        world[idx(x, h, z)] = n > 0.35 ? B.SNOW : B.STONE;
+        if (n > 0.35 && getBlock(x, h + 1, z) === B.AIR) world[idx(x, h + 1, z)] = B.SNOW;
+      }
+      // underwater clay
+      if (top === B.WATER && h >= SEA_LEVEL - 2) {
+        for (let yy = h - 1; yy >= Math.max(1, h - 3); yy--) {
+          if (getBlock(x, yy, z) === B.SAND) { world[idx(x, yy, z)] = B.CLAY; break; }
+        }
+      }
+      // flowers / tall grass on grass
+      if (top === B.GRASS && getBlock(x, h + 1, z) === B.AIR) {
+        const rr = hash2(x * 7 + 3, z * 13 + 5);
+        if (rr < 0.02) world[idx(x, h + 1, z)] = B.FLOWER_RED;
+        else if (rr < 0.05) world[idx(x, h + 1, z)] = B.FLOWER_YELLOW;
+        else if (rr < 0.16) world[idx(x, h + 1, z)] = B.TALL_GRASS;
+      }
+      // trees
+      if (top === B.GRASS && h > SEA_LEVEL + 1 && h < WORLD_Y - 12) {
+        const tr = hash2(x * 31 + 7, z * 57 + 13);
+        if (tr > 0.02) continue;
+        let clash = false;
+        for (let dx = -2; dx <= 2 && !clash; dx++)
+          for (let dz = -2; dz <= 2 && !clash; dz++)
+            if (getBlock(x + dx, h + 1, z + dz) !== B.AIR) clash = true;
+        if (clash) continue;
+        const trunk = 4 + Math.floor(hash2(x + 99, z + 99) * 3);
+        const topY = h + trunk;
+        if (topY + 2 >= WORLD_Y) continue;
+        for (let t = 1; t <= trunk; t++) world[idx(x, h + t, z)] = B.WOOD;
+        const canopy = [
+          { off: 2, rad: 1 },
+          { off: 1, rad: 2 },
+          { off: 0, rad: 2 },
+          { off: -1, rad: 1 },
+        ];
+        for (const layer of canopy) {
+          const yy = topY + layer.off;
+          if (yy < 1 || yy >= WORLD_Y) continue;
+          for (let dx = -layer.rad; dx <= layer.rad; dx++)
+            for (let dz = -layer.rad; dz <= layer.rad; dz++) {
+              if (Math.abs(dx) === layer.rad && Math.abs(dz) === layer.rad && layer.rad > 1) continue;
+              if (dx === 0 && dz === 0 && layer.off === 0) continue;
+              const bx = x + dx, bz = z + dz;
+              if (getBlock(bx, yy, bz) === B.AIR) world[idx(bx, yy, bz)] = B.LEAVES;
+            }
+        }
       }
     }
   }
 }
 
-/* face colors: [top, bottom, +x, -x, +z, -z] */
-function blockFaceColors(id: number): number[] {
-  switch (id) {
-    case B.GRASS: return [0x6fce52, 0x7a4a24, 0x6c7a3f, 0x6c7a3f, 0x6c7a3f, 0x6c7a3f]; // grass sides slightly green-brown
-    case B.DIRT: return [0x96683a, 0x6e4520, 0x82532a, 0x82532a, 0x82532a, 0x82532a];
-    case B.STONE: return [0xa2a2aa, 0x7a7a82, 0x8f8f97, 0x8f8f97, 0x8f8f97, 0x8f8f97];
-    case B.SAND: return [0xeadca4, 0xcbb97f, 0xdfd2a0, 0xdfd2a0, 0xdfd2a0, 0xdfd2a0];
-    case B.WOOD: return [0xa8844f, 0x6e4a23, 0x7d5528, 0x7d5528, 0x7d5528, 0x7d5528];
-    case B.LEAVES: return [0x55b255, 0x2c7a2c, 0x3e9142, 0x3e9142, 0x3e9142, 0x3e9142];
-    case B.PLANKS: return [0xd0a262, 0xa67a40, 0xb58a4f, 0xb58a4f, 0xb58a4f, 0xb58a4f];
-    case B.GLASS: return [0xdff6fb, 0xdff6fb, 0xaee8f2, 0xaee8f2, 0xaee8f2, 0xaee8f2];
-    case B.COBBLE: return [0x92929a, 0x6a6a72, 0x7e7e86, 0x7e7e86, 0x7e7e86, 0x7e7e86];
-    case B.BRICK: return [0xc95f4c, 0x8f3a2a, 0xb3503e, 0xb3503e, 0xb3503e, 0xb3503e];
-    case B.BEDROCK: return [0x383842, 0x20202a, 0x2c2c36, 0x2c2c36, 0x2c2c36, 0x2c2c36];
-    default: return [0x111122, 0x111122, 0x111122, 0x111122, 0x111122, 0x111122];
-  }
-}
+/* ================= 4. MESH BUILDER (chunk'lı, atlas UV) =================
+   Yüzler CCW; atlas UV'leri blocks.ts'ten gelir. Su/cam ayrı geometry. */
+const SP = [] as number[], SU = [] as number[], SI = [] as number[];
+const WP = [] as number[], WU = [] as number[], WI = [] as number[];
 
-/* ================= 4. MESH BUILDER =================
-   Uses correct CCW winding (viewed from outside) so faces face outward.
-   Face layout: 0:+y(top) 1:-y 2:+x 3:-x 4:+z 5:-z. */
-const OP = [] as number[], OC = [] as number[], OI = [] as number[];
-const GP = [] as number[], GC = [] as number[], GI = [] as number[];
-
-// corner tables (x,y,z local 0/1), wound CCW from the outside of that face
 const FACE_VERTS: number[][][] = [
-  // +y (looking down from above): counter-clockwise in xz
   [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]],
-  // -y (looking up from below): CCW when viewed from below (mirror)
   [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]],
-  // +x
   [[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0]],
-  // -x
   [[0, 0, 1], [0, 0, 0], [0, 1, 0], [0, 1, 1]],
-  // +z
   [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]],
-  // -z
   [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]],
+];
+const FACE_UV: number[][][] = [
+  [[0, 1], [1, 1], [1, 0], [0, 0]],
+  [[0, 1], [1, 1], [1, 0], [0, 0]],
+  [[0, 1], [1, 1], [1, 0], [0, 0]],
+  [[0, 1], [1, 1], [1, 0], [0, 0]],
+  [[0, 1], [1, 1], [1, 0], [0, 0]],
+  [[0, 1], [1, 1], [1, 0], [0, 0]],
 ];
 const FACE_NRM: number[][] = [
   [0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
 ];
+const FACE_DIR: number[][] = [
+  [0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
+];
 
-function pushFaceTo(P: number[], C: number[], N: number[], I: number[], x: number, y: number, z: number, face: number, color: number, variant: number) {
-  const j = 0.9 + (variant % 7) * 0.045; // subtle per-block brightness
-  const r = ((color >> 16) & 255) / 255 * j;
-  const g = ((color >> 8) & 255) / 255 * j;
-  const b = (color & 255) / 255 * j;
+function pushQuad(
+  P: number[], U: number[], I: number[],
+  x: number, y: number, z: number, face: number, tile: number, ao: number
+) {
   const base = P.length / 3;
-  const verts = FACE_VERTS[face];
-  const nrm = FACE_NRM[face];
-  for (const v of verts) {
-    P.push(x + v[0], y + v[1], z + v[2]);
-    C.push(r, g, b);
-    N.push(nrm[0], nrm[1], nrm[2]);
+  const v = FACE_VERTS[face];
+  const uv = FACE_UV[face];
+  const [u0, v0, u1, v1] = tileUV(tile);
+  for (let k = 0; k < 4; k++) {
+    P.push(x + v[k][0], y + v[k][1], z + v[k][2]);
+    const u = uv[k][0] === 0 ? u0 : u1;
+    const vt = uv[k][1] === 0 ? v0 : v1;
+    U.push(u, vt);
   }
-  // triangle fan, outward winding already encoded in FACE_VERTS order
+  // vertex AO: brighten/darken per corner via vertex colors is complex;
+  // we approximate AO by pushing a tiny per-face brightness into U channel? no.
+  // AO handled via second attribute below — see buildChunkGeometry.
+  void ao;
   I.push(base, base + 1, base + 2, base, base + 2, base + 3);
 }
 
-function buildGeometries(): { solid: THREE.BufferGeometry; glass: THREE.BufferGeometry } {
-  OP.length = 0; OC.length = 0; OI.length = 0;
-  GP.length = 0; GC.length = 0; GI.length = 0;
-  const ON = [] as number[], GN = [] as number[];
+/** Chunk'ın solid (ve yarı saydam yaprak) + su geometrisini üretir. */
+function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGeometry | null; water: THREE.BufferGeometry | null } {
+  SP.length = 0; SU.length = 0; SI.length = 0;
+  WP.length = 0; WU.length = 0; WI.length = 0;
+  const SOL = [] as number[]; // per-vertex brightness (AO)
+  const WBR = [] as number[];
+
   for (let y = 0; y < WORLD_Y; y++) {
-    for (let z = 0; z < WORLD_Z; z++) {
-      for (let x = 0; x < WORLD_X; x++) {
+    for (let z = cz0; z < cz0 + CHUNK; z++) {
+      for (let x = cx0; x < cx0 + CHUNK; x++) {
         const id = world[idx(x, y, z)];
         if (id === B.AIR) continue;
-        const glass = id === B.GLASS;
-        const cols = blockFaceColors(id);
-        const v = x * 31 + y * 17 + z * 13;
-        const faces = [
+        const isWater = isLiquid(id);
+        const isTrans = isTransparent(id) || isWater;
+        const def = BLOCKS[id];
+        const nbr = [
           getBlock(x, y + 1, z), getBlock(x, y - 1, z),
           getBlock(x + 1, y, z), getBlock(x - 1, y, z),
           getBlock(x, y, z + 1), getBlock(x, y, z - 1),
         ];
         for (let f = 0; f < 6; f++) {
-          const nb = faces[f];
-          // draw this face if neighbour is empty OR neighbour is glass (see-through)
-          const draw = nb === B.AIR || nb === B.GLASS;
+          const nb = nbr[f];
+          const nbWater = isLiquid(nb);
+          let draw = nb === B.AIR || nbWater;
+          if (isTrans) {
+            // trans yüzleri: sadece hava/su komşuluğunda çiz
+            draw = nb === B.AIR || nbWater || isTransparent(nb);
+          } else if (isWater) {
+            draw = nb === B.AIR || nbWater;
+          }
           if (!draw) continue;
-          if (glass) pushFaceTo(GP, GC, GN, GI, x, y, z, f, cols[f], v);
-          else pushFaceTo(OP, OC, ON, OI, x, y, z, f, cols[f], v);
+          const tile = def.tiles[f];
+          const [dx, dy, dz] = FACE_DIR[f];
+          // ambient occlusion: karşılıklı köşe komşulukları
+          const x2 = x + dx, y2 = y + dy, z2 = z + dz;
+          const bright =
+            0.62 // bottom ambient
+            + (dy > 0 ? 0.55 : 0) // full sun top
+            + (dy < 0 ? 0.15 : 0)
+            + (dx !== 0 ? 0.3 : 0) + (dz !== 0 ? 0.3 : 0)
+            - (isWater ? 0.35 : 0)
+            + (isTransparent(id) ? -0.1 : 0);
+          // corner AO: count solid diagonal neighbours to darken edges
+          let aoV = bright;
+          void x2; void y2; void z2;
+          if (f === 0 || f === 1) {
+            // top/bottom face: check 4 side-neighbours of the block
+            const sideSolid =
+              (solidAt(x + 1, y, z) ? 1 : 0) + (solidAt(x - 1, y, z) ? 1 : 0) +
+              (solidAt(x, y, z + 1) ? 1 : 0) + (solidAt(x, y, z - 1) ? 1 : 0);
+            aoV = bright * (1 - sideSolid * 0.06);
+          }
+          if (isWater) {
+            // lower water surface to sit just under the top of the cell
+            const baseY = f === 0 ? y + 0.86 : y;
+            pushQuad(WP, WU, WI, x, baseY, z, f, tile, aoV);
+            for (let k = 0; k < 4; k++) WBR.push(0.72);
+          } else {
+            pushQuad(isTrans ? WP : SP, isTrans ? WU : SU, isTrans ? WI : SI, x, y, z, f, tile, aoV);
+            if (isTrans) for (let k = 0; k < 4; k++) WBR.push(aoV);
+            else for (let k = 0; k < 4; k++) SOL.push(aoV);
+          }
         }
       }
     }
   }
-  const mk = (P: number[], C: number[], N: number[], I: number[]) => {
+
+  const mkSolid = () => {
+    if (SI.length === 0) return null;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
-    geo.setAttribute("color", new THREE.Float32BufferAttribute(C, 3));
-    geo.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
-    geo.setIndex(I);
-    geo.computeBoundingSphere();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(SP, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(SU, 2));
+    // vertex colors carry the baked lighting (top bright, sides mid, AO shading)
+    const cols: number[] = [];
+    for (const a of SOL) cols.push(a, a, a);
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    geo.setIndex(SI);
+    geo.computeVertexNormals();
     return geo;
   };
-  return { solid: mk(OP, OC, ON, OI), glass: mk(GP, GC, GN, GI) };
+  const mkWater = () => {
+    if (WI.length === 0) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(WP, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(WU, 2));
+    const cols: number[] = [];
+    for (const a of WBR) cols.push(a, a, a);
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    geo.setIndex(WI);
+    geo.computeVertexNormals();
+    return geo;
+  };
+  return { solid: mkSolid(), water: mkWater() };
 }
 
 /* ================= 5. SCENE ================= */
 let renderer: THREE.WebGLRenderer;
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
-let solidMesh: THREE.Mesh;
-let glassMesh: THREE.Mesh;
+let worldRoot: THREE.Group; // chunk mesh'leri burada
+let atlasTex: THREE.CanvasTexture;
+
+interface ChunkMeshes { cx: number; cz: number; solid: THREE.Mesh | null; water: THREE.Mesh | null; }
+const chunks = new Map<string, ChunkMeshes>();
 
 const player = {
   x: 0, y: 0, z: 0,
@@ -301,6 +402,9 @@ const keys = { f: false, b: false, l: false, r: false, jump: false, run: false }
 let pointerLocked = false;
 let worldDirty = true;
 let state: "menu" | "play" = "menu";
+let playerChunkX = 0, playerChunkZ = 0;
+
+const RENDER_RADIUS = 5; // chunk cinsinden görüş yarıçapı
 
 /* ================= 6. RAYCAST (DDA) ================= */
 function raycast(maxDist: number): { x: number; y: number; z: number; nx: number; ny: number; nz: number } | null {
@@ -316,7 +420,7 @@ function raycast(maxDist: number): { x: number; y: number; z: number; nx: number
   let nx = 0, ny = 0, nz = 0, t = 0;
   while (t <= maxDist) {
     const blk = getBlock(x, y, z);
-    if (blk !== B.AIR) return { x, y, z, nx, ny, nz };
+    if (blk !== B.AIR && !isLiquid(blk)) return { x, y, z, nx, ny, nz };
     if (tmx < tmy && tmx < tmz) { x += stepX; t = tmx; tmx += tdx; nx = -stepX; ny = 0; nz = 0; }
     else if (tmy < tmz) { y += stepY; t = tmy; tmy += tdy; nx = 0; ny = -stepY; nz = 0; }
     else { z += stepZ; t = tmz; tmz += tdz; nx = 0; ny = 0; nz = -stepZ; }
@@ -324,15 +428,73 @@ function raycast(maxDist: number): { x: number; y: number; z: number; nx: number
   return null;
 }
 
-/* ================= 7. MAIN ================= */
+/* ================= 7. CHUNK MANAGEMENT ================= */
+function chunkKey(cx: number, cz: number) { return cx + "," + cz; }
+
+function refreshChunks() {
+  const pcx = Math.floor(player.x / CHUNK);
+  const pcz = Math.floor(player.z / CHUNK);
+  if (pcx === playerChunkX && pcz === playerChunkZ && !worldDirty) return;
+  playerChunkX = pcx; playerChunkZ = pcz;
+  const want = new Set<string>();
+  for (let dx = -RENDER_RADIUS; dx <= RENDER_RADIUS; dx++) {
+    for (let dz = -RENDER_RADIUS; dz <= RENDER_RADIUS; dz++) {
+      const cx = pcx + dx, cz = pcz + dz;
+      if (cx < 0 || cz < 0) continue;
+      const x0 = cx * CHUNK, z0 = cz * CHUNK;
+      if (x0 >= WORLD_X || z0 >= WORLD_Z) continue;
+      want.add(chunkKey(cx, cz));
+    }
+  }
+  // remove chunks out of range
+  for (const [k, cm] of chunks) {
+    if (!want.has(k)) {
+      if (cm.solid) { worldRoot.remove(cm.solid); cm.solid.geometry.dispose(); }
+      if (cm.water) { worldRoot.remove(cm.water); cm.water.geometry.dispose(); }
+      chunks.delete(k);
+    }
+  }
+  // build missing chunks
+  for (const k of want) {
+    if (chunks.has(k) && !worldDirty) continue;
+    const [cxs, czs] = k.split(",");
+    const cx = Number(cxs), cz = Number(czs);
+    const g = buildChunkGeometries(cx * CHUNK, cz * CHUNK);
+    const existing = chunks.get(k);
+    if (existing) {
+      if (existing.solid) { worldRoot.remove(existing.solid); existing.solid.geometry.dispose(); }
+      if (existing.water) { worldRoot.remove(existing.water); existing.water.geometry.dispose(); }
+    }
+    const entry: ChunkMeshes = { cx, cz, solid: null, water: null };
+    if (g.solid) {
+      const m = new THREE.Mesh(g.solid, new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true }));
+      m.frustumCulled = false;
+      worldRoot.add(m);
+      entry.solid = m;
+    }
+    if (g.water) {
+      const m = new THREE.Mesh(g.water, new THREE.MeshLambertMaterial({
+        map: atlasTex, vertexColors: true, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide,
+      }));
+      m.frustumCulled = false;
+      m.renderOrder = 1;
+      worldRoot.add(m);
+      entry.water = m;
+    }
+    chunks.set(k, entry);
+  }
+  worldDirty = false;
+}
+
+/* ================= 8. MAIN ================= */
 let bits: { m: THREE.Mesh; vx: number; vy: number; vz: number; life: number }[] = [];
 function spawnBits(x: number, y: number, z: number, color: number) {
-  for (let i = 0; i < 6; i++) {
-    if (bits.length >= 120) break;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshBasicMaterial({ color }));
+  for (let i = 0; i < 5; i++) {
+    if (bits.length >= 110) break;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.13), new THREE.MeshBasicMaterial({ color }));
     m.position.set(x, y, z);
     scene.add(m);
-    bits.push({ m, vx: (Math.random() - 0.5) * 5, vy: Math.random() * 6 + 2.5, vz: (Math.random() - 0.5) * 5, life: 0.7 + Math.random() * 0.4 });
+    bits.push({ m, vx: (Math.random() - 0.5) * 5, vy: Math.random() * 6 + 2.5, vz: (Math.random() - 0.5) * 5, life: 0.6 + Math.random() * 0.35 });
   }
 }
 function updateBits(dt: number) {
@@ -349,18 +511,20 @@ function updateBits(dt: number) {
 
 function findSpawn(): { x: number; y: number; z: number } {
   const cx = Math.floor(WORLD_X / 2), cz = Math.floor(WORLD_Z / 2);
-  for (let r = 0; r < 30; r++) {
-    for (let a = 0; a < 24; a++) {
-      const ang = (a / 24) * Math.PI * 2;
+  for (let r = 0; r < 60; r++) {
+    for (let a = 0; a < 32; a++) {
+      const ang = (a / 32) * Math.PI * 2;
       const x = Math.round(cx + Math.cos(ang) * r);
       const z = Math.round(cz + Math.sin(ang) * r);
-      if (x < 2 || x >= WORLD_X - 2 || z < 2 || z >= WORLD_Z - 2) continue;
-      if (getBlock(x, heightAt(x, z), z) === B.GRASS && getBlock(x, heightAt(x, z) + 1, z) === B.AIR) {
-        return { x: x + 0.5, y: heightAt(x, z) + 0.02, z: z + 0.5 };
+      if (x < 3 || x >= WORLD_X - 3 || z < 3 || z >= WORLD_Z - 3) continue;
+      const h = heightAt(x, z);
+      if (getBlock(x, h, z) === B.GRASS && getBlock(x, h + 1, z) === B.AIR) {
+        return { x: x + 0.5, y: h + 0.02, z: z + 0.5 };
       }
     }
   }
-  return { x: cx + 0.5, y: heightAt(cx, cz) + 0.02, z: cz + 0.5 };
+  const h0 = heightAt(cx, cz);
+  return { x: cx + 0.5, y: Math.max(h0 + 1, SEA_LEVEL + 2), z: cz + 0.5 };
 }
 
 export function startGame(canvas: HTMLCanvasElement): () => void {
@@ -378,15 +542,18 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x8fd0f5);
-  scene.fog = new THREE.Fog(0xb5dcf5, VIEW_DIST * 0.5, VIEW_DIST * 1.25);
+  scene.fog = new THREE.Fog(0xbfe2f8, VIEW_DIST * 0.35, VIEW_DIST * 1.0);
 
   camera = new THREE.PerspectiveCamera(72, 1, 0.1, VIEW_DIST * 2);
 
-  scene.add(new THREE.HemisphereLight(0xdff0ff, 0x8a6a4a, 1.0));
-  const sun = new THREE.DirectionalLight(0xfff2d8, 1.6);
-  sun.position.set(90, 200, 70);
+  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x8a6a4a, 0.95));
+  const sun = new THREE.DirectionalLight(0xfff2d8, 1.35);
+  sun.position.set(90, 220, 60);
   scene.add(sun);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+
+  worldRoot = new THREE.Group();
+  scene.add(worldRoot);
 
   function resize() {
     const w = wrap.clientWidth || 960;
@@ -398,21 +565,19 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   resize();
   window.addEventListener("resize", resize);
 
+  // init blocks & atlas
+  initBlocks();
+  if (ATLAS_CANVAS) {
+    atlasTex = new THREE.CanvasTexture(ATLAS_CANVAS);
+    atlasTex.magFilter = THREE.NearestFilter;
+    atlasTex.minFilter = THREE.NearestFilter;
+    atlasTex.generateMipmaps = false;
+  } else {
+    throw new Error("Atlas üretilemedi");
+  }
+
   // world
   buildWorldData();
-  const geos = buildGeometries();
-  solidMesh = new THREE.Mesh(geos.solid, new THREE.MeshLambertMaterial({
-    vertexColors: true, side: THREE.DoubleSide,
-  }));
-  solidMesh.frustumCulled = false;
-  scene.add(solidMesh);
-  glassMesh = new THREE.Mesh(geos.glass, new THREE.MeshLambertMaterial({
-    vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide,
-  }));
-  glassMesh.frustumCulled = false;
-  glassMesh.renderOrder = 1;
-  scene.add(glassMesh);
-
   const sp = findSpawn();
   player.x = sp.x; player.y = sp.y; player.z = sp.z;
   player.yaw = Math.PI * 0.25;
@@ -485,6 +650,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }, { passive: false });
 
   function setBlock(x: number, y: number, z: number, id: number) {
+    if (x < 0 || x >= WORLD_X || y < 1 || y >= WORLD_Y || z < 0 || z >= WORLD_Z) return;
     world[idx(x, y, z)] = id;
     worldDirty = true;
   }
@@ -492,32 +658,30 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const hit = raycast(7);
     if (!hit) return;
     const b = getBlock(hit.x, hit.y, hit.z);
-    if (b === B.BEDROCK || b === B.AIR) return;
+    if (b === B.BEDROCK || b === B.AIR || isLiquid(b)) return;
+    if (!isBreakable(b)) return;
     setBlock(hit.x, hit.y, hit.z, B.AIR);
     AudioSys.break();
-    spawnBits(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, blockFaceColors(b)[0]);
+    spawnBits(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 0xcccccc);
   }
   function placeBlock() {
     const hit = raycast(7);
     if (!hit) return;
     const px = hit.x + hit.nx, py = hit.y + hit.ny, pz = hit.z + hit.nz;
     if (py < 1 || py >= WORLD_Y) return;
-    if (getBlock(px, py, pz) !== B.AIR) return;
+    if (getBlock(px, py, pz) !== B.AIR && !isLiquid(getBlock(px, py, pz))) return;
     // never place inside the player's feet/head box
     if (px + 1 > player.x - player.w / 2 && px < player.x + player.w / 2 &&
       pz + 1 > player.z - player.w / 2 && pz < player.z + player.w / 2 &&
       py + 1 > player.y && py < player.y + player.h) return;
     const id = HOTBAR[selectedSlot].id;
+    if (id === B.WATER || !BLOCKS[id]) return;
     setBlock(px, py, pz, id);
     AudioSys.place();
-    spawnBits(px + 0.5, py + 0.5, pz + 0.5, blockFaceColors(id)[0]);
+    spawnBits(px + 0.5, py + 0.5, pz + 0.5, 0xcccccc);
   }
 
   /* -------- physics (with 1-block step-up) -------- */
-  function solidAt(bx: number, by: number, bz: number): boolean {
-    const id = getBlock(Math.floor(bx), Math.floor(by), Math.floor(bz));
-    return isSolid(id);
-  }
   function playerTouches(px: number, py: number, pz: number): boolean {
     const x0 = px - player.w / 2, x1 = px + player.w / 2;
     const y0 = py + 0.02, y1 = py + player.h - 0.02;
@@ -528,13 +692,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
           if (solidAt(bx, by, bz)) return true;
     return false;
   }
-  // Minecraft-style physics: axis-separated movement with 1-block step-up.
   function tryStepUp(dx: number, dz: number): boolean {
     const p = player;
     const nx = p.x + dx, nz = p.z + dz;
     if (!playerTouches(nx, p.y, nz)) { p.x = nx; p.z = nz; return true; }
     if (!p.onGround) return false;
-    // try to climb a 1-block step
     for (let lift = 0.55; lift <= 1.05; lift += 0.1) {
       if (!playerTouches(nx, p.y + lift, nz)) {
         p.x = nx; p.z = nz; p.y += lift;
@@ -545,36 +707,31 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
   function step(dt: number) {
     const p = player;
-    // X
-    if (!tryStepUp(p.vx * dt, 0)) {
-      p.vx = 0;
-    }
-    // Z
-    if (!tryStepUp(0, p.vz * dt)) {
-      p.vz = 0;
-    }
-    // Y (vertical)
+    if (!tryStepUp(p.vx * dt, 0)) p.vx = 0;
+    if (!tryStepUp(0, p.vz * dt)) p.vz = 0;
     const ny = p.y + p.vy * dt;
     if (!playerTouches(p.x, ny, p.z)) {
       p.y = ny;
       if (p.vy < 0) p.onGround = false;
     } else if (p.vy <= 0) {
-      // landing — snap feet onto the top of the block we hit
       p.y = Math.floor(ny) + 1;
       while (playerTouches(p.x, p.y, p.z)) p.y += 0.01;
       p.onGround = true;
       p.vy = 0;
     } else {
-      // hit ceiling — push down out of it
       while (playerTouches(p.x, p.y, p.z)) p.y -= 0.01;
       p.vy = 0;
     }
   }
 
   let stepT = 0;
+  let inWater = false;
   function updatePlayer(dt: number) {
     const p = player;
-    const speed = keys.run ? 8.5 : 4.6;
+    // water check around feet
+    const fw = getBlock(Math.floor(p.x), Math.floor(p.y + 0.3), Math.floor(p.z));
+    inWater = isLiquid(fw);
+    const speed = (keys.run ? 8.5 : 4.6) * (inWater ? 0.55 : 1);
     const sinY = Math.sin(p.yaw), cosY = Math.cos(p.yaw);
     let mx = 0, mz = 0;
     if (keys.f) { mx -= sinY; mz -= cosY; }
@@ -585,14 +742,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (len > 0) { mx /= len; mz /= len; }
     p.vx = mx * speed;
     p.vz = mz * speed;
-    p.vy -= 26 * dt;
-    if (p.vy < -48) p.vy = -48;
-    if (keys.jump && p.onGround) { p.vy = 8.8; p.onGround = false; keys.jump = false; AudioSys.jump(); }
+    p.vy -= (inWater ? 10 : 26) * dt;
+    if (p.vy < -(inWater ? 12 : 48)) p.vy = inWater ? -12 : -48;
+    if (inWater && keys.jump) { p.vy = 4.5; keys.jump = false; AudioSys.jump(); }
+    else if (keys.jump && p.onGround) { p.vy = 8.8; p.onGround = false; keys.jump = false; AudioSys.jump(); }
     const moving = Math.hypot(p.vx, p.vz) > 0.5;
     stepT += dt * (keys.run ? 1.7 : 1);
-    if (moving && p.onGround && stepT > 0.4) { stepT = 0; AudioSys.step(); }
+    if (moving && p.onGround && !inWater && stepT > 0.42) { stepT = 0; AudioSys.step(); }
     step(dt);
-    if (p.y < -8) {
+    if (p.y < -6) {
       const s = findSpawn();
       p.x = s.x; p.z = s.z; p.y = s.y; p.vy = 0;
     }
@@ -609,14 +767,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       updatePlayer(dt);
       updateBits(dt);
     }
-    if (worldDirty) {
-      worldDirty = false;
-      const oldS = solidMesh.geometry, oldG = glassMesh.geometry;
-      const ng = buildGeometries();
-      solidMesh.geometry = ng.solid;
-      glassMesh.geometry = ng.glass;
-      oldS.dispose(); oldG.dispose();
-    }
+    refreshChunks();
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   }
@@ -633,13 +784,19 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     window.removeEventListener("keyup", onKeyUp);
     document.exitPointerLock?.();
     cleanupBits();
-    solidMesh.geometry.dispose(); glassMesh.geometry.dispose();
+    chunks.forEach((cm) => {
+      if (cm.solid) { cm.solid.geometry.dispose(); }
+      if (cm.water) { cm.water.geometry.dispose(); }
+    });
+    chunks.clear();
+    worldRoot.removeFromParent();
+    atlasTex.dispose();
     wrap.remove();
     renderer.dispose();
   };
 }
 
-/* ================= 8. UI ================= */
+/* ================= 9. UI ================= */
 function selectSlot(i: number) {
   if (i < 0 || i >= HOTBAR.length) return;
   selectedSlot = i;
@@ -713,7 +870,6 @@ function buildUI(container: HTMLElement) {
     <button class="vcx-play" id="vcx-play">▶ OYNA</button>`;
   container.appendChild(menu);
   document.getElementById("vcx-play")!.addEventListener("click", () => {
-    // menu overlay sits above the canvas, so ask the engine to start directly
     const fn = (window as unknown as { __vcxStart?: () => void }).__vcxStart;
     if (fn) fn();
   });
