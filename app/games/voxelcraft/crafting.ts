@@ -141,6 +141,26 @@ function itemIcon(id: number): string {
     c.fillStyle = "#b98a4f"; c.fillRect(-2, -11, 2, 22);
     c.fillStyle = "#6e4a23"; c.fillRect(0, -9, 1, 18);
     c.restore();
+  } else if (id === I.APPLE) {
+    fallbackIcon(c, [80, 160, 80]);
+    c.fillStyle = "#d64040";
+    c.beginPath(); c.arc(16, 19, 9, 0, Math.PI * 2); c.fill();
+    c.fillStyle = "#b52a2a";
+    c.beginPath(); c.arc(13, 21, 4, 0, Math.PI * 2); c.fill();
+    c.fillStyle = "#5b3a1a"; c.fillRect(15, 6, 2, 5);
+    c.fillStyle = "#4c9a45"; c.fillRect(17, 6, 5, 3);
+  } else if (id === I.MEAT) {
+    fallbackIcon(c, [120, 60, 40]);
+    c.fillStyle = "#c75b4a";
+    c.beginPath(); c.moveTo(8, 26); c.lineTo(10, 8); c.lineTo(18, 6); c.lineTo(24, 12); c.lineTo(22, 26); c.closePath(); c.fill();
+    c.fillStyle = "#f0c8a8"; c.fillRect(11, 14, 4, 3); c.fillRect(17, 10, 3, 3);
+    c.fillStyle = "#8a3328"; c.fillRect(8, 21, 14, 2);
+  } else if (id === I.WOOL) {
+    fallbackIcon(c, [200, 200, 200]);
+    c.fillStyle = "#fdfdfd";
+    for (const [x, y, r] of [[10, 10, 6], [22, 12, 5], [16, 22, 6], [26, 24, 4], [6, 24, 4]] as const) {
+      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+    }
   } else if (toolMetaOf(id)) {
     toolIcon(id, c);
   } else {

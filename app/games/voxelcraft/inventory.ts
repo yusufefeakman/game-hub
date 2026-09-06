@@ -41,6 +41,7 @@ export function dropsFor(blockId: number): number | null {
 /* ------------------- blok olmayan eşyalar (1000+) ------------------- */
 export const I = {
   STICK: 1000,
+  APPLE: 1002, MEAT: 1003, WOOL: 1004, // yemekler / yün
   // aletler (üretim masası 3×3 ile yapılır)
   WPICK: 1010, SPICK: 1011,
   WAXE: 1012, SAXE: 1013,
@@ -54,10 +55,18 @@ export interface ToolMeta {
   dur: number;   // toplam dayanıklılık
   speed: number; // kırma hızı çarpanı (doğru blok türünde)
 }
-export interface ItemDef { name: string; stack: number; tool?: ToolMeta; }
+export interface ItemDef {
+  name: string;
+  stack: number;
+  tool?: ToolMeta;
+  food?: number; // açlık geri kazanımı (yenilebilir)
+}
 
 export const ITEM_DEFS: Record<number, ItemDef> = {
   [I.STICK]: { name: "Çubuk", stack: 64 },
+  [I.APPLE]: { name: "Elma", stack: 64, food: 3 },
+  [I.MEAT]: { name: "Çiğ Et", stack: 64, food: 4 },
+  [I.WOOL]: { name: "Yün", stack: 64 },
   [I.WPICK]: { name: "Tahta Kazma", stack: 1, tool: { type: "pickaxe", tier: "wood", dur: 60, speed: 3.0 } },
   [I.SPICK]: { name: "Taş Kazma", stack: 1, tool: { type: "pickaxe", tier: "stone", dur: 132, speed: 4.5 } },
   [I.WAXE]: { name: "Tahta Balta", stack: 1, tool: { type: "axe", tier: "wood", dur: 60, speed: 3.0 } },
@@ -68,6 +77,9 @@ export const ITEM_DEFS: Record<number, ItemDef> = {
 
 export function itemNameOfItem(id: number): string | undefined {
   return ITEM_DEFS[id]?.name;
+}
+export function foodOf(id: number): number {
+  return ITEM_DEFS[id]?.food ?? 0;
 }
 export function toolMetaOf(id: number): ToolMeta | undefined {
   return ITEM_DEFS[id]?.tool;

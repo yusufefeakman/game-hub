@@ -25,9 +25,10 @@ import {
   B, BLOCKS, ATLAS_CANVAS, tileUV,
   isSolid, isTransparent, isLiquid, isBreakable, initBlocks,
 } from "./blocks";
-import { Inventory, dropsFor, toolMetaOf } from "./inventory";
+import { Inventory, dropsFor, toolMetaOf, foodOf, I } from "./inventory";
 import { iconDataUrl, itemNameOf } from "./crafting";
 import { openInventoryScreen, type InvHost } from "./invui";
+import { Mobs, type MobCtx } from "./mobs";
 
 /* ================= 1. CONSTANTS ================= */
 const WORLD_X = 128;
@@ -405,6 +406,7 @@ function starterInventory() {
   inventory.add(B.COBBLE, 24);
   inventory.add(B.GLASS, 8);
   inventory.add(B.CRAFTING_TABLE, 1);
+  inventory.add(I.APPLE, 3);
 }
 
 let selectedSlot = 0;
@@ -697,6 +699,93 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (fn) fn(); // grid+imleç envantere döner; closed() pointer lock'u geri ister
   }
 
+  /* -------- canlılar (mobs.ts) -------- */
+  let eatCd = 0;
+  let meleeCd = 0;
+  const mobCtx: MobCtx = {
+    solidAt: (x, y, z) => solidAt(x, y, z),
+    isLiquidId: (b) => isLiquid(b),
+    getBlock: (x, y, z) => getBlock(x, y, z),
+    groundY(x, z) {
+      const xi = Math.floor(x), zi = Math.floor(z);
+      for (let y = WORLD_Y - 3; y >= 2; y--) {
+        const b = getBlock(xi, y, zi);
+        if (b !== B.AIR && !isLiquid(b)) {
+          if (getBlock(xi, y + 1, zi) === B.AIR && getBlock(xi, y + 2, zi) === B.AIR) return y + 1;
+          return -1;
+        }
+      }
+      return -1;
+    },
+    sunLevel: () => Math.max(0, Math.cos(((worldTime % DAY_LEN) / DAY_LEN - 0.25) * Math.PI * 2)),
+    playerPos: () => [player.x, player.y, player.z],
+    damagePlayer: (a, c) => hurt(a, c),
+    addDrop(id, n) {
+      const left = inventory.add(id, n);
+      if (left > 0) showToast("Envanter dolu — düşen eşya kayboldu!");
+      return left > 0;
+    },
+    particles: (x, y, z, col) => spawnBits(x, y, z, col),
+    sfx(k) {
+      if (k === "hit") AudioSys.tone("square", 170, 90, 0.09, 0.28);
+      else if (k === "die") AudioSys.tone("sawtooth", 320, 60, 0.28, 0.32);
+      else AudioSys.tone("sawtooth", 130, 40, 0.45, 0.25);
+    },
+  };
+  const mobs = new Mobs(mobCtx);
+  scene.add(mobs.group);
+
+  function seedMobs() {
+    const kinds = ["sheep", "cow", "pig", "chicken"] as const;
+    for (let i = 0; i < 9; i++) {
+      const kind = kinds[Math.floor(Math.random() * kinds.length)];
+      for (let t = 0; t < 6; t++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 12 + Math.random() * 34;
+        const x = Math.round(player.x + Math.cos(a) * r);
+        const z = Math.round(player.z + Math.sin(a) * r);
+        if (x < 2 || x > 125 || z < 2 || z > 125) continue;
+        if (mobs.spawn(kind, x, z)) break;
+      }
+    }
+  }
+  seedMobs();
+
+  function dmgForSelected(): number {
+    const s = inventory.slots[selectedSlot];
+    if (!s) return 2;
+    const meta = toolMetaOf(s.id);
+    if (!meta) return 2;
+    return meta.type === "axe" ? 4 : 3;
+  }
+
+  function eatSelected() {
+    if (eatCd > 0) return;
+    const s = inventory.slots[selectedSlot];
+    if (!s) return;
+    const f = foodOf(s.id);
+    if (f <= 0) { showToast("Bu yenmez"); return; }
+    if (player.hunger >= 20 && player.hp >= 20) { showToast("Toksun, yiyemezsin"); return; }
+    inventory.remove(selectedSlot, 1);
+    player.hunger = Math.min(20, player.hunger + f);
+    eatCd = 0.7;
+    AudioSys.tone("square", 210, 130, 0.08, 0.3);
+    window.setTimeout(() => AudioSys.tone("square", 150, 95, 0.1, 0.3), 140);
+    updatePlayerUI();
+    refreshHotbarUI();
+    showToast(`🍎 ${itemNameOf(s.id)} yedin (+${f} açlık)`);
+  }
+
+  function updateCombat(dt: number) {
+    if (eatCd > 0) eatCd -= dt;
+    if (!mining) return; // mining = sol tık basılı
+    if (meleeCd > 0) { meleeCd -= dt; return; }
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const hit = mobs.tryPlayerHit(camera.position.x, camera.position.y, camera.position.z, dir.x, dir.y, dir.z, 3.4, dmgForSelected());
+    if (hit) meleeCd = 0.4;
+  }
+
   /* -------- input -------- */
   const onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
@@ -706,6 +795,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       return; // ekran açıkken hareket/işlem tuşları çalışmaz
     }
     if (k === "e" && state === "play") { openInv(2); return; }
+    if (k === "f" && state === "play") { eatSelected(); return; }
     if (["w", "a", "s", "d", " ", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
     if (k === "w" || k === "arrowup") keys.f = true;
     if (k === "s" || k === "arrowdown") keys.b = true;
@@ -761,7 +851,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.addEventListener("mousedown", (e) => {
     if (state !== "play" || !pointerLocked) return;
     e.preventDefault();
-    if (e.button === 0) { mineWarned = ""; mining = true; mineKey = ""; mineT = 0; }
+    if (e.button === 0) {
+      // önce yakındaki canlıya vur; yoksa kazmaya başla
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const hitMob = mobs.tryPlayerHit(camera.position.x, camera.position.y, camera.position.z, dir.x, dir.y, dir.z, 3.4, dmgForSelected());
+      if (!hitMob) { mineWarned = ""; mining = true; mineKey = ""; mineT = 0; }
+    }
     else if (e.button === 2) onInteract();
   });
   const onMouseUp = (e: MouseEvent) => { if (e.button === 0) stopMining(); };
@@ -835,24 +931,29 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (meta) {
       if (inventory.damageSlot(selectedSlot)) showToast("💥 Aletin kırıldı!");
     }
+    if (b === B.LEAVES && Math.random() < 0.07) {
+      const left = inventory.add(I.APPLE, 1);
+      if (left > 0) showToast("Envanter dolu!");
+    }
     refreshHotbarUI();
   }
 
   function updateMining(dt: number) {
     if (!mining) return;
     const hit = raycast(7);
-    if (!hit) { stopMining(); return; }
+    if (!hit) { if (targetHL.visible) targetHL.visible = false; mineKey = ""; return; }
     const b = getBlock(hit.x, hit.y, hit.z);
-    if (b === B.AIR || isLiquid(b) || !isBreakable(b)) { stopMining(); return; }
+    if (b === B.AIR || isLiquid(b) || !isBreakable(b)) { if (targetHL.visible) targetHL.visible = false; mineKey = ""; return; }
     const key = hit.x + "," + hit.y + "," + hit.z;
     const toolId = currentTool();
     const meta = toolId !== null ? toolMetaOf(toolId) : undefined;
     const need = oreTierOf(b);
 
-    // Obsidyen: taş kazma yoksa kazma ilerlemez
+    // Obsidyen: taş kazma yoksa kazma ilerlemez (tutma sürer, melee çalışabilir)
     if (b === B.OBSIDIAN && !(meta?.type === "pickaxe" && tierRank(meta.tier) >= 1)) {
       if (mineWarned !== key) { mineWarned = key; showToast("Obsidyen için taş kazma gerek!"); }
-      stopMining();
+      targetHL.visible = false;
+      mineKey = "";
       return;
     }
     if (need >= 0 && !(meta?.type === "pickaxe" && tierRank(meta.tier) >= need)) {
@@ -946,6 +1047,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function hurt(amount: number, cause: string) {
     if (state !== "play") return;
     player.hp = Math.max(0, player.hp - amount);
+    AudioSys.tone("sawtooth", 95, 55, 0.22, 0.45);
     showToast(cause);
     updatePlayerUI();
     if (player.hp <= 0) {
@@ -1037,7 +1139,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     last = ts;
     if (state === "play") {
       updatePlayer(dt);
-      if (!invOpen) updateMining(dt);
+      if (!invOpen) {
+        updateMining(dt);
+        updateCombat(dt);
+        mobs.update(dt);
+      }
       updateBits(dt);
     }
     refreshChunks();
@@ -1070,6 +1176,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       if (cm.water) { cm.water.geometry.dispose(); }
     });
     chunks.clear();
+    mobs.clear();
+    scene.remove(mobs.group);
     worldRoot.removeFromParent();
     atlasTex.dispose();
     wrap.remove();
@@ -1248,7 +1356,7 @@ function buildUI(container: HTMLElement) {
 
   const tip = document.createElement("div");
   tip.className = "vcx-tip";
-  tip.textContent = "Sol tık (basılı tut): kaz · Sağ tık: yerleştir (masaya: 3×3 üret) · E: envanter · Esc: menü";
+  tip.textContent = "Sol tık: kaz / canlıya vur · Sağ tık: yerleştir · E: envanter · F: ye · Esc: menü";
   container.appendChild(tip);
 
   // hotbar'ı 9 boş slot ile kur (içerik refreshHotbarUI ile dolar)
@@ -1270,8 +1378,8 @@ function buildUI(container: HTMLElement) {
     <h2>Minecraft benzeri blok dünyası</h2>
     <p class="row"><span class="k">W A S D</span> hareket &nbsp;&nbsp;<span class="k">Space</span> zıpla &nbsp;&nbsp;<span class="k">Shift</span> koş</p>
     <p class="row"><span class="k">Sol tık</span> (basılı tut) kaz &nbsp;&nbsp;<span class="k">Sağ tık</span> yerleştir &nbsp;&nbsp;<span class="k">1-9</span>/tekerlek blok</p>
-    <p class="row"><span class="k">E</span> envanter+üretim &nbsp;&nbsp;<span class="k">Sağ tık</span> üretim masası: 3×3</p>
-    <p class="row">Alet üret: 3×3 masada kazma/balta/kürek — cevher için kazma şart!</p>
+    <p class="row"><span class="k">E</span> envanter+üretim &nbsp;&nbsp;<span class="k">F</span> ye (seçili yiyecek) &nbsp;&nbsp;<span class="k">Sağ tık</span> masada: 3×3</p>
+    <p class="row">Koyun/inek/domuz/tavuk bul, gece zombi ve iskelet gelir — avlan, et topla!</p>
     <button class="vcx-play" id="vcx-play">▶ OYNA</button>`;
   container.appendChild(menu);
   document.getElementById("vcx-play")!.addEventListener("click", () => {
