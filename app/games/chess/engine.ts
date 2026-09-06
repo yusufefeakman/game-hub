@@ -450,31 +450,35 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     slab.position.y = -0.33;
     slab.receiveShadow = true;
     world.add(slab);
-    // thick outer frame (tall, wood-grained sides)
+    // thick outer frame (tall, wood-grained sides); top surface at y = 0.20
     const frame = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.72, 9.4), frameMat);
-    frame.position.y = -0.12;
+    frame.position.y = -0.16;
     frame.castShadow = true;
     frame.receiveShadow = true;
     world.add(frame);
-    // inner lip — stepped, premium frame look
+    // inner lip — stepped, premium frame look; top surface at y = 0.22
     const lip = new THREE.Mesh(new THREE.BoxGeometry(8.9, 0.28, 8.9), frameMat);
-    lip.position.y = 0.09;
+    lip.position.y = 0.08;
     lip.receiveShadow = true;
     world.add(lip);
 
-    const sqGeo = new THREE.BoxGeometry(0.98, 0.24, 0.98);
+    const sqGeo = new THREE.BoxGeometry(1.0, 0.06, 1.0);
+    // Squares form one clean 8x8 surface with NO gaps (1.0 width, centers 1.0 apart).
+    // Square bottom rests on the lip top (lip top y = 0.08 + 0.14 = 0.22);
+    // square center y = 0.25, top surface y = 0.28 — clearly above every frame
+    // surface, so nothing coplanar overlaps (no Z-fighting).
     for (let i = 0; i < 64; i++) {
       const mat = (Core.FILE(i) + Core.RANK(i)) % 2 === 0 ? lightSqMat : darkSqMat;
       const m = new THREE.Mesh(sqGeo, mat);
-      m.position.set(Core.FILE(i) - 3.5, 0.12, Core.RANK(i) - 3.5);
+      m.position.set(Core.FILE(i) - 3.5, 0.25, Core.RANK(i) - 3.5);
       m.receiveShadow = true;
       m.userData.square = i;
       world.add(m);
       squareMeshes.push(m);
 
-      const ov = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 0.98), overlayBaseMat.clone());
+      const ov = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), overlayBaseMat.clone());
       ov.rotation.x = -Math.PI / 2;
-      ov.position.set(Core.FILE(i) - 3.5, 0.245, Core.RANK(i) - 3.5);
+      ov.position.set(Core.FILE(i) - 3.5, 0.283, Core.RANK(i) - 3.5);
       ov.renderOrder = 2;
       world.add(ov);
       squareOverlays.push(ov);
@@ -492,7 +496,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
           new THREE.PlaneGeometry(0.52, 0.52),
           new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
         );
-        p.position.set(f - 3.5, 0.245, z);
+        p.position.set(f - 3.5, 0.225, z);
         p.rotation.x = -Math.PI / 2;
         p.rotation.z = mir ? Math.PI : 0;
         p.renderOrder = 3;
@@ -509,7 +513,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
           new THREE.PlaneGeometry(0.52, 0.52),
           new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
         );
-        p.position.set(x, 0.245, r - 3.5);
+        p.position.set(x, 0.225, r - 3.5);
         p.rotation.y = x < 0 ? Math.PI / 2 : -Math.PI / 2;
         p.rotation.x = -Math.PI / 2;
         p.renderOrder = 3;
@@ -570,8 +574,10 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   const pieces = new Map<number, PieceObj>();
   const pieceAt = new Map<number, PieceObj>();
 
+  // Pieces stand on the square TOP surface (y = 0.28), never sunk into it.
+  const SQUARE_TOP_Y = 0.28;
   const squareWorld = (i: number) =>
-    new THREE.Vector3(Core.FILE(i) - 3.5, 0, Core.RANK(i) - 3.5);
+    new THREE.Vector3(Core.FILE(i) - 3.5, SQUARE_TOP_Y, Core.RANK(i) - 3.5);
 
   const rebuildPieces = () => {
     for (const p of pieces.values()) world.remove(p.group);
@@ -714,13 +720,13 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       if (pos.board[m.to] || pos.ep === m.to) {
         const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.055, 10, 36), ringMat);
         ring.rotation.x = Math.PI / 2;
-        ring.position.set(w.x, 0.26, w.z);
+        ring.position.set(w.x, SQUARE_TOP_Y + 0.03, w.z);
         ring.renderOrder = 2;
         world.add(ring);
         markers.push(ring);
       } else {
         const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.03, 24), markerMat);
-        dot.position.set(w.x, 0.26, w.z);
+        dot.position.set(w.x, SQUARE_TOP_Y + 0.02, w.z);
         dot.renderOrder = 2;
         world.add(dot);
         markers.push(dot);
