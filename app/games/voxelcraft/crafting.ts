@@ -1,27 +1,17 @@
 /* =====================================================================
    VOXELCRAFT — crafting.ts
-   Üretim (crafting) sistemi: eşya kimlikleri, 2×2/3×3 tarifler ve
-   kalıp eşleştirici. Blok kimlikleri blocks.ts'teki B.*; blok olmayan
-   ara eşyalar 1000+ aralığında tutulur (yerleştirilemezler).
-
-   Tarifler ızgara (grid) üzerinde sol-üste hizalı aranır; boşluklar
-   cropGrid ile temizlenir, böylece 2×2 alana 1×1 kalıp da sığar.
+   Üretim (crafting) sistemi: 2×2/3×3 tarifler ve kalıp eşleştirici.
+   Eşya kimlikleri blocks.ts/inventory.ts'ten gelir (bloklar B.*,
+   blok-dışı eşyalar I.*). Tarifler grid üzerinde sol-üste hizalı
+   aranır; boşluklar cropGrid ile temizlenir.
    ===================================================================== */
 import { B, BLOCKS, ATLAS_CANVAS } from "./blocks";
-import { ITEM_NAME } from "./inventory";
+import { I, ITEM_NAME, itemNameOfItem, toolMetaOf } from "./inventory";
+export { I }; // dış kullanım için tekrar ihraç
 
-// Blok olmayan eşyalar (yerleştirilemez; 1000+ ayrı alan)
-export const I = {
-  STICK: 1000,
-} as const;
-
-export const ITEM_NAMES: Record<number, string> = {
-  [I.STICK]: "Çubuk",
-};
-
-// Birleşik ad: blok → eşya → blok-tanımı
+// Birleşik ad: blok → eşya → varsayılan
 export function itemNameOf(id: number): string {
-  return ITEM_NAME[id] ?? ITEM_NAMES[id] ?? "Eşya";
+  return ITEM_NAME[id] ?? itemNameOfItem(id) ?? "Eşya";
 }
 
 export interface Recipe {
@@ -40,14 +30,25 @@ function rec(w: number, h: number, rows: number[][], outId: number, outCount: nu
   return { w, h, rows: r, outId, outCount };
 }
 
+const P = B.PLANKS;   // kalas
+const C = B.COBBLE;   // arnavut
+const S = I.STICK;    // çubuk
+
 export const RECIPES: Recipe[] = [
-  // 1 odun → 4 kalas
-  rec(1, 1, [[B.WOOD]], B.PLANKS, 4),
-  // 2 kalas (dikey) → 4 çubuk
-  rec(1, 2, [[B.PLANKS], [B.PLANKS]], I.STICK, 4),
-  // 2×2 kalas → üretim masası
-  rec(2, 2, [[B.PLANKS, B.PLANKS], [B.PLANKS, B.PLANKS]], B.CRAFTING_TABLE, 1),
-  // 3×3 tarifler (araçlar vb.) ilerleyen aşamalarda eklenir.
+  // ---- 2×2 / kişisel üretim ----
+  rec(1, 1, [[B.WOOD]], B.PLANKS, 4),                                   // odun → kalas
+  rec(1, 2, [[P], [P]], S, 4),                                          // 2 kalas (dikey) → çubuk
+  rec(2, 2, [[P, P], [P, P]], B.CRAFTING_TABLE, 1),                      // kalas² → üretim masası
+
+  // ---- 3×3 / üretim masası — tahta aletler ----
+  rec(3, 3, [[P, P, P], [0, S, 0], [0, S, 0]], I.WPICK, 1),              // tahta kazma
+  rec(3, 3, [[P, P, 0], [P, S, 0], [0, S, 0]], I.WAXE, 1),               // tahta balta
+  rec(3, 3, [[P, 0, 0], [S, 0, 0], [S, 0, 0]], I.WSHOV, 1),              // tahta kürek
+
+  // ---- 3×3 — taş aletler ----
+  rec(3, 3, [[C, C, C], [0, S, 0], [0, S, 0]], I.SPICK, 1),              // taş kazma
+  rec(3, 3, [[C, C, 0], [C, S, 0], [0, S, 0]], I.SAXE, 1),               // taş balta
+  rec(3, 3, [[C, 0, 0], [S, 0, 0], [S, 0, 0]], I.SSHOV, 1),              // taş kürek
 ];
 
 /** Izgaradaki boş satır/sütunları atarak sol-üste hizalı içerik kutusu döner. */
@@ -97,6 +98,37 @@ function fallbackIcon(c: CanvasRenderingContext2D, rgb: [number, number, number]
   c.fillRect(2, 2, 28, 2); c.fillRect(2, 28, 28, 2); c.fillRect(2, 2, 2, 28); c.fillRect(28, 2, 2, 28);
 }
 
+function toolIcon(id: number, c: CanvasRenderingContext2D) {
+  const meta = toolMetaOf(id);
+  if (!meta) { fallbackIcon(c, [140, 140, 150]); return; }
+  const stone = meta.tier === "stone";
+  const head = stone ? "rgb(150,150,158)" : "rgb(168,128,78)";
+  const headDark = stone ? "rgb(96,96,104)" : "rgb(118,86,52)";
+  fallbackIcon(c, stone ? [96, 98, 106] : [150, 120, 82]);
+  c.save();
+  c.translate(16, 18);
+  c.rotate(-Math.PI / 4);
+  // sap
+  c.fillStyle = stone ? "#6e5b3c" : "#8a5a2b";
+  c.fillRect(-3, -16, 6, 32);
+  c.fillStyle = head;
+  if (meta.type === "pickaxe") {
+    c.fillRect(-9, -15, 18, 4);  // kafa
+    c.fillStyle = headDark; c.fillRect(-8, -16, 16, 1); c.fillRect(-9, -12, 18, 1);
+  } else if (meta.type === "axe") {
+    c.fillRect(-2, -17, 12, 5);
+    c.fillStyle = headDark; c.fillRect(8, -17, 2, 5);
+  } else { // shovel
+    c.fillRect(-6, -15, 12, 2);
+    c.fillStyle = headDark;
+    c.beginPath();
+    c.arc(0, -13, 5, 0, Math.PI);
+    c.closePath();
+    c.fill();
+  }
+  c.restore();
+}
+
 function itemIcon(id: number): string {
   const cv = document.createElement("canvas");
   cv.width = 32; cv.height = 32;
@@ -109,6 +141,8 @@ function itemIcon(id: number): string {
     c.fillStyle = "#b98a4f"; c.fillRect(-2, -11, 2, 22);
     c.fillStyle = "#6e4a23"; c.fillRect(0, -9, 1, 18);
     c.restore();
+  } else if (toolMetaOf(id)) {
+    toolIcon(id, c);
   } else {
     fallbackIcon(c, [140, 140, 150]);
   }

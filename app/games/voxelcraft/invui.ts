@@ -2,7 +2,8 @@
    VOXELCRAFT — invui.ts
    Tam envanter + üretim ekranı. engine.ts'ye bağımlı DEĞİLDİR; tüm
    yan etkiler InvHost arayüzü üzerinden iletilir (böylece döngüsel
-   import olmaz).
+   import olmaz). Aletler `dmg` (dayanıklılık) ile taşınır ve slotta
+   dayanıklılık çubuğu olarak gösterilir.
 
    Etkileşim (Minecraft tarzı):
      Sol tık slot        → stack'i kaldır / bırak / istifle / değiştir
@@ -10,7 +11,7 @@
      Sonuç slotuna tık   → grid'deki kalıbı bir kez üret (imlece ekle)
      E / Esc / ✕         → kapat (grid + imleç envantere geri döner)
    ===================================================================== */
-import { Inventory, STACK_MAX } from "./inventory";
+import { Inventory, stackLimitOf, toolMetaOf } from "./inventory";
 import { matchRecipe, itemNameOf, iconDataUrl, type Recipe } from "./crafting";
 
 export interface InvHost {
@@ -23,10 +24,10 @@ export interface InvHost {
   closed(): void;
 }
 
-interface Cell { id: number | null; count: number; }
+interface Cell { id: number | null; count: number; dmg?: number; }
 type Ref = { kind: "inv"; i: number } | { kind: "grid"; i: number };
 
-function cellOf(id: number | null, count: number): Cell { return { id, count }; }
+function cellOf(id: number | null, count: number, dmg?: number): Cell { return { id, count, dmg }; }
 
 /**
  * wrap içinde envanter/üretim ekranını açar.
@@ -69,7 +70,6 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
   </div>`;
   wrap.appendChild(ov);
 
-  // stiller (bir kez — her açılışta güvenli şekilde append edilir)
   const style = document.createElement("style");
   style.textContent = `
 .vcx-ioverlay{position:absolute;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;
@@ -100,6 +100,9 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
 .vcx-islot.hl{border-color:#ffd23f;box-shadow:0 0 10px rgba(255,210,63,.75)}
 .vcx-result.hl{border-color:#7ee081;box-shadow:0 0 10px rgba(126,224,129,.8)}
 .vcx-result:active{transform:scale(.94)}
+.dbar{position:absolute;left:2px;right:2px;bottom:2px;height:3px;border-radius:2px;background:rgba(0,0,0,.55);
+  overflow:hidden;pointer-events:none}
+.dbar i{display:block;height:100%;border-radius:2px;background:#7ee081}
 .vcx-ifoot{font-size:11px;color:#8fa3b8;text-align:center}
 .vcx-ighost{position:absolute;z-index:14;width:42px;height:42px;border-radius:7px;border:2px solid #ffd23f;
   background-color:rgba(0,0,0,.55);background-size:cover;background-repeat:no-repeat;image-rendering:pixelated;
@@ -115,7 +118,6 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
   ghost.style.display = "none";
   wrap.appendChild(ghost);
 
-  // slot elementleri oluştur
   for (let i = 0; i < nCells; i++) {
     const s = document.createElement("div");
     s.className = "vcx-islot";
@@ -140,16 +142,16 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
   function getRef(r: Ref): Cell {
     if (r.kind === "inv") {
       const s = inv.slots[r.i];
-      return s ? cellOf(s.id, s.count) : cellOf(null, 0);
+      return s ? cellOf(s.id, s.count, s.dmg) : cellOf(null, 0);
     }
     return grid[r.i];
   }
-  function setRef(r: Ref, id: number | null, count: number) {
+  function setRef(r: Ref, id: number | null, count: number, dmg?: number) {
     if (id === null || count <= 0) {
       if (r.kind === "inv") inv.slots[r.i] = null;
       else grid[r.i] = cellOf(null, 0);
-    } else if (r.kind === "inv") inv.slots[r.i] = { id, count };
-    else grid[r.i] = cellOf(id, count);
+    } else if (r.kind === "inv") inv.slots[r.i] = { id, count, dmg };
+    else grid[r.i] = cellOf(id, count, dmg);
   }
   function rows2d(): (number | null)[][] {
     const rows: (number | null)[][] = [];
@@ -174,9 +176,18 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     }
     el.style.backgroundImage = `url(${iconDataUrl(c.id)})`;
     el.style.backgroundColor = "rgba(0,0,0,.55)";
-    const show = c.id >= 1000 || c.count > 1 || result;
-    el.innerHTML = show ? `<b>${c.count}</b>` : "";
-    el.title = `${itemNameOf(c.id)}${c.count > 1 ? ` ×${c.count}` : ""}`;
+    const meta = toolMetaOf(c.id);
+    const showCount = c.id >= 1000 || c.count > 1 || result;
+    let html = showCount && !meta ? `<b>${c.count}</b>` : "";
+    let tip = itemNameOf(c.id);
+    if (meta) {
+      const dmg = c.dmg ?? meta.dur;
+      const pct = dmg / meta.dur;
+      html += `<span class="dbar"><i style="width:${Math.round(pct * 100)}%;background:${pct < 0.25 ? "#ff5d5d" : "#7ee081"}"></i></span>`;
+      tip += ` (${dmg}/${meta.dur})`;
+    } else if (c.count > 1) tip += ` ×${c.count}`;
+    el.innerHTML = html;
+    el.title = tip;
     el.classList.add("hl");
   }
 
@@ -205,7 +216,8 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     if (cur && cur.id !== null) {
       ghost.style.display = "block";
       ghost.style.backgroundImage = `url(${iconDataUrl(cur.id)})`;
-      ghost.innerHTML = `<b>${cur.count}</b>`;
+      const gmeta = toolMetaOf(cur.id);
+      ghost.innerHTML = gmeta ? "" : `<b>${cur.count}</b>`;
       ghost.title = `${itemNameOf(cur.id)} ×${cur.count}`;
     } else ghost.style.display = "none";
   }
@@ -221,20 +233,20 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     if (!right) {
       // sol tık: kaldır / bırak / istifle / değiştir
       if (!cursor) {
-        if (src.id !== null) { cursor = cellOf(src.id, src.count); setRef(r, null, 0); }
+        if (src.id !== null) { cursor = cellOf(src.id, src.count, src.dmg); setRef(r, null, 0); }
       } else if (src.id === null) {
-        setRef(r, cursor.id, cursor.count); cursor = null;
+        setRef(r, cursor.id, cursor.count, cursor.dmg); cursor = null;
       } else if (src.id === cursor.id) {
-        const space = STACK_MAX - src.count;
+        const space = stackLimitOf(src.id) - src.count;
         if (space > 0) {
           const m = Math.min(space, cursor.count);
-          setRef(r, src.id, src.count + m);
+          setRef(r, src.id, src.count + m, src.dmg);
           cursor.count -= m;
           if (cursor.count <= 0) cursor = null;
         }
       } else {
-        const tmp = cellOf(cursor.id, cursor.count);
-        setRef(r, src.id, src.count);
+        const tmp = cellOf(cursor.id, cursor.count, cursor.dmg);
+        setRef(r, src.id, src.count, src.dmg);
         cursor = tmp;
       }
       refresh();
@@ -244,15 +256,15 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     if (!cursor) {
       if (src.id !== null) {
         const half = Math.ceil(src.count / 2);
-        cursor = cellOf(src.id, half);
-        setRef(r, src.id, src.count - half);
+        cursor = cellOf(src.id, half, src.dmg);
+        setRef(r, src.id, src.count - half, src.dmg);
       }
     } else if (src.id === null) {
-      setRef(r, cursor.id, 1);
+      setRef(r, cursor.id, 1, cursor.dmg);
       cursor.count -= 1;
       if (cursor.count <= 0) cursor = null;
-    } else if (src.id === cursor.id && src.count < STACK_MAX) {
-      setRef(r, src.id, src.count + 1);
+    } else if (src.id === cursor.id && src.count < stackLimitOf(src.id)) {
+      setRef(r, src.id, src.count + 1, src.dmg);
       cursor.count -= 1;
       if (cursor.count <= 0) cursor = null;
     }
@@ -263,15 +275,18 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     const rc = recipe();
     if (!rc) return false;
     // imleçte ürün için yer yoksa üretme
-    if (cursor && (cursor.id !== rc.outId || cursor.count + rc.outCount > STACK_MAX)) return false;
+    if (cursor && (cursor.id !== rc.outId || cursor.count + rc.outCount > stackLimitOf(rc.outId))) return false;
     // her grid hücresinden 1 tüket
     for (const g of grid) {
       if (g.id !== null && g.count > 0) {
         g.count -= 1;
-        if (g.count <= 0) { g.id = null; g.count = 0; }
+        if (g.count <= 0) { g.id = null; g.count = 0; g.dmg = undefined; }
       }
     }
-    if (!cursor) cursor = cellOf(rc.outId, 0);
+    if (!cursor) {
+      const t = toolMetaOf(rc.outId);
+      cursor = cellOf(rc.outId, 0, t ? t.dur : undefined);
+    }
     cursor.count += rc.outCount;
     refresh();
     return true;
@@ -289,12 +304,12 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
   function close() {
     const cur = cursor;
     if (cur && cur.id !== null) {
-      const left = inv.add(cur.id, cur.count);
+      const left = inv.addStack({ id: cur.id, count: cur.count, dmg: cur.dmg });
       if (left > 0) host.toast(`${itemNameOf(cur.id)} için yer yok — düştü!`);
     }
     for (const g of grid) {
       if (g.id !== null && g.count > 0) {
-        const left = inv.add(g.id, g.count);
+        const left = inv.addStack({ id: g.id, count: g.count, dmg: g.dmg });
         if (left > 0) host.toast(`${itemNameOf(g.id)} için yer yok — düştü!`);
       }
     }

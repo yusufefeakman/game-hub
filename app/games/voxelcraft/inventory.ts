@@ -1,12 +1,17 @@
 /* =====================================================================
    VOXELCRAFT — inventory.ts
    Stack'li envanter + eşya tanımları. Blok kırınca düşen eşyalar buraya
-   eklenir; hotbar envanterin ilk 9 slotudur. UI (sürükle/bırak) engine
-   tarafında DOM ile kurulur.
+   eklenir; hotbar envanterin ilk 9 slotudur.
+
+   Eşya kimlikleri:
+     < 1000  → bloklar (blocks.ts'teki B.*)
+     >= 1000 → blok olmayan eşyalar (I.*) — yerleştirilemez.
+   Aletler stack başına 1 adet tutar ve `dmg` (kalan dayanıklılık)
+   taşır; bloklar/ara eşyalar 64'lük stack olur.
    ===================================================================== */
 import { B } from "./blocks";
 
-export interface ItemStack { id: number; count: number; }
+export interface ItemStack { id: number; count: number; dmg?: number; }
 export const STACK_MAX = 64;
 
 export const ITEM_NAME: Record<number, string> = {
@@ -27,10 +32,53 @@ export function dropsFor(blockId: number): number | null {
   switch (blockId) {
     case B.AIR: case B.BEDROCK: case B.WATER: return null;
     case B.LEAVES: case B.TALL_GRASS: case B.FLOWER_RED: case B.FLOWER_YELLOW:
-      return null; // doğada toplanamaz (ileride elma vb.)
+      return null; // doğada toplanamaz
     default:
       return blockId;
   }
+}
+
+/* ------------------- blok olmayan eşyalar (1000+) ------------------- */
+export const I = {
+  STICK: 1000,
+  // aletler (üretim masası 3×3 ile yapılır)
+  WPICK: 1010, SPICK: 1011,
+  WAXE: 1012, SAXE: 1013,
+  WSHOV: 1014, SSHOV: 1015,
+} as const;
+
+export type ToolType = "pickaxe" | "axe" | "shovel";
+export interface ToolMeta {
+  type: ToolType;
+  tier: "wood" | "stone";
+  dur: number;   // toplam dayanıklılık
+  speed: number; // kırma hızı çarpanı (doğru blok türünde)
+}
+export interface ItemDef { name: string; stack: number; tool?: ToolMeta; }
+
+export const ITEM_DEFS: Record<number, ItemDef> = {
+  [I.STICK]: { name: "Çubuk", stack: 64 },
+  [I.WPICK]: { name: "Tahta Kazma", stack: 1, tool: { type: "pickaxe", tier: "wood", dur: 60, speed: 3.0 } },
+  [I.SPICK]: { name: "Taş Kazma", stack: 1, tool: { type: "pickaxe", tier: "stone", dur: 132, speed: 4.5 } },
+  [I.WAXE]: { name: "Tahta Balta", stack: 1, tool: { type: "axe", tier: "wood", dur: 60, speed: 3.0 } },
+  [I.SAXE]: { name: "Taş Balta", stack: 1, tool: { type: "axe", tier: "stone", dur: 132, speed: 4.5 } },
+  [I.WSHOV]: { name: "Tahta Kürek", stack: 1, tool: { type: "shovel", tier: "wood", dur: 60, speed: 3.0 } },
+  [I.SSHOV]: { name: "Taş Kürek", stack: 1, tool: { type: "shovel", tier: "stone", dur: 132, speed: 4.5 } },
+};
+
+export function itemNameOfItem(id: number): string | undefined {
+  return ITEM_DEFS[id]?.name;
+}
+export function toolMetaOf(id: number): ToolMeta | undefined {
+  return ITEM_DEFS[id]?.tool;
+}
+export function stackLimitOf(id: number): number {
+  return ITEM_DEFS[id]?.stack ?? STACK_MAX;
+}
+/** Alet ise tam dayanıklılıkla yeni stack üretir. */
+export function newStack(id: number, count = 1): ItemStack {
+  const tool = ITEM_DEFS[id]?.tool;
+  return tool ? { id, count, dmg: tool.dur } : { id, count };
 }
 
 export class Inventory {
@@ -41,28 +89,41 @@ export class Inventory {
   get hotbar() { return this.slots.slice(0, 9); }
   get hotbarSize() { return 9; }
 
-  /** Boş/aynı id'li bir slota ekler; tamamı sığmazsa artanı döner. */
+  /** Yeni bir stack ekler (aletler tam dayanıklılıkla). */
   add(id: number, count: number): number {
-    let remaining = count;
-    // önce aynı id'li kısmi stack'ler
-    for (let i = 0; i < this.slots.length && remaining > 0; i++) {
-      const s = this.slots[i];
-      if (s && s.id === id && s.count < STACK_MAX) {
-        const space = STACK_MAX - s.count;
-        const put = Math.min(space, remaining);
-        s.count += put;
-        remaining -= put;
+    return this.addStack(newStack(id, count));
+  }
+
+  /** Mevcut stack'i (dmg dahil) olduğu gibi ekler; sığmayan miktarı döner. */
+  addStack(s: ItemStack): number {
+    let remaining = s.count;
+    const tool = toolMetaOf(s.id);
+    // 1) kısmi stack'lere birleştir (yalnız stack'lenebilir eşyalar)
+    if (!tool) {
+      for (let i = 0; i < this.slots.length && remaining > 0; i++) {
+        const cur = this.slots[i];
+        if (cur && cur.id === s.id && cur.count < STACK_MAX) {
+          const space = STACK_MAX - cur.count;
+          const put = Math.min(space, remaining);
+          cur.count += put;
+          remaining -= put;
+        }
       }
     }
-    // sonra boş slotlar
+    // 2) boş slotlara koy (alet: her slotta 1, dmg korunur)
     for (let i = 0; i < this.slots.length && remaining > 0; i++) {
       if (!this.slots[i]) {
-        const put = Math.min(STACK_MAX, remaining);
-        this.slots[i] = { id, count: put };
-        remaining -= put;
+        if (tool) {
+          this.slots[i] = { id: s.id, count: 1, dmg: s.dmg ?? tool.dur };
+          remaining -= 1;
+        } else {
+          const put = Math.min(STACK_MAX, remaining);
+          this.slots[i] = { id: s.id, count: put };
+          remaining -= put;
+        }
       }
     }
-    return remaining; // sığmayan miktar
+    return remaining;
   }
 
   remove(slotIndex: number, count: number): boolean {
@@ -71,6 +132,15 @@ export class Inventory {
     s.count -= count;
     if (s.count <= 0) this.slots[slotIndex] = null;
     return true;
+  }
+
+  /** Alete 1 hasar verir; kırıldıysa true döner (slot boşalır). */
+  damageSlot(slotIndex: number): boolean {
+    const s = this.slots[slotIndex];
+    if (!s || s.dmg === undefined) return false;
+    s.dmg -= 1;
+    if (s.dmg <= 0) { this.slots[slotIndex] = null; return true; }
+    return false;
   }
 
   /** Hotbar slotundaki ilk kullanılabilir eşyayı döndürür. */

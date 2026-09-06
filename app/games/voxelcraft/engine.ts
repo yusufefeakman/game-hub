@@ -11,7 +11,7 @@
      Oyna'ya tıkla  → pointer lock (fare bakışı)
      WASD / Oklar   hareket · Space zıpla · Shift koş
      1-9 / tekerlek hotbar'dan blok seç
-     Sol tık        bloğu kır
+     Sol tık (basılı tut) bloğu kaz — doğru alet hızlandırır
      Sağ tık        seçili bloğu yerleştir (üretim masasına = 3×3 aç)
      E              envanter + üretim (2×2) aç/kapat
      Esc            pointer lock'tan çık (menü)
@@ -25,7 +25,7 @@ import {
   B, BLOCKS, ATLAS_CANVAS, tileUV,
   isSolid, isTransparent, isLiquid, isBreakable, initBlocks,
 } from "./blocks";
-import { Inventory, dropsFor } from "./inventory";
+import { Inventory, dropsFor, toolMetaOf } from "./inventory";
 import { iconDataUrl, itemNameOf } from "./crafting";
 import { openInventoryScreen, type InvHost } from "./invui";
 
@@ -412,6 +412,34 @@ let playerChunkX = 0, playerChunkZ = 0;
 
 const RENDER_RADIUS = 5; // chunk cinsinden görüş yarıçapı
 
+/* ================= 5.5 MADENCİLİK YARDIMCILARI ================= */
+// Blok hangi alet türüyle hızlı kırılır?
+function mineClassOf(id: number): "pickaxe" | "axe" | "shovel" | "hand" | null {
+  if (id === B.AIR || id === B.WATER || id === B.BEDROCK) return null;
+  switch (id) {
+    case B.STONE: case B.COBBLE: case B.BRICK: case B.STONE_BRICKS:
+    case B.MOSSY_COBBLE: case B.SANDSTONE: case B.OBSIDIAN:
+    case B.COAL_ORE: case B.IRON_ORE: case B.GOLD_ORE: case B.DIAMOND_ORE:
+      return "pickaxe";
+    case B.WOOD: case B.PLANKS: case B.CRAFTING_TABLE: case B.LEAVES:
+      return "axe";
+    case B.DIRT: case B.GRASS: case B.SAND: case B.GRAVEL: case B.CLAY:
+    case B.SNOW: case B.ICE:
+      return "shovel";
+    default: // çiçekler, uzun çimen — el ile
+      return "hand";
+  }
+}
+function tierRank(t: "wood" | "stone"): number { return t === "stone" ? 1 : 0; }
+// cevher → gereken minimum kazma seviyesi (-1 = cevher değil)
+function oreTierOf(id: number): number {
+  switch (id) {
+    case B.COAL_ORE: return 0;
+    case B.IRON_ORE: case B.GOLD_ORE: case B.DIAMOND_ORE: return 1;
+    default: return -1;
+  }
+}
+
 /* ================= 6. RAYCAST (DDA) ================= */
 function raycast(maxDist: number): { x: number; y: number; z: number; nx: number; ny: number; nz: number } | null {
   const ox = camera.position.x, oy = camera.position.y, oz = camera.position.z;
@@ -561,6 +589,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   worldRoot = new THREE.Group();
   scene.add(worldRoot);
 
+  // bakılan/kazılan blok vurgusu
+  const hlGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002));
+  const hlMat = new THREE.LineBasicMaterial({ color: 0x0c0c0c, transparent: true, opacity: 0.9 });
+  const targetHL = new THREE.LineSegments(hlGeo, hlMat);
+  targetHL.visible = false;
+  scene.add(targetHL);
+
   function resize() {
     const w = wrap.clientWidth || 960;
     const h = wrap.clientHeight || 540;
@@ -611,6 +646,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function openInv(mode: 2 | 3) {
     if (invOpen || disposed) return;
     invOpen = true;
+    stopMining();
     keys.f = keys.b = keys.l = keys.r = keys.jump = keys.run = false;
     document.exitPointerLock?.();
     invCleanup = openInventoryScreen(wrap, invHost, mode);
@@ -672,6 +708,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.addEventListener("click", onCanvasClick);
   document.addEventListener("pointerlockchange", () => {
     pointerLocked = document.pointerLockElement === canvas;
+    if (!pointerLocked) stopMining();
     // Envanter açıkken lock düşmesi menüye atmaz (bilerek çıkıldı)
     if (!pointerLocked && state === "play" && !invOpen) {
       state = "menu";
@@ -686,9 +723,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.addEventListener("mousedown", (e) => {
     if (state !== "play" || !pointerLocked) return;
     e.preventDefault();
-    if (e.button === 0) breakBlock();
+    if (e.button === 0) { mineWarned = ""; mining = true; mineKey = ""; mineT = 0; }
     else if (e.button === 2) onInteract();
   });
+  const onMouseUp = (e: MouseEvent) => { if (e.button === 0) stopMining(); };
+  document.addEventListener("mouseup", onMouseUp);
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("wheel", (e) => {
     if (state !== "play" || invOpen) return;
@@ -711,22 +750,93 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     world[idx(x, y, z)] = id;
     worldDirty = true;
   }
-  function breakBlock() {
-    const hit = raycast(7);
-    if (!hit) return;
+  /* -------- kazma: sol tık basılı tut → süre sonunda kırılır -------- */
+  let mining = false;
+  let mineKey = "";
+  let mineT = 0;
+  let mineWarned = "";
+
+  function currentTool(): number | null {
+    const s = inventory.slots[selectedSlot];
+    return s ? s.id : null;
+  }
+  function stopMining() {
+    mining = false;
+    mineKey = "";
+    mineT = 0;
+    targetHL.visible = false;
+  }
+
+  function doBreakBlock(hit: { x: number; y: number; z: number }) {
     const b = getBlock(hit.x, hit.y, hit.z);
     if (b === B.BEDROCK || b === B.AIR || isLiquid(b)) return;
     if (!isBreakable(b)) return;
     setBlock(hit.x, hit.y, hit.z, B.AIR);
     AudioSys.break();
     spawnBits(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 0xcccccc);
-    const drop = dropsFor(b);
+
+    const toolId = currentTool();
+    const meta = toolId !== null ? toolMetaOf(toolId) : undefined;
+    let drop: number | null = dropsFor(b);
+    const need = oreTierOf(b);
+    if (need >= 0) {
+      // cevher: uygun kazma şartı
+      const ok = !!meta && meta.type === "pickaxe" && tierRank(meta.tier) >= need;
+      if (!ok) {
+        drop = null;
+        showToast(need === 0 ? "Cevher için kazma gerek!" : "Bu cevher için taş kazma gerek!");
+      }
+    } else if (b === B.OBSIDIAN) {
+      const ok = !!meta && meta.type === "pickaxe" && tierRank(meta.tier) >= 1;
+      if (!ok) drop = null;
+    }
     if (drop !== null) {
       const left = inventory.add(drop, 1);
-      // sığmadıysa yere düşen eşya olarak bırak (basit: sadece ses)
       if (left > 0) showToast("Envanter dolu!");
     }
+    if (meta) {
+      if (inventory.damageSlot(selectedSlot)) showToast("💥 Aletin kırıldı!");
+    }
     refreshHotbarUI();
+  }
+
+  function updateMining(dt: number) {
+    if (!mining) return;
+    const hit = raycast(7);
+    if (!hit) { stopMining(); return; }
+    const b = getBlock(hit.x, hit.y, hit.z);
+    if (b === B.AIR || isLiquid(b) || !isBreakable(b)) { stopMining(); return; }
+    const key = hit.x + "," + hit.y + "," + hit.z;
+    const toolId = currentTool();
+    const meta = toolId !== null ? toolMetaOf(toolId) : undefined;
+    const need = oreTierOf(b);
+
+    // Obsidyen: taş kazma yoksa kazma ilerlemez
+    if (b === B.OBSIDIAN && !(meta?.type === "pickaxe" && tierRank(meta.tier) >= 1)) {
+      if (mineWarned !== key) { mineWarned = key; showToast("Obsidyen için taş kazma gerek!"); }
+      stopMining();
+      return;
+    }
+    if (need >= 0 && !(meta?.type === "pickaxe" && tierRank(meta.tier) >= need)) {
+      if (mineWarned !== key) { mineWarned = key; showToast("Cevher için uygun kazma gerek!"); }
+    }
+
+    if (key !== mineKey) {
+      mineKey = key;
+      mineT = 0;
+      targetHL.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+      targetHL.visible = true;
+    }
+    const cls = mineClassOf(b);
+    const speed = meta && cls === meta.type ? meta.speed : 1;
+    const hard = BLOCKS[b]?.hardness ?? 1;
+    const req = Math.max(0.12, (hard * 1.7 + 0.08) / speed);
+    mineT += dt;
+    if (mineT >= req) {
+      doBreakBlock(hit);
+      mineKey = "";
+      mineT = 0;
+    }
   }
   function placeBlock() {
     const hit = raycast(7);
@@ -888,6 +998,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     last = ts;
     if (state === "play") {
       updatePlayer(dt);
+      if (!invOpen) updateMining(dt);
       updateBits(dt);
     }
     refreshChunks();
@@ -907,6 +1018,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     window.removeEventListener("resize", resize);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
+    document.removeEventListener("mouseup", onMouseUp);
+    targetHL.visible = false;
+    scene.remove(targetHL);
+    hlGeo.dispose();
+    hlMat.dispose();
     document.exitPointerLock?.();
     cleanupBits();
     chunks.forEach((cm) => {
@@ -953,8 +1069,17 @@ function refreshHotbarUI() {
       el.style.backgroundImage = `url(${iconDataUrl(id)})`;
       el.style.backgroundColor = "rgba(0,0,0,.55)";
       el.style.opacity = "1";
-      el.innerHTML = `${i + 1}<span class="cnt">${slot!.count}</span>`;
-      el.title = `${itemNameOf(id)} ×${slot!.count}`;
+      const meta = toolMetaOf(id);
+      let bar = "";
+      let tip = itemNameOf(id);
+      if (meta) {
+        const dmg = slot!.dmg ?? meta.dur;
+        const pct = dmg / meta.dur;
+        bar = `<span class="dbar"><i style="width:${Math.round(pct * 100)}%;background:${pct < 0.25 ? "#ff5d5d" : "#7ee081"}"></i></span>`;
+        tip += ` (${dmg}/${meta.dur})`;
+      } else tip += ` ×${slot!.count}`;
+      el.innerHTML = `${i + 1}<span class="cnt">${slot!.count}</span>${bar}`;
+      el.title = tip;
     } else {
       el.style.backgroundImage = "none";
       el.style.backgroundColor = "rgba(0,0,0,.35)";
@@ -1021,7 +1146,9 @@ function buildUI(container: HTMLElement) {
 .vcx-hud-root{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none}
 .vcx-hotbar{display:flex;gap:4px;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.45);border-radius:10px;padding:4px;pointer-events:auto}
 .vcx-slot{width:46px;height:46px;border-radius:7px;border:2px solid rgba(255,255,255,.25);position:relative;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer;transition:transform .06s,border-color .06s;font-size:13px;display:flex;align-items:center;justify-content:center;background-size:cover;background-repeat:no-repeat;image-rendering:pixelated}
-.vcx-slot .cnt{position:absolute;right:3px;bottom:1px;font-size:11px;color:#fff;text-shadow:0 1px 2px #000}
+.vcx-slot .cnt{position:absolute;right:3px;bottom:2px;font-size:11px;color:#fff;text-shadow:0 1px 2px #000}
+.dbar{position:absolute;left:2px;right:2px;bottom:0;height:3px;border-radius:2px;background:rgba(0,0,0,.6);overflow:hidden;pointer-events:none}
+.dbar i{display:block;height:100%;border-radius:2px;background:#7ee081}
 .vcx-slot.active{border-color:#ffd23f;transform:translateY(-3px);box-shadow:0 0 12px rgba(255,210,63,.9)}
 .vcx-sel{font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,.6);padding:2px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.3)}
 .vcx-bars{display:flex;gap:8px;align-items:center;background:rgba(0,0,0,.55);padding:4px 12px;border-radius:20px;border:1px solid rgba(255,255,255,.25)}
@@ -1074,7 +1201,7 @@ function buildUI(container: HTMLElement) {
 
   const tip = document.createElement("div");
   tip.className = "vcx-tip";
-  tip.textContent = "Sol tık: kır · Sağ tık: yerleştir (masaya: 3×3 üret) · E: envanter · Esc: menü";
+  tip.textContent = "Sol tık (basılı tut): kaz · Sağ tık: yerleştir (masaya: 3×3 üret) · E: envanter · Esc: menü";
   container.appendChild(tip);
 
   // hotbar'ı 9 boş slot ile kur (içerik refreshHotbarUI ile dolar)
@@ -1095,9 +1222,9 @@ function buildUI(container: HTMLElement) {
     <h1>VOXELCRAFT</h1>
     <h2>Minecraft benzeri blok dünyası</h2>
     <p class="row"><span class="k">W A S D</span> hareket &nbsp;&nbsp;<span class="k">Space</span> zıpla &nbsp;&nbsp;<span class="k">Shift</span> koş</p>
-    <p class="row"><span class="k">Sol tık</span> kır &nbsp;&nbsp;<span class="k">Sağ tık</span> yerleştir &nbsp;&nbsp;<span class="k">1-9</span>/tekerlek blok</p>
+    <p class="row"><span class="k">Sol tık</span> (basılı tut) kaz &nbsp;&nbsp;<span class="k">Sağ tık</span> yerleştir &nbsp;&nbsp;<span class="k">1-9</span>/tekerlek blok</p>
     <p class="row"><span class="k">E</span> envanter+üretim &nbsp;&nbsp;<span class="k">Sağ tık</span> üretim masası: 3×3</p>
-    <p class="row">Tepeleri aş, maden kaz, blok topla, odun → kalas → masa ile üret!</p>
+    <p class="row">Alet üret: 3×3 masada kazma/balta/kürek — cevher için kazma şart!</p>
     <button class="vcx-play" id="vcx-play">▶ OYNA</button>`;
   container.appendChild(menu);
   document.getElementById("vcx-play")!.addEventListener("click", () => {

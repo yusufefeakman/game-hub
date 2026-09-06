@@ -43,7 +43,7 @@ const GAMES = [
     emoji: "⛏️",
     artClass: "art-2",
     description:
-      "Minecraft benzeri hayatta kalma! Prosedürel arazi, can/açlık, envanter (E), 2×2/3×3 üretim masası ve blok yerleştirme. WASD hareket, sol tık kır, sağ tık yerleştir.",
+      "Minecraft benzeri hayatta kalma! Prosedürel arazi, can/açlık, envanter (E), 2×2/3×3 üretim masası, kazma/balta/kürek + dayanıklılık. Sol tık basılı tutarak kaz, sağ tıkla yerleştir.",
     route: "/games/voxelcraft",
     status: "playable" as const,
   },
