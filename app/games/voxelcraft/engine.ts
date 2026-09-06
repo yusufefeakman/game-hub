@@ -24,6 +24,7 @@ import {
   B, BLOCKS, ATLAS_CANVAS, tileUV,
   blockName, isSolid, isTransparent, isLiquid, isBreakable, initBlocks,
 } from "./blocks";
+import { Inventory, dropsFor, ITEM_NAME } from "./inventory";
 
 /* ================= 1. CONSTANTS ================= */
 const WORLD_X = 128;
@@ -32,19 +33,6 @@ const WORLD_Y = 56;
 const SEA_LEVEL = 13;
 const VIEW_DIST = 170;
 const CHUNK = 16; // chunk genişliği (x/z)
-
-const HOTBAR: { id: number; name: string; color: string }[] = [
-  { id: B.GRASS, name: "Çimen", color: "#5fae4a" },
-  { id: B.DIRT, name: "Toprak", color: "#8a5a2b" },
-  { id: B.STONE, name: "Taş", color: "#8f8f96" },
-  { id: B.PLANKS, name: "Kalas", color: "#b58a4f" },
-  { id: B.WOOD, name: "Odun", color: "#6e4a23" },
-  { id: B.GLASS, name: "Cam", color: "#aee8f2" },
-  { id: B.COBBLE, name: "Arnavut", color: "#7a7a82" },
-  { id: B.BRICK, name: "Tuğla", color: "#b04a3a" },
-  { id: B.STONE_BRICKS, name: "Taş Tuğla", color: "#9a9aa2" },
-  { id: B.SAND, name: "Kum", color: "#e6d7a0" },
-];
 
 /* ================= 2. AUDIO ================= */
 const AudioSys = {
@@ -395,16 +383,49 @@ const player = {
   w: 0.6, h: 1.8,
   onGround: false,
   yaw: 0, pitch: 0,
+  hp: 20,
+  hunger: 20,
+  fallStart: -1, // yüksekten düşme başlangıcı
 };
+
+const inventory = new Inventory();
+
+// başlangıç envanteri: herkese biraz blok
+function starterInventory() {
+  inventory.add(B.WOOD, 12);
+  inventory.add(B.PLANKS, 16);
+  inventory.add(B.DIRT, 32);
+  inventory.add(B.COBBLE, 24);
+  inventory.add(B.GLASS, 8);
+}
 
 let selectedSlot = 0;
 const keys = { f: false, b: false, l: false, r: false, jump: false, run: false };
 let pointerLocked = false;
 let worldDirty = true;
-let state: "menu" | "play" = "menu";
+let state: "menu" | "play" | "dead" = "menu";
 let playerChunkX = 0, playerChunkZ = 0;
 
 const RENDER_RADIUS = 5; // chunk cinsinden görüş yarıçapı
+
+// blok/eşya önizleme rengi (UI ikonları için)
+function itemColor(id: number): string {
+  const d = BLOCKS[id];
+  if (!d) return "#888";
+  // atlas'tan ortalama renk yaklaşık: tile index 0'ın pikselinden almak yerine sabit palet
+  const pal: Record<number, string> = {
+    [B.GRASS]: "#5fae4a", [B.DIRT]: "#8a5a2b", [B.STONE]: "#8f8f96",
+    [B.SAND]: "#e6d7a0", [B.WOOD]: "#6e4a23", [B.LEAVES]: "#3f8f3f",
+    [B.PLANKS]: "#b58a4f", [B.GLASS]: "#aee8f2", [B.COBBLE]: "#7a7a82",
+    [B.BRICK]: "#b04a3a", [B.STONE_BRICKS]: "#9a9aa2", [B.GRAVEL]: "#7e746e",
+    [B.CLAY]: "#9498a8", [B.SNOW]: "#eef4fa", [B.ICE]: "#8ccdeb",
+    [B.COAL_ORE]: "#3a3a3a", [B.IRON_ORE]: "#d6a06e", [B.GOLD_ORE]: "#f5dc50",
+    [B.DIAMOND_ORE]: "#5fe1e1", [B.OBSIDIAN]: "#181226", [B.SANDSTONE]: "#ded2a0",
+    [B.FLOWER_RED]: "#dc3c3c", [B.FLOWER_YELLOW]: "#f5dc50", [B.TALL_GRASS]: "#46a046",
+    [B.MOSSY_COBBLE]: "#6a7a6a",
+  };
+  return pal[id] || "#888";
+}
 
 /* ================= 6. RAYCAST (DDA) ================= */
 function raycast(maxDist: number): { x: number; y: number; z: number; nx: number; ny: number; nz: number } | null {
@@ -581,10 +602,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const sp = findSpawn();
   player.x = sp.x; player.y = sp.y; player.z = sp.z;
   player.yaw = Math.PI * 0.25;
+  player.hp = 20;
+  player.hunger = 20;
+  player.fallStart = -1;
   camera.position.set(player.x, player.y + 1.6, player.z);
   camera.rotation.order = "YXZ";
 
+  starterInventory();
   buildUI(wrap);
+  updatePlayerUI();
 
   /* -------- input -------- */
   const onKeyDown = (e: KeyboardEvent) => {
@@ -616,6 +642,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     AudioSys.init(); AudioSys.resume();
     state = "play";
     setMenuVisible(false);
+    const m = document.getElementById("vcx-menu");
+    const h = m?.querySelector("h2");
+    if (h) h.textContent = "Minecraft benzeri blok dünyası";
     canvas.requestPointerLock?.();
   };
   (window as unknown as { __vcxStart?: () => void }).__vcxStart = startPlay;
@@ -663,6 +692,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     setBlock(hit.x, hit.y, hit.z, B.AIR);
     AudioSys.break();
     spawnBits(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 0xcccccc);
+    const drop = dropsFor(b);
+    if (drop !== null) {
+      const left = inventory.add(drop, 1);
+      // sığmadıysa yere düşen eşya olarak bırak (basit: sadece ses)
+      if (left > 0) showToast("Envanter dolu!");
+    }
+    refreshHotbarUI();
   }
   function placeBlock() {
     const hit = raycast(7);
@@ -670,15 +706,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const px = hit.x + hit.nx, py = hit.y + hit.ny, pz = hit.z + hit.nz;
     if (py < 1 || py >= WORLD_Y) return;
     if (getBlock(px, py, pz) !== B.AIR && !isLiquid(getBlock(px, py, pz))) return;
-    // never place inside the player's feet/head box
     if (px + 1 > player.x - player.w / 2 && px < player.x + player.w / 2 &&
       pz + 1 > player.z - player.w / 2 && pz < player.z + player.w / 2 &&
       py + 1 > player.y && py < player.y + player.h) return;
-    const id = HOTBAR[selectedSlot].id;
-    if (id === B.WATER || !BLOCKS[id]) return;
+    const id = inventory.peek(selectedSlot);
+    if (id === null || id === B.WATER || !BLOCKS[id]) return;
+    if (isLiquid(id) || id === B.AIR) return;
     setBlock(px, py, pz, id);
+    inventory.remove(selectedSlot, 1);
     AudioSys.place();
     spawnBits(px + 0.5, py + 0.5, pz + 0.5, 0xcccccc);
+    refreshHotbarUI();
   }
 
   /* -------- physics (with 1-block step-up) -------- */
@@ -726,9 +764,33 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   let stepT = 0;
   let inWater = false;
+  let hungerTick = 0;
+  let regenTick = 0;
+
+  function hurt(amount: number, cause: string) {
+    if (state !== "play") return;
+    player.hp = Math.max(0, player.hp - amount);
+    showToast(cause);
+    updatePlayerUI();
+    if (player.hp <= 0) {
+      state = "dead";
+      document.exitPointerLock?.();
+      setMenuVisible(true);
+      showDeathScreen();
+    }
+  }
+
+  function heal(amount: number) {
+    player.hp = Math.min(20, player.hp + amount);
+    updatePlayerUI();
+  }
+
   function updatePlayer(dt: number) {
     const p = player;
-    // water check around feet
+    if (state !== "play") return;
+    const wasOnGround = p.onGround;
+    const fallStartY = p.fallStart;
+    const prevY = p.y;
     const fw = getBlock(Math.floor(p.x), Math.floor(p.y + 0.3), Math.floor(p.z));
     inWater = isLiquid(fw);
     const speed = (keys.run ? 8.5 : 4.6) * (inWater ? 0.55 : 1);
@@ -749,14 +811,47 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const moving = Math.hypot(p.vx, p.vz) > 0.5;
     stepT += dt * (keys.run ? 1.7 : 1);
     if (moving && p.onGround && !inWater && stepT > 0.42) { stepT = 0; AudioSys.step(); }
+
+    // fall tracking
+    if (!p.onGround && !inWater) {
+      if (p.fallStart < 0) p.fallStart = prevY;
+    }
+    if (p.onGround && fallStartY >= 0) {
+      const fell = fallStartY - p.y;
+      if (fell > 3.2) {
+        const dmg = Math.min(16, Math.floor((fell - 3.2) * 1.8));
+        if (dmg >= 1) hurt(dmg, `Düşme hasarı -${dmg}`);
+      }
+      p.fallStart = -1;
+    }
+    void wasOnGround;
+
     step(dt);
     if (p.y < -6) {
       const s = findSpawn();
       p.x = s.x; p.z = s.z; p.y = s.y; p.vy = 0;
+      p.fallStart = -1;
+    }
+
+    // hunger: koşmak açlığı yavaş azaltır
+    hungerTick += dt * (keys.run && moving ? 1.6 : 0.5);
+    if (hungerTick > 12) {
+      hungerTick = 0;
+      player.hunger = Math.max(0, player.hunger - 1);
+      updatePlayerUI();
+    }
+    // regen when full hunger
+    if (player.hunger >= 18 && player.hp < 20) {
+      regenTick += dt;
+      if (regenTick > 2) { regenTick = 0; heal(1); }
     }
     camera.position.set(p.x, p.y + 1.6, p.z);
     camera.rotation.y = p.yaw;
     camera.rotation.x = p.pitch;
+
+    // coords hud
+    const cd = document.getElementById("vcx-coords");
+    if (cd) cd.textContent = `X ${Math.floor(p.x)}  Y ${Math.floor(p.y)}  Z ${Math.floor(p.z)}`;
   }
 
   let raf = 0, last = 0;
@@ -797,20 +892,80 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 }
 
 /* ================= 9. UI ================= */
+let hotbarRoot: HTMLElement | null = null;
+let healthFill: HTMLElement | null = null;
+let hungerFill: HTMLElement | null = null;
+let toastEl: HTMLElement | null = null;
+let toastTimer = 0;
+
+function showToast(text: string) {
+  const el = toastEl;
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+function updatePlayerUI() {
+  if (healthFill) healthFill.style.width = Math.max(0, (player.hp / 20) * 100) + "%";
+  if (hungerFill) hungerFill.style.width = Math.max(0, (player.hunger / 20) * 100) + "%";
+}
+
+function refreshHotbarUI() {
+  if (!hotbarRoot) return;
+  const kids = hotbarRoot.children;
+  for (let i = 0; i < 9 && i < kids.length; i++) {
+    const el = kids[i] as HTMLElement;
+    const slot = inventory.slots[i];
+    const id = slot ? slot.id : null;
+    el.style.background = id !== null ? itemColor(id) : "rgba(0,0,0,.35)";
+    el.style.opacity = id !== null ? "1" : "0.4";
+    el.innerHTML = id !== null ? `${i + 1}<span class="cnt">${slot!.count}</span>` : `${i + 1}`;
+    el.title = id !== null ? `${ITEM_NAME[id] || blockName(id)} ×${slot!.count}` : "Boş";
+  }
+  // seçili slot adı
+  const sel = inventory.slots[selectedSlot];
+  const nm = document.getElementById("vcx-sel-name");
+  if (nm) nm.textContent = sel ? (ITEM_NAME[sel.id] || blockName(sel.id)) : "Boş";
+}
+
 function selectSlot(i: number) {
-  if (i < 0 || i >= HOTBAR.length) return;
+  if (i < 0 || i > 8) return;
   selectedSlot = i;
   AudioSys.click();
   document.querySelectorAll<HTMLElement>(".vcx-slot").forEach((el, k) => {
     el.classList.toggle("active", k === i);
   });
-  const nm = document.getElementById("vcx-sel-name");
-  if (nm) nm.textContent = HOTBAR[i].name;
+  refreshHotbarUI();
 }
 
 function setMenuVisible(v: boolean) {
   const m = document.getElementById("vcx-menu");
   if (m) m.classList.toggle("hidden", !v);
+}
+
+function showDeathScreen() {
+  // ölünce envanteri sıfırla ve başlangıca dön
+  inventory.slots.fill(null);
+  starterInventory();
+  player.hp = 20;
+  player.hunger = 20;
+  player.fallStart = -1;
+  const s = findSpawn();
+  player.x = s.x; player.y = s.y; player.z = s.z; player.vy = 0;
+  refreshHotbarUI();
+  updatePlayerUI();
+  const nm = document.getElementById("vcx-sel-name");
+  if (nm) nm.textContent = "—";
+  document.querySelectorAll<HTMLElement>(".vcx-slot").forEach((el, k) => el.classList.toggle("active", k === 0));
+  selectedSlot = 0;
+  refreshHotbarUI();
+  const m = document.getElementById("vcx-menu");
+  if (m) {
+    const h = m.querySelector("h2");
+    if (h) h.textContent = "💀 Öldün — dünya sıfırlandı, tekrar dene!";
+  }
 }
 
 function buildUI(container: HTMLElement) {
@@ -824,39 +979,75 @@ function buildUI(container: HTMLElement) {
 .vcx-menu .k{display:inline-block;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:0 9px;font-weight:700;color:#fff;margin:0 1px}
 .vcx-play{margin-top:24px;font-size:clamp(18px,4.6vw,25px);font-weight:800;padding:15px 48px;background:linear-gradient(#7ee081,#2f9e44);color:#04180a;border:none;border-radius:18px;box-shadow:0 6px 0 #1d6b2c;cursor:pointer;letter-spacing:1px}
 .vcx-play:active{transform:translateY(4px);box-shadow:0 2px 0 #1d6b2c}
-.vcx-hud-root{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
-.vcx-hotbar{display:flex;gap:4px;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.4);border-radius:10px;padding:4px;pointer-events:auto}
-.vcx-slot{width:42px;height:42px;border-radius:7px;border:2px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer;transition:transform .06s,border-color .06s;font-size:14px}
+.vcx-hud-root{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none}
+.vcx-hotbar{display:flex;gap:4px;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.45);border-radius:10px;padding:4px;pointer-events:auto}
+.vcx-slot{width:46px;height:46px;border-radius:7px;border:2px solid rgba(255,255,255,.25);position:relative;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer;transition:transform .06s,border-color .06s;font-size:13px;display:flex;align-items:center;justify-content:center;background-size:cover}
+.vcx-slot .cnt{position:absolute;right:3px;bottom:1px;font-size:11px;color:#fff;text-shadow:0 1px 2px #000}
 .vcx-slot.active{border-color:#ffd23f;transform:translateY(-3px);box-shadow:0 0 12px rgba(255,210,63,.9)}
-.vcx-sel{font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,.55);padding:2px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.3)}
+.vcx-sel{font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,.6);padding:2px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.3)}
+.vcx-bars{display:flex;gap:8px;align-items:center;background:rgba(0,0,0,.55);padding:4px 12px;border-radius:20px;border:1px solid rgba(255,255,255,.25)}
+.vcx-bar{width:74px;height:8px;border-radius:5px;background:rgba(255,255,255,.18);overflow:hidden}
+.vcx-bar-fill{height:100%;border-radius:5px;transition:width .2s}
+.vcx-hp{background:linear-gradient(90deg,#ff4d4d,#ff8a6a)}
+.vcx-hg{background:linear-gradient(90deg,#e0a030,#f5d060)}
+.vcx-coords{position:absolute;top:10px;right:12px;z-index:6;font-family:'Consolas',monospace;font-size:12px;color:rgba(255,255,255,.85);background:rgba(0,0,0,.5);padding:3px 10px;border-radius:6px;pointer-events:none}
 .vcx-cross{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;z-index:5;pointer-events:none;opacity:.9}
 .vcx-cross::before,.vcx-cross::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px #000}
 .vcx-cross::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
 .vcx-cross::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%)}
-.vcx-tip{position:absolute;bottom:78px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.75);font-size:12px;z-index:5;pointer-events:none;white-space:nowrap;text-shadow:0 1px 3px #000}
+.vcx-tip{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.8);font-size:12px;z-index:5;pointer-events:none;white-space:nowrap;text-shadow:0 1px 3px #000}
+.vcx-toast{position:absolute;top:22%;left:50%;transform:translateX(-50%);color:#ffe066;font-size:22px;font-weight:800;text-shadow:2px 2px 0 #000;z-index:8;pointer-events:none;opacity:0;transition:opacity .25s;font-family:'Segoe UI',sans-serif}
+.vcx-toast.show{opacity:1}
 `;
   container.appendChild(style);
 
+  // --- üst: koordinat ---
+  const coords = document.createElement("div");
+  coords.className = "vcx-coords";
+  coords.id = "vcx-coords";
+  container.appendChild(coords);
+
+  // --- alt HUD: can/açlık + hotbar ---
   const hud = document.createElement("div");
   hud.className = "vcx-hud-root";
   hud.innerHTML = `
-    <div class="vcx-sel" id="vcx-sel-name">Çimen</div>
-    <div class="vcx-hotbar">${HOTBAR.map((b, i) =>
-      `<div class="vcx-slot ${i === 0 ? "active" : ""}" data-i="${i}" title="${b.name}" style="background:${b.color}">${i + 1}</div>`
-    ).join("")}</div>`;
+    <div class="vcx-bars">
+      <div class="vcx-bar"><div class="vcx-bar-fill vcx-hp" id="vcx-hp" style="width:100%"></div></div>
+      <div class="vcx-bar"><div class="vcx-bar-fill vcx-hg" id="vcx-hg" style="width:100%"></div></div>
+    </div>
+    <div class="vcx-sel" id="vcx-sel-name">—</div>
+    <div class="vcx-hotbar" id="vcx-hotbar"></div>`;
   container.appendChild(hud);
+  hotbarRoot = document.getElementById("vcx-hotbar");
+  healthFill = document.getElementById("vcx-hp");
+  hungerFill = document.getElementById("vcx-hg");
 
+  // --- crosshair ---
   const cross = document.createElement("div");
   cross.className = "vcx-cross";
   container.appendChild(cross);
+
+  // --- toast ---
+  toastEl = document.createElement("div");
+  toastEl.className = "vcx-toast";
+  toastEl.id = "vcx-toast";
+  container.appendChild(toastEl);
+
   const tip = document.createElement("div");
   tip.className = "vcx-tip";
-  tip.textContent = "Sol tık: kır · Sağ tık: yerleştir · Esc: menü";
+  tip.textContent = "Sol tık: kır · Sağ tık: yerleştir · E: envanter · Esc: menü";
   container.appendChild(tip);
 
-  container.querySelectorAll<HTMLElement>(".vcx-slot").forEach((el) => {
-    el.addEventListener("click", () => selectSlot(Number(el.dataset.i)));
-  });
+  // hotbar'ı 9 boş slot ile kur (içerik refreshHotbarUI ile dolar)
+  if (hotbarRoot) {
+    hotbarRoot.innerHTML = Array.from({ length: 9 }, (_, i) =>
+      `<div class="vcx-slot ${i === 0 ? "active" : ""}" data-i="${i}" title="Boş">${i + 1}</div>`
+    ).join("");
+    hotbarRoot.querySelectorAll<HTMLElement>(".vcx-slot").forEach((el) => {
+      el.addEventListener("click", () => selectSlot(Number(el.dataset.i)));
+    });
+    refreshHotbarUI();
+  }
 
   const menu = document.createElement("div");
   menu.className = "vcx-menu";
@@ -866,7 +1057,7 @@ function buildUI(container: HTMLElement) {
     <h2>Minecraft benzeri blok dünyası</h2>
     <p class="row"><span class="k">W A S D</span> hareket &nbsp;&nbsp;<span class="k">Space</span> zıpla &nbsp;&nbsp;<span class="k">Shift</span> koş</p>
     <p class="row"><span class="k">Sol tık</span> kır &nbsp;&nbsp;<span class="k">Sağ tık</span> yerleştir &nbsp;&nbsp;<span class="k">1-9</span>/tekerlek blok</p>
-    <p class="row">Tepeleri aş, ağaçları kes, kendi yapını kur!</p>
+    <p class="row">Tepeleri aş, maden kaz, blok topla, kendi yapını kur!</p>
     <button class="vcx-play" id="vcx-play">▶ OYNA</button>`;
   container.appendChild(menu);
   document.getElementById("vcx-play")!.addEventListener("click", () => {
