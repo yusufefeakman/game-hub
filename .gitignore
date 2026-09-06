@@ -42,3 +42,6 @@ next-env.d.ts
 
 # chrome headless test profiles
 .chrome*/
+
+# next build logs
+*.log

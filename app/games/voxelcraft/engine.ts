@@ -37,6 +37,10 @@ const SEA_LEVEL = 13;
 const VIEW_DIST = 170;
 const CHUNK = 16; // chunk genişliği (x/z)
 
+/* gündüz/gece döngüsü: 0=şafak · 0.25=öğlen · 0.5=gün batımı · 0.75=gece yarısı */
+const DAY_LEN = 720; // sn (6 dk gündüz + 6 dk gece)
+let worldTime = 0;
+
 /* ================= 2. AUDIO ================= */
 const AudioSys = {
   ctx: null as AudioContext | null,
@@ -575,16 +579,49 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x8fd0f5);
-  scene.fog = new THREE.Fog(0xbfe2f8, VIEW_DIST * 0.35, VIEW_DIST * 1.0);
+  const bgCol = new THREE.Color(0x8fd0f5);
+  scene.background = bgCol;
+  const fog = new THREE.Fog(0xbfe2f8, VIEW_DIST * 0.35, VIEW_DIST * 1.0);
+  scene.fog = fog;
 
   camera = new THREE.PerspectiveCamera(72, 1, 0.1, VIEW_DIST * 2);
 
-  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x8a6a4a, 0.95));
+  const hemi = new THREE.HemisphereLight(0xeaf4ff, 0x8a6a4a, 0.95);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff2d8, 1.35);
   sun.position.set(90, 220, 60);
   scene.add(sun);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+  const amb = new THREE.AmbientLight(0xffffff, 0.25);
+  scene.add(amb);
+
+  // gökyüzü paleti (gündüz/gece/alacakaranlık + güneş/ay renkleri)
+  const skyDay = new THREE.Color(0x8fd0f5);
+  const skyNight = new THREE.Color(0x0a1226);
+  const skyDusk = new THREE.Color(0xf09a52);
+  const sunWhite = new THREE.Color(0xfff2d8);
+  const sunOrange = new THREE.Color(0xff9a4d);
+  const moonCol = new THREE.Color(0x7d92cc);
+
+  // gündüz/gece: gökyüzü, sis ve ışık yoğunluklarını zamanla günceller
+  function updateSky() {
+    const p = (worldTime % DAY_LEN) / DAY_LEN;
+    const e = Math.cos((p - 0.25) * Math.PI * 2); // güneş yüksekliği: öğlen +1, gece -1
+    const dl = Math.max(0, e);
+    const tw = e > 0 && e < 0.45 ? (0.45 - e) / 0.45 : 0; // alacakaranlık katsayısı
+    bgCol.copy(skyNight).lerp(skyDay, Math.min(1, dl * 1.25));
+    if (tw > 0) bgCol.lerp(skyDusk, tw * 0.7);
+    fog.color.copy(bgCol);
+    sun.intensity = 0.04 + 1.3 * dl;
+    if (dl < 0.08) sun.color.copy(moonCol);
+    else { sun.color.copy(sunWhite); sun.color.lerp(sunOrange, tw * 0.65); }
+    hemi.intensity = 0.34 + 0.62 * dl;
+    amb.intensity = 0.08 + 0.2 * dl;
+    const icon = e > 0.06 ? "☀️" : e < -0.06 ? "🌙" : p < 0.5 ? "🌅" : "🌇";
+    const phaseTxt = e > 0.06 ? "Gündüz" : e < -0.06 ? "Gece" : p < 0.5 ? "Gündoğumu" : "Gün batımı";
+    const dayNo = Math.floor(worldTime / DAY_LEN) + 1;
+    const ce = document.getElementById("vcx-clock");
+    if (ce) ce.textContent = `${icon} ${phaseTxt} · Gün ${dayNo}`;
+  }
 
   worldRoot = new THREE.Group();
   scene.add(worldRoot);
@@ -618,6 +655,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   // world
+  worldTime = 0; // her oyun şafakta başlar
   buildWorldData();
   const sp = findSpawn();
   player.x = sp.x; player.y = sp.y; player.z = sp.z;
@@ -926,6 +964,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function updatePlayer(dt: number) {
     const p = player;
     if (state !== "play" || invOpen) return; // envanter açıkken dünya duraklar
+    worldTime += dt;
     const wasOnGround = p.onGround;
     const fallStartY = p.fallStart;
     const prevY = p.y;
@@ -1002,6 +1041,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       updateBits(dt);
     }
     refreshChunks();
+    updateSky();
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   }
@@ -1157,6 +1197,7 @@ function buildUI(container: HTMLElement) {
 .vcx-hp{background:linear-gradient(90deg,#ff4d4d,#ff8a6a)}
 .vcx-hg{background:linear-gradient(90deg,#e0a030,#f5d060)}
 .vcx-coords{position:absolute;top:10px;right:12px;z-index:6;font-family:'Consolas',monospace;font-size:12px;color:rgba(255,255,255,.85);background:rgba(0,0,0,.5);padding:3px 10px;border-radius:6px;pointer-events:none}
+.vcx-clock{position:absolute;top:10px;left:12px;z-index:6;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);padding:3px 12px;border-radius:20px;pointer-events:none;letter-spacing:.3px;white-space:nowrap}
 .vcx-cross{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;z-index:5;pointer-events:none;opacity:.9}
 .vcx-cross::before,.vcx-cross::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px #000}
 .vcx-cross::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
@@ -1167,11 +1208,17 @@ function buildUI(container: HTMLElement) {
 `;
   container.appendChild(style);
 
-  // --- üst: koordinat ---
+  // --- üst: koordinat + saat rozeti ---
   const coords = document.createElement("div");
   coords.className = "vcx-coords";
   coords.id = "vcx-coords";
   container.appendChild(coords);
+
+  const clock = document.createElement("div");
+  clock.className = "vcx-clock";
+  clock.id = "vcx-clock";
+  clock.textContent = "☀️ Gündüz · Gün 1";
+  container.appendChild(clock);
 
   // --- alt HUD: can/açlık + hotbar ---
   const hud = document.createElement("div");
