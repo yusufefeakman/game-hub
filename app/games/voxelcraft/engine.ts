@@ -29,6 +29,7 @@ import { Inventory, dropsFor, toolMetaOf, foodOf, I } from "./inventory";
 import { iconDataUrl, itemNameOf } from "./crafting";
 import { openInventoryScreen, type InvHost } from "./invui";
 import { Mobs, type MobCtx } from "./mobs";
+import { makeSave, writeSave, readSave, saveWorldBytes, clearSave } from "./save";
 
 /* ================= 1. CONSTANTS ================= */
 const WORLD_X = 128;
@@ -657,7 +658,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   // world
-  worldTime = 0; // her oyun şafakta başlar
+  worldTime = 0; // her oyun şafakta başlar (kayıt varsa yüklenir)
   buildWorldData();
   const sp = findSpawn();
   player.x = sp.x; player.y = sp.y; player.z = sp.z;
@@ -668,9 +669,47 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   camera.position.set(player.x, player.y + 1.6, player.z);
   camera.rotation.order = "YXZ";
 
-  starterInventory();
+  // kayıt varsa geri yükle
+  let hasSave = false;
+  const loaded = readSave();
+  if (loaded) {
+    const wb = saveWorldBytes(loaded, WORLD_X * WORLD_Y * WORLD_Z);
+    if (wb) {
+      hasSave = true;
+      world.set(wb);
+      worldDirty = true;
+      const P = loaded.player;
+      player.x = Math.max(1.5, Math.min(WORLD_X - 1.5, P.x));
+      player.y = Math.max(2, Math.min(WORLD_Y - 2, P.y));
+      player.z = Math.max(1.5, Math.min(WORLD_Z - 1.5, P.z));
+      player.yaw = P.yaw;
+      player.pitch = Math.max(-1.5, Math.min(1.5, P.pitch));
+      player.hp = Math.max(1, Math.min(20, P.hp));
+      player.hunger = Math.max(0, Math.min(20, P.hunger));
+      player.fallStart = -1;
+      worldTime = Number.isFinite(loaded.time) ? loaded.time : 0;
+      inventory.slots.fill(null);
+      if (Array.isArray(loaded.inv)) {
+        loaded.inv.forEach((entry, i) => {
+          if (entry && i < inventory.slots.length) {
+            const id = entry[0], count = entry[1];
+            if (typeof id === "number" && typeof count === "number" && count > 0) {
+              inventory.slots[i] = { id, count, dmg: typeof entry[2] === "number" ? entry[2] : undefined };
+            }
+          }
+        });
+      }
+      selectedSlot = Math.max(0, Math.min(8, loaded.slot || 0));
+      camera.position.set(player.x, player.y + 1.6, player.z);
+      camera.rotation.y = player.yaw;
+      camera.rotation.x = player.pitch;
+    }
+  }
   buildUI(wrap);
+  if (!hasSave) starterInventory();
+  refreshHotbarUI();
   updatePlayerUI();
+  document.querySelectorAll<HTMLElement>(".vcx-slot").forEach((el, k) => el.classList.toggle("active", k === selectedSlot));
 
   /* -------- envanter ekranı (E) & üretim masası (sağ tık) -------- */
   let invOpen = false;
@@ -786,6 +825,26 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (hit) meleeCd = 0.4;
   }
 
+  /* -------- kayıt sistemi -------- */
+  let autoSaveT = 0;
+  function persist(notify: boolean): void {
+    const data = makeSave(
+      world,
+      { x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, hp: player.hp, hunger: player.hunger },
+      worldTime,
+      inventory.slots.map((s) => (s ? { id: s.id, count: s.count, dmg: s.dmg } : null)),
+      selectedSlot,
+    );
+    if (writeSave(data) && notify) showToast("💾 Kaydedildi");
+    else if (notify) showToast("⚠️ Kayıt başarısız (depolama dolu olabilir)");
+  }
+  (window as unknown as { __vcxSave?: () => void }).__vcxSave = () => persist(true);
+  (window as unknown as { __vcxNewWorld?: () => void }).__vcxNewWorld = () => {
+    if (!window.confirm("Kayıtlı dünyayı sil ve yepyeni bir dünya başlat? Bu işlem geri alınamaz.")) return;
+    clearSave();
+    window.location.reload();
+  };
+
   /* -------- input -------- */
   const onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
@@ -839,6 +898,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (!pointerLocked) stopMining();
     // Envanter açıkken lock düşmesi menüye atmaz (bilerek çıkıldı)
     if (!pointerLocked && state === "play" && !invOpen) {
+      persist(false); // menüye dönünce sessizce kaydet
       state = "menu";
       setMenuVisible(true);
     }
@@ -1067,6 +1127,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const p = player;
     if (state !== "play" || invOpen) return; // envanter açıkken dünya duraklar
     worldTime += dt;
+    autoSaveT += dt;
+    if (autoSaveT >= 25) { autoSaveT = 0; persist(false); }
     const wasOnGround = p.onGround;
     const fallStartY = p.fallStart;
     const prevY = p.y;
@@ -1160,6 +1222,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   return () => {
     disposed = true;
     if (invOpen) closeInv();
+    persist(false); // ayrılırken son durumu sakla
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     window.removeEventListener("keydown", onKeyDown);
@@ -1291,6 +1354,11 @@ function buildUI(container: HTMLElement) {
 .vcx-menu .k{display:inline-block;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:0 9px;font-weight:700;color:#fff;margin:0 1px}
 .vcx-play{margin-top:24px;font-size:clamp(18px,4.6vw,25px);font-weight:800;padding:15px 48px;background:linear-gradient(#7ee081,#2f9e44);color:#04180a;border:none;border-radius:18px;box-shadow:0 6px 0 #1d6b2c;cursor:pointer;letter-spacing:1px}
 .vcx-play:active{transform:translateY(4px);box-shadow:0 2px 0 #1d6b2c}
+.vcx-row{display:flex;gap:12px;margin-top:18px}
+.vcx-mini{font-size:clamp(12px,2.6vw,15px);font-weight:700;padding:10px 18px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.1);color:#eaf4ff;cursor:pointer;box-shadow:0 4px 0 rgba(0,0,0,.35);transition:transform .06s}
+.vcx-mini:active{transform:translateY(3px)}
+.vcx-mini.danger{border-color:rgba(255,120,110,.6);background:rgba(160,40,40,.35);color:#ffd9d6}
+.vcx-mini.saved{margin-top:10px;font-size:12px;padding:8px 14px;border-radius:20px;background:rgba(0,0,0,.45);color:#9fe6a8;cursor:default;border-color:rgba(126,224,129,.4)}
 .vcx-hud-root{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none}
 .vcx-hotbar{display:flex;gap:4px;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.45);border-radius:10px;padding:4px;pointer-events:auto}
 .vcx-slot{width:46px;height:46px;border-radius:7px;border:2px solid rgba(255,255,255,.25);position:relative;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer;transition:transform .06s,border-color .06s;font-size:13px;display:flex;align-items:center;justify-content:center;background-size:cover;background-repeat:no-repeat;image-rendering:pixelated}
@@ -1380,10 +1448,21 @@ function buildUI(container: HTMLElement) {
     <p class="row"><span class="k">Sol tık</span> (basılı tut) kaz &nbsp;&nbsp;<span class="k">Sağ tık</span> yerleştir &nbsp;&nbsp;<span class="k">1-9</span>/tekerlek blok</p>
     <p class="row"><span class="k">E</span> envanter+üretim &nbsp;&nbsp;<span class="k">F</span> ye (seçili yiyecek) &nbsp;&nbsp;<span class="k">Sağ tık</span> masada: 3×3</p>
     <p class="row">Koyun/inek/domuz/tavuk bul, gece zombi ve iskelet gelir — avlan, et topla!</p>
-    <button class="vcx-play" id="vcx-play">▶ OYNA</button>`;
+    <button class="vcx-play" id="vcx-play">▶ OYNA</button>
+    <div class="vcx-row">
+      <button class="vcx-mini" id="vcx-save">💾 Kaydet</button>
+      <button class="vcx-mini danger" id="vcx-new">🔄 Yeni Dünya</button>
+    </div>
+    <p class="vcx-mini saved">💾 Otomatik kayıt açık (25 sn)</p>`;
   container.appendChild(menu);
   document.getElementById("vcx-play")!.addEventListener("click", () => {
     const fn = (window as unknown as { __vcxStart?: () => void }).__vcxStart;
     if (fn) fn();
+  });
+  document.getElementById("vcx-save")!.addEventListener("click", () => {
+    (window as unknown as { __vcxSave?: () => void }).__vcxSave?.();
+  });
+  document.getElementById("vcx-new")!.addEventListener("click", () => {
+    (window as unknown as { __vcxNewWorld?: () => void }).__vcxNewWorld?.();
   });
 }
