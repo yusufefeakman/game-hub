@@ -850,7 +850,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const k = e.key.toLowerCase();
     if (invOpen) {
       if (k === "e" || k === "escape") { e.preventDefault(); closeInv(); }
-      else if (k === "m") { AudioSys.setMuted(!AudioSys.muted); }
+      else if (k === "m") { AudioSys.setMuted(!AudioSys.muted); setMuteUI(); }
       return; // ekran açıkken hareket/işlem tuşları çalışmaz
     }
     if (k === "e" && state === "play") { openInv(2); return; }
@@ -862,7 +862,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (k === "d" || k === "arrowright") keys.r = true;
     if (k === " ") { if (!keys.jump) keys.jump = true; }
     if (k === "shift") keys.run = true;
-    if (k === "m") AudioSys.setMuted(!AudioSys.muted);
+    if (k === "m") { AudioSys.setMuted(!AudioSys.muted); setMuteUI(); }
     const n = "1234567890".indexOf(k);
     if (n >= 0) selectSlot(n);
   };
@@ -1196,9 +1196,32 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   let raf = 0, last = 0;
+  let fpsN = 0, fpsAcc = 0, lastAim = "";
+  function updateAimUI() {
+    const el = document.getElementById("vcx-aim");
+    if (!el) return;
+    if (state !== "play" || invOpen || !pointerLocked) {
+      if (lastAim !== "") { lastAim = ""; el.textContent = ""; }
+      return;
+    }
+    const hit = raycast(6);
+    let txt = "";
+    if (hit) {
+      const b = getBlock(hit.x, hit.y, hit.z);
+      const def = BLOCKS[b];
+      if (def && b !== B.AIR && !isLiquid(b)) txt = def.name + (isBreakable(b) ? "" : " · kırılamaz");
+    }
+    if (txt !== lastAim) { lastAim = txt; el.textContent = txt; }
+  }
   function loop(ts: number) {
     const dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
     last = ts;
+    fpsN += 1; fpsAcc += dt;
+    if (fpsAcc >= 0.5) {
+      const fpsEl = document.getElementById("vcx-fps");
+      if (fpsEl) fpsEl.textContent = `⚡ ${Math.round(fpsN / fpsAcc)} FPS`;
+      fpsN = 0; fpsAcc = 0;
+    }
     if (state === "play") {
       updatePlayer(dt);
       if (!invOpen) {
@@ -1208,6 +1231,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       }
       updateBits(dt);
     }
+    updateAimUI();
     refreshChunks();
     updateSky();
     renderer.render(scene, camera);
@@ -1267,6 +1291,11 @@ function showToast(text: string) {
 function updatePlayerUI() {
   if (healthFill) healthFill.style.width = Math.max(0, (player.hp / 20) * 100) + "%";
   if (hungerFill) hungerFill.style.width = Math.max(0, (player.hunger / 20) * 100) + "%";
+}
+
+function setMuteUI() {
+  const el = document.getElementById("vcx-sound");
+  if (el) el.textContent = AudioSys.muted ? "🔇" : "🔊";
 }
 
 function refreshHotbarUI() {
@@ -1374,6 +1403,10 @@ function buildUI(container: HTMLElement) {
 .vcx-hg{background:linear-gradient(90deg,#e0a030,#f5d060)}
 .vcx-coords{position:absolute;top:10px;right:12px;z-index:6;font-family:'Consolas',monospace;font-size:12px;color:rgba(255,255,255,.85);background:rgba(0,0,0,.5);padding:3px 10px;border-radius:6px;pointer-events:none}
 .vcx-clock{position:absolute;top:10px;left:12px;z-index:6;font-size:13px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);padding:3px 12px;border-radius:20px;pointer-events:none;letter-spacing:.3px;white-space:nowrap}
+.vcx-fps{position:absolute;top:38px;right:12px;z-index:6;font-family:'Consolas',monospace;font-size:11px;color:#aef0b2;background:rgba(0,0,0,.45);padding:2px 8px;border-radius:6px;pointer-events:none}
+.vcx-sound{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;font-size:14px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);border-radius:20px;padding:2px 10px;cursor:pointer;color:#fff}
+.vcx-sound:hover{background:rgba(255,255,255,.2)}
+.vcx-aim{position:absolute;top:calc(50% + 18px);left:50%;transform:translateX(-50%);z-index:5;pointer-events:none;color:#fff;background:rgba(0,0,0,.55);padding:2px 12px;border-radius:14px;font-size:12px;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px #000;letter-spacing:.3px}
 .vcx-cross{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;z-index:5;pointer-events:none;opacity:.9}
 .vcx-cross::before,.vcx-cross::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px #000}
 .vcx-cross::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
@@ -1395,6 +1428,26 @@ function buildUI(container: HTMLElement) {
   clock.id = "vcx-clock";
   clock.textContent = "☀️ Gündüz · Gün 1";
   container.appendChild(clock);
+
+  // --- FPS + ses + hedef blok bilgisi ---
+  const fps = document.createElement("div");
+  fps.className = "vcx-fps";
+  fps.id = "vcx-fps";
+  fps.textContent = "⚡ -- FPS";
+  container.appendChild(fps);
+
+  const sound = document.createElement("button");
+  sound.className = "vcx-sound";
+  sound.id = "vcx-sound";
+  sound.title = "Ses aç/kapat (M)";
+  sound.addEventListener("click", () => { AudioSys.setMuted(!AudioSys.muted); setMuteUI(); });
+  container.appendChild(sound);
+
+  const aim = document.createElement("div");
+  aim.className = "vcx-aim";
+  aim.id = "vcx-aim";
+  container.appendChild(aim);
+  setMuteUI();
 
   // --- alt HUD: can/açlık + hotbar ---
   const hud = document.createElement("div");
