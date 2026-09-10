@@ -316,14 +316,16 @@ const FACE_DIR: number[][] = [
 
 function pushQuad(
   P: number[], U: number[], I: number[],
-  x: number, y: number, z: number, face: number, tile: number, ao: number
+  x: number, y: number, z: number, face: number, tile: number, ao: number,
+  topY = 1
 ) {
   const base = P.length / 3;
   const v = FACE_VERTS[face];
   const uv = FACE_UV[face];
   const [u0, v0, u1, v1] = tileUV(tile);
   for (let k = 0; k < 4; k++) {
-    P.push(x + v[k][0], y + v[k][1], z + v[k][2]);
+    const vy = v[k][1] === 1 && topY !== 1 ? topY : v[k][1];
+    P.push(x + v[k][0], y + vy, z + v[k][2]);
     const u = uv[k][0] === 0 ? u0 : u1;
     const vt = uv[k][1] === 0 ? v0 : v1;
     U.push(u, vt);
@@ -395,9 +397,11 @@ function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGe
             aoV = bright * (1 - sideSolid * 0.06);
           }
           if (isWater) {
-            // lower water surface to sit just under the top of the cell
+            // su yüzeyi: blok üstünde su yoksa yüzey 0.86'da biter
+            const surface = getBlock(x, y + 1, z) !== B.WATER;
+            const topY = surface ? 0.86 : 1;
             const baseY = f === 0 ? y + 0.86 : y;
-            pushQuad(WP, WU, WI, x, baseY, z, f, tile, aoV);
+            pushQuad(WP, WU, WI, x, baseY, z, f, tile, aoV, f === 0 ? 1 : topY);
             for (let k = 0; k < 4; k++) WBR.push(0.72);
           } else {
             pushQuad(isTrans ? WP : SP, isTrans ? WU : SU, isTrans ? WI : SI, x, y, z, f, tile, aoV);
@@ -477,6 +481,9 @@ function starterInventory() {
 
 let selectedSlot = 0;
 const keys = { f: false, b: false, l: false, r: false, jump: false, run: false };
+/* dokunmatik (mobil) giriş eksenleri — masaüstünde 0 kalır */
+let tMoveX = 0, tMoveZ = 0;
+let touchMode = false;
 let pointerLocked = false;
 let worldDirty = true;             // tüm chunkları yeniden ör (yükleme/ayar değişimi)
 let state: "menu" | "play" | "dead" = "menu";
@@ -676,6 +683,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
     (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
   const lowPower = isMobile || (navigator.hardwareConcurrency || 4) <= 4;
+  touchMode = isMobile; // dokunmatik kontroller yalnızca mobilde
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: !isMobile });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 2));
@@ -940,14 +948,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     onChanged() { refreshHotbarUI(); },
     toast: (m) => showToast(m),
     click: () => AudioSys.click(),
-    closed() { if (!disposed) canvas.requestPointerLock?.(); },
+    closed() { if (!disposed && !touchMode) canvas.requestPointerLock?.(); },
   };
   function openInv(mode: 2 | 3) {
     if (invOpen || disposed) return;
     invOpen = true;
     stopMining();
     keys.f = keys.b = keys.l = keys.r = keys.jump = keys.run = false;
-    document.exitPointerLock?.();
+    tMoveX = 0; tMoveZ = 0;
+    if (!touchMode) document.exitPointerLock?.();
     invCleanup = openInventoryScreen(wrap, invHost, mode);
   }
   function closeInv() {
@@ -1072,6 +1081,26 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   };
   (window as unknown as { __vcxSeed?: () => number }).__vcxSeed = () => worldSeed;
   (window as unknown as { __vcxRender?: () => number }).__vcxRender = () => renderRadius;
+
+  /* -------- dokunmatik kontrol API'si (mobil) -------- */
+  const touchApi = {
+    move(x: number, z: number) { tMoveX = Math.max(-1, Math.min(1, x)); tMoveZ = Math.max(-1, Math.min(1, z)); },
+    look(dx: number, dy: number) {
+      player.yaw -= dx * 0.0035;
+      player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - dy * 0.0035));
+    },
+    jump() { if (state === "play" && !invOpen) keys.jump = true; },
+    sprint(on: boolean) { keys.run = on; },
+    mine(on: boolean) {
+      if (state !== "play" || invOpen) { if (!on) stopMining(); return; }
+      if (on) { mineWarned = ""; mining = true; mineKey = ""; mineT = 0; }
+      else stopMining();
+    },
+    place() { if (state === "play" && !invOpen) onInteract(); },
+    inventory() { if (invOpen) closeInv(); else openInv(2); },
+    isTouch: () => touchMode,
+  };
+  (window as unknown as { __vcxTouch?: typeof touchApi }).__vcxTouch = touchApi;
   (window as unknown as { __vcxNewWorld?: (seed?: string) => void }).__vcxNewWorld = (seed?: string) => {
     if (!window.confirm("Kayıtlı dünyayı sil ve yepyeni bir dünya başlat? Bu işlem geri alınamaz.")) return;
     if (seed && seed.trim() !== "") setPendingSeed(seed.trim());
@@ -1123,11 +1152,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   };
   (window as unknown as { __vcxStart?: () => void }).__vcxStart = startPlay;
   const onCanvasClick = () => {
+    if (touchMode) { if (state === "menu") startPlay(); return; }
     if (state === "menu") { startPlay(); return; }
     if (!pointerLocked) canvas.requestPointerLock?.();
   };
   canvas.addEventListener("click", onCanvasClick);
   document.addEventListener("pointerlockchange", () => {
+    if (touchMode) return; // dokunmatikte pointer lock kullanılmaz
     pointerLocked = document.pointerLockElement === canvas;
     if (!pointerLocked) stopMining();
     // Envanter açıkken lock düşmesi menüye atmaz (bilerek çıkıldı)
@@ -1380,8 +1411,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (keys.b) { mx += sinY; mz += cosY; }
     if (keys.l) { mx -= cosY; mz += sinY; }
     if (keys.r) { mx += cosY; mz -= sinY; }
+    // dokunmatik joystick: analog yön (masaüstünde 0 — klavye vektörü kullanılır)
+    if (tMoveX !== 0 || tMoveZ !== 0) {
+      mx = tMoveZ * -sinY + tMoveX * cosY;
+      mz = tMoveZ * -cosY + tMoveX * -sinY;
+    }
     const len = Math.hypot(mx, mz);
-    if (len > 0) { mx /= len; mz /= len; }
+    if (len > 1) { mx /= len; mz /= len; } // klavye çaprazı ~1.41 → birim vektör
     // ivme/yumuşatma: ani hız değişimi yerine yumuşak hızlanma-yavaşlama
     const targetVx = mx * speed, targetVz = mz * speed;
     const accel = Math.min(1, (p.onGround ? 16 : 6) * dt);
@@ -1444,7 +1480,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function updateAimUI() {
     const el = document.getElementById("vcx-aim");
     if (!el) return;
-    if (state !== "play" || invOpen || !pointerLocked) {
+    if (state !== "play" || invOpen || (!pointerLocked && !touchMode)) {
       if (lastAim !== "") { lastAim = ""; el.textContent = ""; }
       return;
     }
@@ -1669,6 +1705,17 @@ select.vcx-input{cursor:pointer;min-width:110px}
 .vcx-sound{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;font-size:14px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);border-radius:20px;padding:2px 10px;cursor:pointer;color:#fff}
 .vcx-sound:hover{background:rgba(255,255,255,.2)}
 .vcx-aim{position:absolute;top:calc(50% + 18px);left:50%;transform:translateX(-50%);z-index:5;pointer-events:none;color:#fff;background:rgba(0,0,0,.55);padding:2px 12px;border-radius:14px;font-size:12px;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px #000;letter-spacing:.3px}
+/* --- dokunmatik kontroller (mobil) --- */
+.vcx-look{position:absolute;top:12%;left:35%;right:0;bottom:26%;z-index:7;touch-action:none}
+.vcx-stick{position:absolute;left:18px;bottom:96px;width:110px;height:110px;border-radius:50%;z-index:8;
+  background:rgba(0,0,0,.32);border:2px solid rgba(255,255,255,.35);touch-action:none;display:flex;align-items:center;justify-content:center}
+.vcx-knob{width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.72);box-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none}
+.vcx-tbtns{position:absolute;right:14px;bottom:96px;z-index:8;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;touch-action:none}
+.vcx-tbtn{width:56px;height:56px;border-radius:14px;font-size:22px;background:rgba(0,0,0,.42);color:#fff;
+  border:2px solid rgba(255,255,255,.35);touch-action:none;cursor:pointer}
+.vcx-tbtn.big{width:64px;height:64px;font-size:26px}
+.vcx-tbtn.on{background:rgba(126,224,129,.55);border-color:#7ee081}
+@media (pointer:coarse){ .vcx-tip{display:none} }
 .vcx-cross{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;z-index:5;pointer-events:none;opacity:.9}
 .vcx-cross::before,.vcx-cross::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px #000}
 .vcx-cross::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
@@ -1734,6 +1781,113 @@ select.vcx-input{cursor:pointer;min-width:110px}
   aim.id = "vcx-aim";
   container.appendChild(aim);
   setMuteUI();
+
+  /* ---- dokunmatik kontroller (yalnızca mobil) ---- */
+  if (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches) {
+    type TouchApi = {
+      move(x: number, z: number): void;
+      look(dx: number, dy: number): void;
+      jump(): void;
+      sprint(on: boolean): void;
+      mine(on: boolean): void;
+      place(): void;
+      inventory(): void;
+      isTouch(): boolean;
+    };
+    const call = () => (window as unknown as { __vcxTouch?: Partial<TouchApi> }).__vcxTouch;
+    // bakış alanı (ekranın sağ-orta kısmı)
+    const look = document.createElement("div");
+    look.className = "vcx-look";
+    container.appendChild(look);
+
+    // hareket joystick'i
+    const stick = document.createElement("div");
+    stick.className = "vcx-stick";
+    const knob = document.createElement("div");
+    knob.className = "vcx-knob";
+    stick.appendChild(knob);
+    container.appendChild(stick);
+
+    // aksiyon tuşları
+    const btns = document.createElement("div");
+    btns.className = "vcx-tbtns";
+    btns.innerHTML = `
+      <button class="vcx-tbtn" data-act="jump" title="Zıpla">⤒</button>
+      <button class="vcx-tbtn" data-act="run" title="Koş">🏃</button>
+      <button class="vcx-tbtn" data-act="inv" title="Envanter">🎒</button>
+      <button class="vcx-tbtn big" data-act="mine" title="Kaz (basılı tut)">⛏️</button>
+      <button class="vcx-tbtn big" data-act="place" title="Yerleştir">🧱</button>`;
+    container.appendChild(btns);
+
+    // --- joystick olayları ---
+    let stickId: number | null = null;
+    const R = 46;
+    const stickMove = (e: PointerEvent) => {
+      const r = stick.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      let dx = e.clientX - cx, dy = e.clientY - cy;
+      const d = Math.hypot(dx, dy);
+      if (d > R) { dx = (dx / d) * R; dy = (dy / d) * R; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      call()?.move?.(dx / R, -dy / R);
+    };
+    stick.addEventListener("pointerdown", (e) => {
+      stickId = e.pointerId;
+      stick.setPointerCapture(e.pointerId);
+      stickMove(e);
+    });
+    stick.addEventListener("pointermove", (e) => { if (e.pointerId === stickId) stickMove(e); });
+    const stickEnd = (e: PointerEvent) => {
+      if (e.pointerId !== stickId) return;
+      stickId = null;
+      knob.style.transform = "translate(0px, 0px)";
+      call()?.move?.(0, 0);
+    };
+    stick.addEventListener("pointerup", stickEnd);
+    stick.addEventListener("pointercancel", stickEnd);
+
+    // --- bakış olayları ---
+    let lookId: number | null = null, lx = 0, ly = 0;
+    look.addEventListener("pointerdown", (e) => {
+      lookId = e.pointerId; lx = e.clientX; ly = e.clientY;
+      look.setPointerCapture(e.pointerId);
+    });
+    look.addEventListener("pointermove", (e) => {
+      if (e.pointerId !== lookId) return;
+      call()?.look?.(e.clientX - lx, e.clientY - ly);
+      lx = e.clientX; ly = e.clientY;
+    });
+    const lookEnd = (e: PointerEvent) => { if (e.pointerId === lookId) lookId = null; };
+    look.addEventListener("pointerup", lookEnd);
+    look.addEventListener("pointercancel", lookEnd);
+
+    // --- tuş olayları ---
+    btns.querySelectorAll<HTMLElement>(".vcx-tbtn").forEach((b) => {
+      const act = b.dataset.act;
+      if (act === "mine") {
+        b.addEventListener("pointerdown", (e) => { e.preventDefault(); b.classList.add("on"); call()?.mine?.(true); });
+        const up = () => { b.classList.remove("on"); call()?.mine?.(false); };
+        b.addEventListener("pointerup", up);
+        b.addEventListener("pointercancel", up);
+        b.addEventListener("pointerleave", up);
+      } else if (act === "run") {
+        let on = false;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          on = !on;
+          b.classList.toggle("on", on);
+          call()?.sprint?.(on);
+        });
+      } else {
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          if (act === "jump") call()?.jump?.();
+          else if (act === "place") call()?.place?.();
+          else if (act === "inv") call()?.inventory?.();
+        });
+      }
+    });
+  }
 
   // --- alt HUD: can/açlık + hotbar ---
   const hud = document.createElement("div");
