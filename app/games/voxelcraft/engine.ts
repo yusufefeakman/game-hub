@@ -213,35 +213,73 @@ function buildWorldData() {
         else if (rr < 0.05) world[idx(x, h + 1, z)] = B.FLOWER_YELLOW;
         else if (rr < 0.16) world[idx(x, h + 1, z)] = B.TALL_GRASS;
       }
-      // trees
-      if (top === B.GRASS && h > SEA_LEVEL + 1 && h < WORLD_Y - 12) {
+      // --- kaya kümeleri (küçük taş parçaları, performans dostu: 2-4 blok) ---
+      if (top === B.GRASS && getBlock(x, h + 1, z) === B.AIR && hash2(x * 91 + 17, z * 53 + 29) > 0.988) {
+        const mossy = hash2(x * 13 + 5, z * 41 + 11) > 0.55;
+        const rock = mossy ? B.MOSSY_COBBLE : B.COBBLE;
+        const size = 1 + Math.floor(hash2(x + 7, z + 3) * 3); // 1..3 yükseklik
+        for (let t = 1; t <= size; t++) world[idx(x, h + t, z)] = rock;
+        if (size > 1) {
+          world[idx(x + 1, h + 1, z)] = rock;
+          if (hash2(x + 21, z + 9) > 0.5) world[idx(x, h + 1, z + 1)] = rock;
+        }
+      }
+      // --- ağaçlar: meşe / huş / çam (bölgeye göre tür seçimi) ---
+      if (top === B.GRASS && h > SEA_LEVEL + 1 && h < WORLD_Y - 14) {
+        const region = noise2(x * 0.012 + 300, z * 0.012 - 200); // orman bölgesi
+        const forestChance = region > 0.55 ? 0.055 : 0.024;      // sık/seyrek orman
         const tr = hash2(x * 31 + 7, z * 57 + 13);
-        if (tr > 0.02) continue;
+        if (tr > forestChance) continue;
         let clash = false;
         for (let dx = -2; dx <= 2 && !clash; dx++)
           for (let dz = -2; dz <= 2 && !clash; dz++)
             if (getBlock(x + dx, h + 1, z + dz) !== B.AIR) clash = true;
         if (clash) continue;
-        const trunk = 4 + Math.floor(hash2(x + 99, z + 99) * 3);
-        const topY = h + trunk;
-        if (topY + 2 >= WORLD_Y) continue;
-        for (let t = 1; t <= trunk; t++) world[idx(x, h + t, z)] = B.WOOD;
-        const canopy = [
-          { off: 2, rad: 1 },
-          { off: 1, rad: 2 },
-          { off: 0, rad: 2 },
-          { off: -1, rad: 1 },
-        ];
-        for (const layer of canopy) {
-          const yy = topY + layer.off;
-          if (yy < 1 || yy >= WORLD_Y) continue;
-          for (let dx = -layer.rad; dx <= layer.rad; dx++)
-            for (let dz = -layer.rad; dz <= layer.rad; dz++) {
-              if (Math.abs(dx) === layer.rad && Math.abs(dz) === layer.rad && layer.rad > 1) continue;
-              if (dx === 0 && dz === 0 && layer.off === 0) continue;
-              const bx = x + dx, bz = z + dz;
-              if (getBlock(bx, yy, bz) === B.AIR) world[idx(bx, yy, bz)] = B.LEAVES;
-            }
+
+        const species = hash2(x * 17 + 3, z * 23 + 91); // 0..1 → tür
+        const isBirch = species > 0.72;
+        const isPine = species <= 0.42;
+        const logId = isBirch ? B.BIRCH_WOOD : isPine ? B.PINE_WOOD : B.WOOD;
+        const leafId = isBirch ? B.BIRCH_LEAVES : isPine ? B.PINE_LEAVES : B.LEAVES;
+
+        if (isPine) {
+          // çam: uzun gövde + konik katmanlar
+          const trunk = 6 + Math.floor(hash2(x + 41, z + 77) * 4);
+          const topY = h + trunk;
+          if (topY + 2 >= WORLD_Y) continue;
+          for (let t = 1; t <= trunk; t++) world[idx(x, h + t, z)] = logId;
+          for (let layer = 0; layer <= 3; layer++) {
+            const yy = topY - layer;
+            const rad = layer === 0 ? 0 : layer === 1 ? 1 : layer === 2 ? 2 : 1;
+            if (yy < 1 || yy >= WORLD_Y) continue;
+            for (let dx = -rad; dx <= rad; dx++)
+              for (let dz = -rad; dz <= rad; dz++) {
+                if (rad > 1 && Math.abs(dx) === rad && Math.abs(dz) === rad) continue;
+                if (dx === 0 && dz === 0 && layer > 0) continue;
+                const bx = x + dx, bz = z + dz;
+                if (getBlock(bx, yy, bz) === B.AIR) world[idx(bx, yy, bz)] = leafId;
+              }
+          }
+        } else {
+          const trunk = (isBirch ? 5 : 4) + Math.floor(hash2(x + 99, z + 99) * 3);
+          const topY = h + trunk;
+          if (topY + 2 >= WORLD_Y) continue;
+          for (let t = 1; t <= trunk; t++) world[idx(x, h + t, z)] = logId;
+          const canopy = isBirch
+            ? [{ off: 2, rad: 1 }, { off: 1, rad: 2 }, { off: 0, rad: 1 }]
+            : [{ off: 2, rad: 1 }, { off: 1, rad: 2 }, { off: 0, rad: 2 }, { off: -1, rad: 1 }];
+          for (const layer of canopy) {
+            const yy = topY + layer.off;
+            if (yy < 1 || yy >= WORLD_Y) continue;
+            for (let dx = -layer.rad; dx <= layer.rad; dx++)
+              for (let dz = -layer.rad; dz <= layer.rad; dz++) {
+                if (Math.abs(dx) === layer.rad && Math.abs(dz) === layer.rad && layer.rad > 1) continue;
+                if (dx === 0 && dz === 0 && layer.off === 0) continue;
+                const bx = x + dx, bz = z + dz;
+                if (getBlock(bx, yy, bz) === B.AIR) world[idx(bx, yy, bz)] = leafId;
+              }
+          }
+          // elma veren meşe: bazı ağaçlar "çiçekli" varyant değil, sadece yoğun yaprak
         }
       }
     }
@@ -320,12 +358,19 @@ function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGe
         for (let f = 0; f < 6; f++) {
           const nb = nbr[f];
           const nbWater = isLiquid(nb);
-          let draw = nb === B.AIR || nbWater;
-          if (isTrans) {
-            // trans yüzleri: sadece hava/su komşuluğunda çiz
-            draw = nb === B.AIR || nbWater || isTransparent(nb);
-          } else if (isWater) {
-            draw = nb === B.AIR || nbWater;
+          // OPAK blok: yüz, yalnızca komşu "opak katı" DEĞİLSE çizilir.
+          // (hava, su, cam, yaprak, çiçek komşuluğunda yüz gereklidir — aksi
+          //  hâlde cam altından/agac altından dünyanın içi görünür)
+          const nbOpaque = isSolid(nb) && !isTransparent(nb) && !nbWater;
+          let draw: boolean;
+          if (isWater) {
+            // su: opak katı ve diğer su komşularında yüz çizilmez
+            draw = !nbOpaque && !nbWater;
+          } else if (isTrans) {
+            // cam/yaprak/çiçek: aynı türle birleşir, diğer her şeye karşı çizilir
+            draw = !nbOpaque && nb !== id;
+          } else {
+            draw = !nbOpaque;
           }
           if (!draw) continue;
           const tile = def.tiles[f];
@@ -454,7 +499,9 @@ function mineClassOf(id: number): "pickaxe" | "axe" | "shovel" | "hand" | null {
     case B.MOSSY_COBBLE: case B.SANDSTONE: case B.OBSIDIAN:
     case B.COAL_ORE: case B.IRON_ORE: case B.GOLD_ORE: case B.DIAMOND_ORE:
       return "pickaxe";
-    case B.WOOD: case B.PLANKS: case B.CRAFTING_TABLE: case B.LEAVES:
+    case B.WOOD: case B.BIRCH_WOOD: case B.PINE_WOOD:
+    case B.PLANKS: case B.CRAFTING_TABLE:
+    case B.LEAVES: case B.BIRCH_LEAVES: case B.PINE_LEAVES:
       return "axe";
     case B.DIRT: case B.GRASS: case B.SAND: case B.GRAVEL: case B.CLAY:
     case B.SNOW: case B.ICE:
@@ -645,7 +692,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const dist = renderRadius * CHUNK;
     fog.near = dist * 0.45;
     fog.far = dist * 1.06;
-    camera.far = dist * 2.4;
+    // gökyüzü kubbesi kırpılmasın (dome yarıçapı en fazla ~410)
+    camera.far = Math.max(dist * 2.4, 520);
     camera.updateProjectionMatrix();
   }
   renderRadius = lowPower ? 3 : 5;
@@ -666,6 +714,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const sunWhite = new THREE.Color(0xfff2d8);
   const sunOrange = new THREE.Color(0xff9a4d);
   const moonCol = new THREE.Color(0x7d92cc);
+  // kubbe gradyan renkleri (her karede yeni nesne üretmemek için sabit)
+  const skyTopDay = new THREE.Color(0x2f7fd6), skyTopNight = new THREE.Color(0x081026);
+  const skyBotDay = new THREE.Color(0xbfe2f8), skyBotNight = new THREE.Color(0x111c33);
+  const skyWarm = new THREE.Color(0xf0a45e);
 
   // gündüz/gece: gökyüzü, sis, ışık yoğunlukları ve güneş yönü
   function updateSky() {
@@ -684,6 +736,32 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     else { sun.color.copy(sunWhite); sun.color.lerp(sunOrange, tw * 0.65); }
     hemi.intensity = 0.34 + 0.62 * dl;
     amb.intensity = 0.08 + 0.2 * dl;
+
+    /* --- gökyüzü kubbesi + yıldızlar + güneş/ay --- */
+    const topC = skyMat.uniforms.topColor.value as THREE.Color;
+    const botC = skyMat.uniforms.bottomColor.value as THREE.Color;
+    topC.copy(skyTopNight).lerp(skyTopDay, Math.min(1, dl * 1.25));
+    botC.copy(skyBotNight).lerp(skyBotDay, Math.min(1, dl * 1.3));
+    if (tw > 0) { topC.lerp(skyWarm, tw * 0.35); botC.lerp(skyWarm, tw * 0.8); }
+    starMat.opacity = Math.max(0, Math.min(1, -e * 1.5));
+    stars.rotation.y = worldTime * 0.004;
+    stars.position.copy(camera.position);
+    skyDome.position.copy(camera.position);
+
+    // güneş/ay diskleri gökyüzünde
+    const R = skyRadius * 0.82;
+    sunDisc.position.set(
+      camera.position.x + Math.sin(ang) * R,
+      camera.position.y + e * R,
+      camera.position.z + Math.cos(ang) * R * 0.35,
+    );
+    moonDisc.position.set(
+      camera.position.x - Math.sin(ang) * R,
+      camera.position.y - e * R,
+      camera.position.z - Math.cos(ang) * R * 0.35,
+    );
+    sunDisc.visible = e > -0.12;
+    moonDisc.visible = e < 0.12;
     const icon = e > 0.06 ? "☀️" : e < -0.06 ? "🌙" : p < 0.5 ? "🌅" : "🌇";
     const phaseTxt = e > 0.06 ? "Gündüz" : e < -0.06 ? "Gece" : p < 0.5 ? "Gündoğumu" : "Gün batımı";
     const dayNo = Math.floor(worldTime / DAY_LEN) + 1;
@@ -693,6 +771,61 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   worldRoot = new THREE.Group();
   scene.add(worldRoot);
+
+  /* ---- gökyüzü kubbesi (gradyan) + yıldızlar + güneş/ay ---- */
+  const skyRadius = renderRadius * CHUNK * 3.2;
+  const skyMat = new THREE.ShaderMaterial({
+    uniforms: {
+      topColor: { value: new THREE.Color(0x2f7fd6) },
+      bottomColor: { value: new THREE.Color(0xbfe2f8) },
+      offset: { value: 24 },
+      exponent: { value: 0.75 },
+    },
+    vertexShader: `
+      varying vec3 vPos;
+      void main() { vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      uniform vec3 topColor; uniform vec3 bottomColor; uniform float offset; uniform float exponent;
+      varying vec3 vPos;
+      void main() {
+        float h = normalize(vPos + vec3(0.0, offset, 0.0)).y;
+        gl_FragColor = vec4(mix(bottomColor, topColor, pow(max(h, 0.0), exponent)), 1.0);
+      }`,
+    side: THREE.BackSide, depthWrite: false, fog: false,
+  });
+  const skyDome = new THREE.Mesh(new THREE.SphereGeometry(skyRadius, 20, 14), skyMat);
+  skyDome.frustumCulled = false;
+  scene.add(skyDome);
+
+  // yıldızlar (gece görünür) — tek Points nesnesi, düşük maliyet
+  const starCount = 900;
+  const starPos = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const u = Math.random() * 2 - 1;
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(1 - u * u);
+    const R = skyRadius * 0.94;
+    starPos[i * 3] = Math.cos(a) * r * R;
+    starPos[i * 3 + 1] = Math.abs(u) * R * 0.9 + 10;
+    starPos[i * 3 + 2] = Math.sin(a) * r * R;
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+  const starMat = new THREE.PointsMaterial({
+    color: 0xffffff, size: 2, sizeAttenuation: false,
+    transparent: true, opacity: 0, depthWrite: false, fog: false,
+  });
+  const stars = new THREE.Points(starGeo, starMat);
+  stars.frustumCulled = false;
+  scene.add(stars);
+
+  // güneş ve ay diskleri
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(9, 14, 10), new THREE.MeshBasicMaterial({ color: 0xfff6cf, fog: false }));
+  const moonDisc = new THREE.Mesh(new THREE.SphereGeometry(6, 14, 10), new THREE.MeshBasicMaterial({ color: 0xe4eaff, fog: false }));
+  sunDisc.frustumCulled = false;
+  moonDisc.frustumCulled = false;
+  scene.add(sunDisc);
+  scene.add(moonDisc);
 
   // bakılan/kazılan blok vurgusu
   const hlGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002));
@@ -1095,9 +1228,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (meta) {
       if (inventory.damageSlot(selectedSlot)) showToast("💥 Aletin kırıldı!");
     }
-    if (b === B.LEAVES && Math.random() < 0.07) {
-      const left = inventory.add(I.APPLE, 1);
-      if (left > 0) showToast("Envanter dolu!");
+    if (b === B.LEAVES || b === B.BIRCH_LEAVES || b === B.PINE_LEAVES) {
+      if (Math.random() < 0.07) {
+        const left = inventory.add(I.APPLE, 1);
+        if (left > 0) showToast("Envanter dolu!");
+      }
     }
     refreshHotbarUI();
   }
@@ -1247,8 +1382,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (keys.r) { mx += cosY; mz -= sinY; }
     const len = Math.hypot(mx, mz);
     if (len > 0) { mx /= len; mz /= len; }
-    p.vx = mx * speed;
-    p.vz = mz * speed;
+    // ivme/yumuşatma: ani hız değişimi yerine yumuşak hızlanma-yavaşlama
+    const targetVx = mx * speed, targetVz = mz * speed;
+    const accel = Math.min(1, (p.onGround ? 16 : 6) * dt);
+    p.vx += (targetVx - p.vx) * accel;
+    p.vz += (targetVz - p.vz) * accel;
+    if (Math.abs(p.vx) < 0.02 && targetVx === 0) p.vx = 0;
+    if (Math.abs(p.vz) < 0.02 && targetVz === 0) p.vz = 0;
     p.vy -= (inWater ? 10 : 26) * dt;
     if (p.vy < -(inWater ? 12 : 48)) p.vy = inWater ? -12 : -48;
     if (inWater && keys.jump) { p.vy = 4.5; keys.jump = false; AudioSys.jump(); }
@@ -1300,7 +1440,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   let raf = 0, last = 0;
-  let fpsN = 0, fpsAcc = 0, lastAim = "";
+  let fpsN = 0, fpsAcc = 0, lastAim = "", aimT = 0;
   function updateAimUI() {
     const el = document.getElementById("vcx-aim");
     if (!el) return;
@@ -1335,7 +1475,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       }
       updateBits(dt);
     }
-    updateAimUI();
+    // hedef blok bilgisi: raycast'i her karede değil, 10 kez/sn çalıştır
+    aimT += dt;
+    if (aimT >= 0.1) { aimT = 0; updateAimUI(); }
     refreshChunks();
     updateSky();
     renderer.render(scene, camera);
@@ -1360,6 +1502,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     scene.remove(targetHL);
     hlGeo.dispose();
     hlMat.dispose();
+    // gökyüzü nesneleri
+    scene.remove(skyDome); scene.remove(stars); scene.remove(sunDisc); scene.remove(moonDisc);
+    skyDome.geometry.dispose();
+    (skyDome.material as THREE.Material).dispose();
+    starGeo.dispose();
+    starMat.dispose();
+    sunDisc.geometry.dispose(); (sunDisc.material as THREE.Material).dispose();
+    moonDisc.geometry.dispose(); (moonDisc.material as THREE.Material).dispose();
     document.exitPointerLock?.();
     cleanupBits();
     chunks.forEach((cm) => {

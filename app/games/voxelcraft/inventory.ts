@@ -25,14 +25,17 @@ export const ITEM_NAME: Record<number, string> = {
   [B.FLOWER_RED]: "Kırmızı Çiçek", [B.FLOWER_YELLOW]: "Sarı Çiçek",
   [B.TALL_GRASS]: "Uzun Çimen", [B.MOSSY_COBBLE]: "Yosunlu Arnavut",
   [B.CRAFTING_TABLE]: "Üretim Masası",
+  [B.BIRCH_WOOD]: "Huş Odun", [B.BIRCH_LEAVES]: "Huş Yaprağı",
+  [B.PINE_WOOD]: "Çam Odun", [B.PINE_LEAVES]: "Çam Yaprağı",
 };
 
 // Bu bloklar kırılınca düşer; gerisi (bedrock, su, hava) düşürmez.
 export function dropsFor(blockId: number): number | null {
   switch (blockId) {
     case B.AIR: case B.BEDROCK: case B.WATER: return null;
-    case B.LEAVES: case B.TALL_GRASS: case B.FLOWER_RED: case B.FLOWER_YELLOW:
-      return null; // doğada toplanamaz
+    case B.LEAVES: case B.BIRCH_LEAVES: case B.PINE_LEAVES:
+    case B.TALL_GRASS: case B.FLOWER_RED: case B.FLOWER_YELLOW:
+      return null; // yapraklar/bitkiler doğrudan düşmez (elma şansı ayrı)
     default:
       return blockId;
   }

@@ -36,10 +36,14 @@ export const B = {
   TALL_GRASS: 26,
   MOSSY_COBBLE: 27,
   CRAFTING_TABLE: 28,
+  BIRCH_WOOD: 29,
+  BIRCH_LEAVES: 30,
+  PINE_WOOD: 31,
+  PINE_LEAVES: 32,
 } as const;
 export type BlockId = (typeof B)[keyof typeof B];
 
-export const COUNT = 29;
+export const COUNT = 33;
 
 /* ------------------- doku yardımcıları ------------------- */
 // Deterministik 0..1
@@ -125,18 +129,109 @@ export function buildAtlas() {
       }
   };
 
-  regTile("grass_top", (c) => { base(c, [106, 190, 78]); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 9.1 + y * 5.3 + 1); if (n > 0.6) { c.fillStyle = n > 0.8 ? "rgb(122,210,92)" : "rgb(88,168,64)"; c.fillRect(x, y, 1, 1); } } });
-  regTile("grass_side", (c) => { base(c, [134, 96, 67]); c.fillStyle = "rgb(106,190,78)"; c.fillRect(0, 0, 16, 4); c.fillStyle = "rgb(92,170,66)"; for (let x = 0; x < 16; x++) { if (h2(x + 40) > 0.45) c.fillRect(x, 4, 1, 1); } noise16(c, 0.4, 0.92, 1.1, 77, [134, 96, 67]); });
+  // --- çimen: üç tonlu zengin doku (toprak/taş/kumdan net ayrılır) ---
+  regTile("grass_top", (c) => {
+    base(c, [104, 178, 72]);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const n = h2(x * 9.1 + y * 5.3 + 1);
+        if (n > 0.82) { c.fillStyle = "rgb(138,214,104)"; c.fillRect(x, y, 1, 1); }
+        else if (n > 0.55) { c.fillStyle = "rgb(92,164,64)"; c.fillRect(x, y, 1, 1); }
+        else if (n < 0.10) { c.fillStyle = "rgb(66,132,50)"; c.fillRect(x, y, 1, 1); }
+      }
+  });
+  regTile("grass_side", (c) => {
+    base(c, [134, 96, 67]);
+    c.fillStyle = "rgb(104,178,72)"; c.fillRect(0, 0, 16, 3);
+    c.fillStyle = "rgb(92,164,64)";
+    for (let x = 0; x < 16; x++) { if (h2(x + 40) > 0.35) c.fillRect(x, 3, 1, 1); if (h2(x + 70) > 0.72) c.fillRect(x, 4, 1, 1); }
+    c.fillStyle = "rgb(66,112,46)"; c.fillRect(0, 5, 16, 1);
+    noise16(c, 0.4, 0.92, 1.1, 77, [134, 96, 67]);
+  });
   regTile("grass_bottom", (c) => { base(c, [134, 96, 67]); noise16(c, 0.5, 0.9, 1.12, 5, [134, 96, 67]); });
 
-  regTile("dirt", (c) => { base(c, [134, 96, 67]); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 4.7 + y * 8.3 + 3); if (n > 0.6) { c.fillStyle = n > 0.85 ? "rgb(150,110,80)" : "rgb(115,80,55)"; c.fillRect(x, y, 1, 1); } } });
-  regTile("stone", (c) => { base(c, [127, 127, 127]); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 5.1 + y * 9.7 + 11); if (n > 0.62) { c.fillStyle = n > 0.85 ? "rgb(150,150,150)" : "rgb(105,105,105)"; c.fillRect(x, y, 1, 1); } } });
-  regTile("sand", (c) => { base(c, [219, 206, 158]); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 11.3 + y * 4.1 + 21); if (n > 0.7) { c.fillStyle = n > 0.9 ? "rgb(233,222,180)" : "rgb(200,186,140)"; c.fillRect(x, y, 1, 1); } } });
+  // --- toprak: koyu, iri taneli + küçük taş kırıntıları ---
+  regTile("dirt", (c) => {
+    base(c, [118, 82, 56]);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const n = h2(x * 4.7 + y * 8.3 + 3);
+        if (n > 0.66) { c.fillStyle = "rgb(140,100,70)"; c.fillRect(x, y, 1, 1); }
+        else if (n < 0.14) { c.fillStyle = "rgb(96,64,42)"; c.fillRect(x, y, 1, 1); }
+        else if (n > 0.62 && n < 0.635) { c.fillStyle = "rgb(158,152,146)"; c.fillRect(x, y, 1, 1); }
+      }
+  });
+  // --- taş: soğuk gri + ince çatlaklar (arnavuttan farklı, düz görünüm) ---
+  regTile("stone", (c) => {
+    base(c, [128, 128, 133]);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const n = h2(x * 5.1 + y * 9.7 + 11);
+        if (n > 0.72) { c.fillStyle = "rgb(146,146,152)"; c.fillRect(x, y, 1, 1); }
+        else if (n < 0.2) { c.fillStyle = "rgb(112,112,118)"; c.fillRect(x, y, 1, 1); }
+      }
+    c.fillStyle = "rgb(104,104,110)";
+    for (let i = 0; i < 14; i++) { const x = Math.floor(h2(i * 3.7) * 16), y = Math.floor(h2(i * 7.9 + 2) * 16); c.fillRect(x, y, 1, 1); c.fillRect(x + 1, y, 1, 1); }
+  });
+  // --- kum: ince taneli, açık ve sıcak ---
+  regTile("sand", (c) => {
+    base(c, [226, 212, 164]);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const n = h2(x * 11.3 + y * 4.1 + 21);
+        if (n > 0.86) { c.fillStyle = "rgb(240,228,186)"; c.fillRect(x, y, 1, 1); }
+        else if (n < 0.12) { c.fillStyle = "rgb(208,192,146)"; c.fillRect(x, y, 1, 1); }
+      }
+  });
   regTile("sandstone", (c) => { base(c, [222, 210, 160]); for (let y = 4; y < 16; y += 4) { c.fillStyle = "rgb(200,188,140)"; c.fillRect(0, y, 16, 1); } });
 
   regTile("log_top", (c) => { base(c, [150, 111, 70]); c.fillStyle = "rgb(190,150,100)"; c.beginPath(); c.arc(8, 8, 5, 0, 7); c.fill(); c.fillStyle = "rgb(120,85,50)"; c.beginPath(); c.arc(8, 8, 3, 0, 7); c.fill(); });
-  regTile("log_side", (c) => { base(c, [110, 80, 50]); for (let y = 0; y < 16; y += 4) { c.fillStyle = "rgb(145,110,70)"; c.fillRect(0, y + 1, 16, 1); } for (let x = 2; x < 16; x += 5) { c.fillStyle = "rgb(90,62,38)"; c.fillRect(x, 0, 1, 16); } });
-  regTile("leaves", (c) => { base(c, [58, 132, 50]); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 3.3 + y * 7.9 + 30); if (n > 0.4) { c.fillStyle = n > 0.75 ? "rgb(92,170,80)" : "rgb(36,96,34)"; c.fillRect(x, y, 1, 1); } } });
+  // --- meşe kabuğu: dikey çatlaklar + budak ---
+  regTile("log_side", (c) => {
+    base(c, [110, 80, 50]);
+    for (let x = 0; x < 16; x++) {
+      const n = h2(x * 5.3 + 3);
+      if (n > 0.55) { c.fillStyle = "rgb(88,62,38)"; c.fillRect(x, 0, 1, 16); }
+      else if (n < 0.18) { c.fillStyle = "rgb(138,102,64)"; c.fillRect(x, 0, 1, 16); }
+    }
+    c.fillStyle = "rgb(74,50,30)";
+    c.fillRect(3, 4, 3, 4); c.fillRect(10, 9, 2, 3);
+    c.fillStyle = "rgb(160,120,78)"; c.fillRect(3, 4, 1, 1);
+  });
+  // --- yaprak: koyu/açık yeşil kümeler, yoğun gölgeli ---
+  regTile("leaves", (c) => {
+    base(c, [52, 118, 46]);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const n = h2(x * 3.3 + y * 7.9 + 30);
+        if (n > 0.78) { c.fillStyle = "rgb(96,176,80)"; c.fillRect(x, y, 1, 1); }
+        else if (n > 0.42) { c.fillStyle = "rgb(62,140,54)"; c.fillRect(x, y, 1, 1); }
+        else if (n < 0.16) { c.fillStyle = "rgb(30,80,30)"; c.fillRect(x, y, 1, 1); }
+      }
+  });
+  // --- huş: krem kabuk + kısa koyu çizgiler ---
+  regTile("birch_log_side", (c) => {
+    base(c, [224, 220, 208]);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 6.1 + y * 2.9 + 61); if (n > 0.78) { c.fillStyle = "rgb(206,202,190)"; c.fillRect(x, y, 1, 1); } }
+    c.fillStyle = "rgb(58,54,50)";
+    for (const [x, y, w] of [[1, 3, 4], [9, 2, 3], [3, 8, 5], [11, 9, 4], [6, 13, 4]] as const) c.fillRect(x, y, w, 1);
+  });
+  regTile("birch_log_top", (c) => { base(c, [206, 186, 140]); c.fillStyle = "rgb(226,210,170)"; c.beginPath(); c.arc(8, 8, 5, 0, 7); c.fill(); c.fillStyle = "rgb(170,146,102)"; c.beginPath(); c.arc(8, 8, 3, 0, 7); c.fill(); });
+  regTile("birch_leaves", (c) => {
+    base(c, [92, 158, 62]);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 4.1 + y * 6.7 + 91); if (n > 0.74) { c.fillStyle = "rgb(140,196,86)"; c.fillRect(x, y, 1, 1); } else if (n < 0.18) { c.fillStyle = "rgb(58,116,44)"; c.fillRect(x, y, 1, 1); } }
+  });
+  // --- çam: koyu kızıl kabuk + iğne yaprak ---
+  regTile("pine_log_side", (c) => {
+    base(c, [96, 62, 40]);
+    for (let x = 0; x < 16; x++) { const n = h2(x * 4.9 + 11); if (n > 0.6) { c.fillStyle = "rgb(72,44,28)"; c.fillRect(x, 0, 1, 16); } else if (n < 0.2) { c.fillStyle = "rgb(124,84,54)"; c.fillRect(x, 0, 1, 16); } }
+    c.fillStyle = "rgb(58,34,22)"; c.fillRect(0, 5, 16, 1); c.fillRect(0, 11, 16, 1);
+  });
+  regTile("pine_log_top", (c) => { base(c, [120, 84, 56]); c.fillStyle = "rgb(152,108,72)"; c.beginPath(); c.arc(8, 8, 5, 0, 7); c.fill(); c.fillStyle = "rgb(92,60,38)"; c.beginPath(); c.arc(8, 8, 3, 0, 7); c.fill(); });
+  regTile("pine_leaves", (c) => {
+    base(c, [40, 92, 62]);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 7.3 + y * 3.1 + 131); if (n > 0.72) { c.fillStyle = "rgb(62,126,82)"; c.fillRect(x, y, 1, 1); } else if (n < 0.2) { c.fillStyle = "rgb(24,62,44)"; c.fillRect(x, y, 1, 1); } }
+  });
   regTile("planks", (c) => { base(c, [176, 136, 90]); for (let y = 0; y < 16; y += 4) { c.fillStyle = "rgb(120,88,55)"; c.fillRect(0, y, 16, 1); } c.fillStyle = "rgb(200,160,110)"; for (let x = 0; x < 16; x += 4) { c.fillRect(x, 2, 1, 2); c.fillRect(x + 2, 6, 1, 2); c.fillRect(x, 10, 1, 2); c.fillRect(x + 2, 14, 1, 2); } });
   // Üretim masası: üst yüzde iş kılavuzu, yanda çekiç/testere izlenimi
   regTile("craft_top", (c) => { base(c, [176, 136, 90]); c.fillStyle = "rgb(120,88,55)"; for (let y = 0; y < 16; y += 4) c.fillRect(0, y, 16, 1); c.fillStyle = "rgb(200,160,110)"; for (let x = 0; x < 16; x += 4) { c.fillRect(x, 2, 1, 2); c.fillRect(x + 2, 6, 1, 2); c.fillRect(x, 10, 1, 2); c.fillRect(x + 2, 14, 1, 2); } c.fillStyle = "rgba(96,66,38,.8)"; c.fillRect(1, 1, 14, 1); c.fillRect(1, 14, 14, 1); c.fillRect(1, 1, 1, 14); c.fillRect(14, 1, 1, 14); c.fillRect(6, 6, 4, 1); c.fillRect(6, 9, 4, 1); });
@@ -236,6 +331,11 @@ export function initBlocks() {
   def(B.TALL_GRASS, "Uzun Çimen", [ti("tall_grass"), ti("tall_grass"), ti("tall_grass"), ti("tall_grass"), ti("tall_grass"), ti("tall_grass")], false, 0, { transparent: true });
   def(B.MOSSY_COBBLE, "Yosunlu Arnavut", [ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble"), ti("mossy_cobble")], true, 2.0);
   def(B.CRAFTING_TABLE, "Üretim Masası", [ti("craft_top"), ti("planks"), ti("craft_side"), ti("craft_side"), ti("craft_side"), ti("craft_side")], true, 2.5);
+  // --- ağaç çeşitleri ---
+  def(B.BIRCH_WOOD, "Huş Odun", [ti("birch_log_top"), ti("birch_log_top"), ti("birch_log_side"), ti("birch_log_side"), ti("birch_log_side"), ti("birch_log_side")], true, 1.8);
+  def(B.BIRCH_LEAVES, "Huş Yaprağı", [ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves")], true, 0.2, { transparent: true });
+  def(B.PINE_WOOD, "Çam Odun", [ti("pine_log_top"), ti("pine_log_top"), ti("pine_log_side"), ti("pine_log_side"), ti("pine_log_side"), ti("pine_log_side")], true, 1.8);
+  def(B.PINE_LEAVES, "Çam Yaprağı", [ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves")], true, 0.2, { transparent: true });
 }
 
 export function blockName(id: number): string {

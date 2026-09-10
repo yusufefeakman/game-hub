@@ -37,6 +37,8 @@ const S = I.STICK;    // çubuk
 export const RECIPES: Recipe[] = [
   // ---- 2×2 / kişisel üretim ----
   rec(1, 1, [[B.WOOD]], B.PLANKS, 4),                                   // odun → kalas
+  rec(1, 1, [[B.BIRCH_WOOD]], B.PLANKS, 4),                             // huş odun → kalas
+  rec(1, 1, [[B.PINE_WOOD]], B.PLANKS, 4),                              // çam odun → kalas
   rec(1, 2, [[P], [P]], S, 4),                                          // 2 kalas (dikey) → çubuk
   rec(2, 2, [[P, P], [P, P]], B.CRAFTING_TABLE, 1),                      // kalas² → üretim masası
 
