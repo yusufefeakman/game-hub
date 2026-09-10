@@ -43,7 +43,7 @@ const GAMES = [
     emoji: "⛏️",
     artClass: "art-2",
     description:
-      "Minecraft benzeri hayatta kalma! Prosedürel arazi, can/açlık, envanter (E), 2×2/3×3 üretim masası, aletler+dayanıklılık, çiftlik hayvanları ve gece gelen zombi/iskeletler. Sol tık kaz/vur, F ile ye.",
+      "Minecraft benzeri hayatta kalma! Seed'li prosedürel arazi (ova/tepe/mağara/cevher), huş-çam-meşe ormanları, gündüz/gece + yıldızlar, can/açlık, envanter (E), 2×2/3×3 üretim, aletler+dayanıklılık, canlılar ve seed+blok kaydı. Mobilde dokunmatik kontroller.",
     route: "/games/voxelcraft",
     status: "playable" as const,
   },
