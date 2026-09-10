@@ -5,7 +5,7 @@
    blok-dışı eşyalar I.*). Tarifler grid üzerinde sol-üste hizalı
    aranır; boşluklar cropGrid ile temizlenir.
    ===================================================================== */
-import { B, BLOCKS, ATLAS_CANVAS } from "./blocks";
+import { B, BLOCKS, ATLAS_CANVAS, ATLAS_PAD, ATLAS_CELL, tileRect } from "./blocks";
 import { I, ITEM_NAME, itemNameOfItem, toolMetaOf } from "./inventory";
 export { I }; // dış kullanım için tekrar ihraç
 
@@ -180,10 +180,10 @@ export function iconDataUrl(id: number): string {
     const cv = document.createElement("canvas");
     cv.width = 32; cv.height = 32;
     const c = cv.getContext("2d")!;
-    const cols = 4, T = 16;
-    const idx = d.tiles[0];
+    const r = tileRect(d.tiles[0]);
     c.imageSmoothingEnabled = false;
-    c.drawImage(atlas, (idx % cols) * T, Math.floor(idx / cols) * T, T, T, 0, 0, 32, 32);
+    // padding dahil hücreyi çiz: kenar pikselleri ikonu tam doldurur
+    c.drawImage(atlas, r.x - ATLAS_PAD, r.y - ATLAS_PAD, ATLAS_CELL, ATLAS_CELL, 0, 0, 32, 32);
     url = cv.toDataURL();
   } else {
     url = itemIcon(id);

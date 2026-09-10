@@ -29,19 +29,23 @@ import { Inventory, dropsFor, toolMetaOf, foodOf, I } from "./inventory";
 import { iconDataUrl, itemNameOf } from "./crafting";
 import { openInventoryScreen, type InvHost } from "./invui";
 import { Mobs, type MobCtx } from "./mobs";
-import { makeSave, writeSave, readSave, saveWorldBytes, clearSave } from "./save";
+import { makeSaveV2, writeSave, readSave, saveWorldBytes, clearSave, setPendingSeed, takePendingSeed } from "./save";
 
 /* ================= 1. CONSTANTS ================= */
 const WORLD_X = 128;
 const WORLD_Z = 128;
 const WORLD_Y = 56;
 const SEA_LEVEL = 13;
-const VIEW_DIST = 170;
 const CHUNK = 16; // chunk genişliği (x/z)
 
 /* gündüz/gece döngüsü: 0=şafak · 0.25=öğlen · 0.5=gün batımı · 0.75=gece yarısı */
 const DAY_LEN = 720; // sn (6 dk gündüz + 6 dk gece)
 let worldTime = 0;
+
+/* dünya seed'i: aynı seed → aynı dünya. Gürültü fonksiyonları seed'e bağlıdır. */
+let worldSeed = 1;
+export function setWorldSeed(s: number) { worldSeed = (Math.floor(s) | 0) || 1; }
+export function getWorldSeed() { return worldSeed; }
 
 /* ================= 2. AUDIO ================= */
 const AudioSys = {
@@ -93,12 +97,12 @@ function getBlock(x: number, y: number, z: number): number {
 const solidAt = (bx: number, by: number, bz: number) => isSolid(getBlock(bx, by, bz));
 
 function hash2(x: number, z: number): number {
-  let n = x * 374761393 + z * 668265263;
+  let n = (x + worldSeed * 131) * 374761393 + (z - worldSeed * 977) * 668265263 + worldSeed * 2654435761;
   n = (n ^ (n >> 13)) * 1274126177;
   return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
 function hash3(x: number, y: number, z: number): number {
-  let n = x * 374761393 + y * 668265263 + z * 2147483647;
+  let n = (x + worldSeed * 131) * 374761393 + (y - worldSeed * 313) * 668265263 + (z + worldSeed * 977) * 2147483647;
   n = (n ^ (n >> 13)) * 1274126177;
   return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
@@ -115,9 +119,20 @@ function fbm(x: number, z: number): number {
     + noise2(x * 0.05 + 40, z * 0.05 + 40) * 0.3
     + noise2(x * 0.13, z * 0.13) * 0.15;
 }
+/* Yükseklik: geniş düzlükler + tepeler + vadiler (düşük frekanslı maske) */
 function heightAt(x: number, z: number): number {
   const n = fbm(x, z);
-  return Math.max(5, Math.min(WORLD_Y - 12, Math.round(SEA_LEVEL + 1 + n * 26)));
+  const base = SEA_LEVEL + 1 + n * 26;
+  const region = noise2(x * 0.008 + 100, z * 0.008 - 60); // 0..1 bölge maskesi
+  let h = base;
+  if (region > 0.62) {
+    // düzlük/ova: yüksekliği deniz seviyesine yakın sıkıştır
+    h = base * 0.5 + (SEA_LEVEL + 2.5) * 0.5;
+  } else if (region < 0.32) {
+    // yükselti/dağlık bölge: kabart
+    h = base * 1.18 + 2;
+  }
+  return Math.max(5, Math.min(WORLD_Y - 12, Math.round(h)));
 }
 
 // 3D gürültü (mağaralar için)
@@ -127,6 +142,7 @@ function noise3(x: number, y: number, z: number): number {
 
 function buildWorldData() {
   world = new Uint8Array(WORLD_X * WORLD_Y * WORLD_Z);
+  edits.clear(); // yeni üretim: düzenleme günlüğü sıfırlanır
   // terrain columns
   for (let x = 0; x < WORLD_X; x++) {
     for (let z = 0; z < WORLD_Z; z++) {
@@ -383,6 +399,10 @@ let camera: THREE.PerspectiveCamera;
 let worldRoot: THREE.Group; // chunk mesh'leri burada
 let atlasTex: THREE.CanvasTexture;
 
+/* Tüm chunklar aynı iki materyali paylaşır (draw call ve program sayısını düşürür) */
+let solidMat: THREE.MeshLambertMaterial | null = null;
+let waterMat: THREE.MeshLambertMaterial | null = null;
+
 interface ChunkMeshes { cx: number; cz: number; solid: THREE.Mesh | null; water: THREE.Mesh | null; }
 const chunks = new Map<string, ChunkMeshes>();
 
@@ -413,11 +433,17 @@ function starterInventory() {
 let selectedSlot = 0;
 const keys = { f: false, b: false, l: false, r: false, jump: false, run: false };
 let pointerLocked = false;
-let worldDirty = true;
+let worldDirty = true;             // tüm chunkları yeniden ör (yükleme/ayar değişimi)
 let state: "menu" | "play" | "dead" = "menu";
 let playerChunkX = 0, playerChunkZ = 0;
 
-const RENDER_RADIUS = 5; // chunk cinsinden görüş yarıçapı
+/* yalnızca değişen chunklar yeniden örülür (tek blok düzenlemesi → 1-5 chunk) */
+const dirtyChunks = new Set<string>();
+/* oyuncunun düzenlemeleri: idx → blok kimliği (kayıtta seed ile birlikte saklanır) */
+const edits = new Map<number, number>();
+
+let renderRadius = 5; // chunk cinsinden görüş yarıçapı (menüden ayarlanabilir)
+const RENDER_RADIUS_MIN = 2, RENDER_RADIUS_MAX = 8;
 
 /* ================= 5.5 MADENCİLİK YARDIMCILARI ================= */
 // Blok hangi alet türüyle hızlı kırılır?
@@ -472,14 +498,26 @@ function raycast(maxDist: number): { x: number; y: number; z: number; nx: number
 /* ================= 7. CHUNK MANAGEMENT ================= */
 function chunkKey(cx: number, cz: number) { return cx + "," + cz; }
 
+/** Bir bloğun dokunduğu chunkı (+ kenardaysa komşularını) kirli işaretler. */
+function markChunkDirtyAt(x: number, z: number) {
+  const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
+  dirtyChunks.add(chunkKey(cx, cz));
+  const lx = ((x % CHUNK) + CHUNK) % CHUNK, lz = ((z % CHUNK) + CHUNK) % CHUNK;
+  if (lx === 0) dirtyChunks.add(chunkKey(cx - 1, cz));
+  if (lx === CHUNK - 1) dirtyChunks.add(chunkKey(cx + 1, cz));
+  if (lz === 0) dirtyChunks.add(chunkKey(cx, cz - 1));
+  if (lz === CHUNK - 1) dirtyChunks.add(chunkKey(cx, cz + 1));
+}
+
 function refreshChunks() {
   const pcx = Math.floor(player.x / CHUNK);
   const pcz = Math.floor(player.z / CHUNK);
-  if (pcx === playerChunkX && pcz === playerChunkZ && !worldDirty) return;
+  const moved = pcx !== playerChunkX || pcz !== playerChunkZ;
+  if (!moved && !worldDirty && dirtyChunks.size === 0) return;
   playerChunkX = pcx; playerChunkZ = pcz;
   const want = new Set<string>();
-  for (let dx = -RENDER_RADIUS; dx <= RENDER_RADIUS; dx++) {
-    for (let dz = -RENDER_RADIUS; dz <= RENDER_RADIUS; dz++) {
+  for (let dx = -renderRadius; dx <= renderRadius; dx++) {
+    for (let dz = -renderRadius; dz <= renderRadius; dz++) {
       const cx = pcx + dx, cz = pcz + dz;
       if (cx < 0 || cz < 0) continue;
       const x0 = cx * CHUNK, z0 = cz * CHUNK;
@@ -487,7 +525,7 @@ function refreshChunks() {
       want.add(chunkKey(cx, cz));
     }
   }
-  // remove chunks out of range
+  // menzil dışındaki chunkları kaldır (uzaktakiler render edilmez)
   for (const [k, cm] of chunks) {
     if (!want.has(k)) {
       if (cm.solid) { worldRoot.remove(cm.solid); cm.solid.geometry.dispose(); }
@@ -495,9 +533,17 @@ function refreshChunks() {
       chunks.delete(k);
     }
   }
-  // build missing chunks
+  if (!solidMat) solidMat = new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true });
+  if (!waterMat) {
+    waterMat = new THREE.MeshLambertMaterial({
+      map: atlasTex, vertexColors: true, transparent: true, opacity: 0.72,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+  }
+  // yalnızca eksik / kirli chunkları ör
   for (const k of want) {
-    if (chunks.has(k) && !worldDirty) continue;
+    const needsBuild = worldDirty || !chunks.has(k) || dirtyChunks.has(k);
+    if (!needsBuild) continue;
     const [cxs, czs] = k.split(",");
     const cx = Number(cxs), cz = Number(czs);
     const g = buildChunkGeometries(cx * CHUNK, cz * CHUNK);
@@ -508,22 +554,23 @@ function refreshChunks() {
     }
     const entry: ChunkMeshes = { cx, cz, solid: null, water: null };
     if (g.solid) {
-      const m = new THREE.Mesh(g.solid, new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true }));
-      m.frustumCulled = false;
+      g.solid.computeBoundingSphere();
+      const m = new THREE.Mesh(g.solid, solidMat);
+      m.frustumCulled = true; // görüş dışındaki chunklar çizilmez
       worldRoot.add(m);
       entry.solid = m;
     }
     if (g.water) {
-      const m = new THREE.Mesh(g.water, new THREE.MeshLambertMaterial({
-        map: atlasTex, vertexColors: true, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide,
-      }));
-      m.frustumCulled = false;
+      g.water.computeBoundingSphere();
+      const m = new THREE.Mesh(g.water, waterMat);
+      m.frustumCulled = true;
       m.renderOrder = 1;
       worldRoot.add(m);
       entry.water = m;
     }
     chunks.set(k, entry);
   }
+  dirtyChunks.clear();
   worldDirty = false;
 }
 
@@ -578,16 +625,31 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.style.height = "100%";
   canvas.style.display = "block";
 
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // mobil / düşük güçlü cihazlarda daha düşük render yükü
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+  const lowPower = isMobile || (navigator.hardwareConcurrency || 4) <= 4;
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: !isMobile });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 2));
 
   scene = new THREE.Scene();
   const bgCol = new THREE.Color(0x8fd0f5);
   scene.background = bgCol;
-  const fog = new THREE.Fog(0xbfe2f8, VIEW_DIST * 0.35, VIEW_DIST * 1.0);
+  const fog = new THREE.Fog(0xbfe2f8, 60, 170);
   scene.fog = fog;
 
-  camera = new THREE.PerspectiveCamera(72, 1, 0.1, VIEW_DIST * 2);
+  camera = new THREE.PerspectiveCamera(74, 1, 0.08, 400);
+  // görüş mesafesi render yarıçapına bağlı
+  function applyViewDistance() {
+    const dist = renderRadius * CHUNK;
+    fog.near = dist * 0.45;
+    fog.far = dist * 1.06;
+    camera.far = dist * 2.4;
+    camera.updateProjectionMatrix();
+  }
+  renderRadius = lowPower ? 3 : 5;
+  applyViewDistance();
 
   const hemi = new THREE.HemisphereLight(0xeaf4ff, 0x8a6a4a, 0.95);
   scene.add(hemi);
@@ -605,15 +667,18 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const sunOrange = new THREE.Color(0xff9a4d);
   const moonCol = new THREE.Color(0x7d92cc);
 
-  // gündüz/gece: gökyüzü, sis ve ışık yoğunluklarını zamanla günceller
+  // gündüz/gece: gökyüzü, sis, ışık yoğunlukları ve güneş yönü
   function updateSky() {
     const p = (worldTime % DAY_LEN) / DAY_LEN;
-    const e = Math.cos((p - 0.25) * Math.PI * 2); // güneş yüksekliği: öğlen +1, gece -1
+    const ang = (p - 0.25) * Math.PI * 2;
+    const e = Math.cos(ang); // güneş yüksekliği: öğlen +1, gece -1
     const dl = Math.max(0, e);
     const tw = e > 0 && e < 0.45 ? (0.45 - e) / 0.45 : 0; // alacakaranlık katsayısı
     bgCol.copy(skyNight).lerp(skyDay, Math.min(1, dl * 1.25));
     if (tw > 0) bgCol.lerp(skyDusk, tw * 0.7);
     fog.color.copy(bgCol);
+    // güneş gökyüzünde dolaşır (doğu → batı)
+    sun.position.set(60 + Math.sin(ang) * 140, 40 + Math.max(0.08, e) * 230, 70 + Math.cos(ang) * 60);
     sun.intensity = 0.04 + 1.3 * dl;
     if (dl < 0.08) sun.color.copy(moonCol);
     else { sun.color.copy(sunWhite); sun.color.lerp(sunOrange, tw * 0.65); }
@@ -650,15 +715,28 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   initBlocks();
   if (ATLAS_CANVAS) {
     atlasTex = new THREE.CanvasTexture(ATLAS_CANVAS);
+    // yakında keskin (Nearest), uzakta mipmap ile yumuşak → titreme/bozulma azalır
     atlasTex.magFilter = THREE.NearestFilter;
-    atlasTex.minFilter = THREE.NearestFilter;
-    atlasTex.generateMipmaps = false;
+    atlasTex.minFilter = THREE.NearestMipmapLinearFilter;
+    atlasTex.generateMipmaps = true;
+    atlasTex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   } else {
     throw new Error("Atlas üretilemedi");
   }
 
-  // world
-  worldTime = 0; // her oyun şafakta başlar (kayıt varsa yüklenir)
+  // world — seed: kayıt > menüden girilen bekleyen seed > rastgele
+  worldTime = 0;
+  const loaded = readSave();
+  if (loaded) {
+    if (typeof loaded.seed === "number") worldSeed = loaded.seed | 0 || 1;
+    if (loaded.v === 2 && typeof loaded.renderRadius === "number") {
+      renderRadius = Math.max(RENDER_RADIUS_MIN, Math.min(RENDER_RADIUS_MAX, Math.round(loaded.renderRadius)));
+      applyViewDistance();
+    }
+  } else {
+    const pending = takePendingSeed();
+    worldSeed = pending ?? (((Math.random() * 2_000_000_000) | 0) || 1);
+  }
   buildWorldData();
   const sp = findSpawn();
   player.x = sp.x; player.y = sp.y; player.z = sp.z;
@@ -669,41 +747,50 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   camera.position.set(player.x, player.y + 1.6, player.z);
   camera.rotation.order = "YXZ";
 
-  // kayıt varsa geri yükle
+  // kayıt varsa geri yükle (v2: seed + düzenlemeler · v1: tam dünya)
   let hasSave = false;
-  const loaded = readSave();
   if (loaded) {
-    const wb = saveWorldBytes(loaded, WORLD_X * WORLD_Y * WORLD_Z);
-    if (wb) {
+    if (loaded.v === 2) {
       hasSave = true;
-      world.set(wb);
-      worldDirty = true;
-      const P = loaded.player;
-      player.x = Math.max(1.5, Math.min(WORLD_X - 1.5, P.x));
-      player.y = Math.max(2, Math.min(WORLD_Y - 2, P.y));
-      player.z = Math.max(1.5, Math.min(WORLD_Z - 1.5, P.z));
-      player.yaw = P.yaw;
-      player.pitch = Math.max(-1.5, Math.min(1.5, P.pitch));
-      player.hp = Math.max(1, Math.min(20, P.hp));
-      player.hunger = Math.max(0, Math.min(20, P.hunger));
-      player.fallStart = -1;
-      worldTime = Number.isFinite(loaded.time) ? loaded.time : 0;
-      inventory.slots.fill(null);
-      if (Array.isArray(loaded.inv)) {
-        loaded.inv.forEach((entry, i) => {
-          if (entry && i < inventory.slots.length) {
-            const id = entry[0], count = entry[1];
-            if (typeof id === "number" && typeof count === "number" && count > 0) {
-              inventory.slots[i] = { id, count, dmg: typeof entry[2] === "number" ? entry[2] : undefined };
-            }
-          }
-        });
+      for (const [i, b] of loaded.edits) {
+        if (i >= 0 && i < world.length) { world[i] = b; edits.set(i, b); }
       }
-      selectedSlot = Math.max(0, Math.min(8, loaded.slot || 0));
-      camera.position.set(player.x, player.y + 1.6, player.z);
-      camera.rotation.y = player.yaw;
-      camera.rotation.x = player.pitch;
+      worldDirty = true;
+    } else {
+      const wb = saveWorldBytes(loaded, WORLD_X * WORLD_Y * WORLD_Z);
+      if (wb) {
+        hasSave = true;
+        world.set(wb);
+        worldDirty = true;
+      }
     }
+  }
+  if (hasSave) {
+    const P = loaded!.player;
+    player.x = Math.max(1.5, Math.min(WORLD_X - 1.5, P.x));
+    player.y = Math.max(2, Math.min(WORLD_Y - 2, P.y));
+    player.z = Math.max(1.5, Math.min(WORLD_Z - 1.5, P.z));
+    player.yaw = P.yaw;
+    player.pitch = Math.max(-1.5, Math.min(1.5, P.pitch));
+    player.hp = Math.max(1, Math.min(20, P.hp));
+    player.hunger = Math.max(0, Math.min(20, P.hunger));
+    player.fallStart = -1;
+    worldTime = Number.isFinite(loaded!.time) ? loaded!.time : 0;
+    inventory.slots.fill(null);
+    if (Array.isArray(loaded!.inv)) {
+      loaded!.inv.forEach((entry, i) => {
+        if (entry && i < inventory.slots.length) {
+          const id = entry[0], count = entry[1];
+          if (typeof id === "number" && typeof count === "number" && count > 0) {
+            inventory.slots[i] = { id, count, dmg: typeof entry[2] === "number" ? entry[2] : undefined };
+          }
+        }
+      });
+    }
+    selectedSlot = Math.max(0, Math.min(8, loaded!.slot || 0));
+    camera.position.set(player.x, player.y + 1.6, player.z);
+    camera.rotation.y = player.yaw;
+    camera.rotation.x = player.pitch;
   }
   buildUI(wrap);
   if (!hasSave) starterInventory();
@@ -828,19 +915,33 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   /* -------- kayıt sistemi -------- */
   let autoSaveT = 0;
   function persist(notify: boolean): void {
-    const data = makeSave(
-      world,
+    const data = makeSaveV2(
+      worldSeed,
+      edits,
       { x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, hp: player.hp, hunger: player.hunger },
       worldTime,
       inventory.slots.map((s) => (s ? { id: s.id, count: s.count, dmg: s.dmg } : null)),
       selectedSlot,
+      renderRadius,
     );
     if (writeSave(data) && notify) showToast("💾 Kaydedildi");
     else if (notify) showToast("⚠️ Kayıt başarısız (depolama dolu olabilir)");
   }
   (window as unknown as { __vcxSave?: () => void }).__vcxSave = () => persist(true);
-  (window as unknown as { __vcxNewWorld?: () => void }).__vcxNewWorld = () => {
+  // görüş mesafesini çalışma anında değiştir (chunklar yeniden düzenlenir)
+  (window as unknown as { __vcxSetRender?: (n: number) => void }).__vcxSetRender = (n: number) => {
+    const v = Math.max(RENDER_RADIUS_MIN, Math.min(RENDER_RADIUS_MAX, Math.round(n)));
+    if (v === renderRadius) return;
+    renderRadius = v;
+    applyViewDistance();
+    worldDirty = true;
+    persist(false);
+  };
+  (window as unknown as { __vcxSeed?: () => number }).__vcxSeed = () => worldSeed;
+  (window as unknown as { __vcxRender?: () => number }).__vcxRender = () => renderRadius;
+  (window as unknown as { __vcxNewWorld?: (seed?: string) => void }).__vcxNewWorld = (seed?: string) => {
     if (!window.confirm("Kayıtlı dünyayı sil ve yepyeni bir dünya başlat? Bu işlem geri alınamaz.")) return;
+    if (seed && seed.trim() !== "") setPendingSeed(seed.trim());
     clearSave();
     window.location.reload();
   };
@@ -941,8 +1042,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   function setBlock(x: number, y: number, z: number, id: number) {
     if (x < 0 || x >= WORLD_X || y < 1 || y >= WORLD_Y || z < 0 || z >= WORLD_Z) return;
-    world[idx(x, y, z)] = id;
-    worldDirty = true;
+    const i = idx(x, y, z);
+    if (world[i] === id) return;
+    world[i] = id;
+    edits.set(i, id);       // kayıt için düzenleme günlüğü
+    markChunkDirtyAt(x, z); // yalnızca ilgili chunk(lar) yeniden örülür
   }
   /* -------- kazma: sol tık basılı tut → süre sonunda kırılır -------- */
   let mining = false;
@@ -1267,6 +1371,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     scene.remove(mobs.group);
     worldRoot.removeFromParent();
     atlasTex.dispose();
+    solidMat?.dispose();
+    waterMat?.dispose();
+    solidMat = null;
+    waterMat = null;
     wrap.remove();
     renderer.dispose();
   };
@@ -1388,6 +1496,10 @@ function buildUI(container: HTMLElement) {
 .vcx-mini:active{transform:translateY(3px)}
 .vcx-mini.danger{border-color:rgba(255,120,110,.6);background:rgba(160,40,40,.35);color:#ffd9d6}
 .vcx-mini.saved{margin-top:10px;font-size:12px;padding:8px 14px;border-radius:20px;background:rgba(0,0,0,.45);color:#9fe6a8;cursor:default;border-color:rgba(126,224,129,.4)}
+.vcx-input{font-size:clamp(12px,2.6vw,14px);font-family:inherit;padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.45);color:#eaf4ff;outline:none;min-width:150px}
+.vcx-input:focus{border-color:#7ee081;box-shadow:0 0 0 2px rgba(126,224,129,.25)}
+.vcx-input::placeholder{color:rgba(234,244,255,.45)}
+select.vcx-input{cursor:pointer;min-width:110px}
 .vcx-hud-root{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none}
 .vcx-hotbar{display:flex;gap:4px;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.45);border-radius:10px;padding:4px;pointer-events:auto}
 .vcx-slot{width:46px;height:46px;border-radius:7px;border:2px solid rgba(255,255,255,.25);position:relative;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer;transition:transform .06s,border-color .06s;font-size:13px;display:flex;align-items:center;justify-content:center;background-size:cover;background-repeat:no-repeat;image-rendering:pixelated}
@@ -1414,6 +1526,30 @@ function buildUI(container: HTMLElement) {
 .vcx-tip{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.8);font-size:12px;z-index:5;pointer-events:none;white-space:nowrap;text-shadow:0 1px 3px #000}
 .vcx-toast{position:absolute;top:22%;left:50%;transform:translateX(-50%);color:#ffe066;font-size:22px;font-weight:800;text-shadow:2px 2px 0 #000;z-index:8;pointer-events:none;opacity:0;transition:opacity .25s;font-family:'Segoe UI',sans-serif}
 .vcx-toast.show{opacity:1}
+/* küçük ekran / mobil: UI taşmasın, daha az yer kaplasın */
+@media (max-width:760px){
+  .vcx-slot{width:34px;height:34px;font-size:11px;border-width:1px}
+  .vcx-slot .cnt{font-size:9px;right:2px}
+  .vcx-hotbar{gap:3px;padding:3px;border-width:1px}
+  .vcx-bars{gap:6px;padding:3px 9px}
+  .vcx-bar{width:52px;height:7px}
+  .vcx-sel{font-size:11px;padding:1px 10px}
+  .vcx-tip{display:none}
+  .vcx-coords{font-size:10px;top:6px;right:8px;padding:2px 6px}
+  .vcx-clock{font-size:11px;top:6px;left:8px;padding:2px 8px}
+  .vcx-fps{font-size:10px;top:30px;right:8px}
+  .vcx-sound{font-size:12px;padding:1px 8px}
+  .vcx-aim{font-size:11px;top:calc(50% + 14px)}
+  .vcx-menu h1{letter-spacing:2px}
+  .vcx-menu .row{font-size:12px;line-height:1.8}
+  .vcx-play{padding:12px 32px}
+  .vcx-input{min-width:120px;padding:8px 10px}
+}
+@media (max-height:520px){
+  .vcx-menu h2{display:none}
+  .vcx-menu .row{display:none}
+  .vcx-tip{display:none}
+}
 `;
   container.appendChild(style);
 
@@ -1503,10 +1639,22 @@ function buildUI(container: HTMLElement) {
     <p class="row">Koyun/inek/domuz/tavuk bul, gece zombi ve iskelet gelir — avlan, et topla!</p>
     <button class="vcx-play" id="vcx-play">▶ OYNA</button>
     <div class="vcx-row">
+      <input class="vcx-input" id="vcx-seed" type="text" inputmode="numeric" placeholder="seed (örn. 12345 / yusuf)" />
+      <select class="vcx-input" id="vcx-render" title="Görüş mesafesi (chunk)">
+        <option value="2">Menzil 2</option>
+        <option value="3">Menzil 3</option>
+        <option value="4">Menzil 4</option>
+        <option value="5">Menzil 5</option>
+        <option value="6">Menzil 6</option>
+        <option value="7">Menzil 7</option>
+        <option value="8">Menzil 8</option>
+      </select>
+    </div>
+    <div class="vcx-row">
       <button class="vcx-mini" id="vcx-save">💾 Kaydet</button>
       <button class="vcx-mini danger" id="vcx-new">🔄 Yeni Dünya</button>
     </div>
-    <p class="vcx-mini saved">💾 Otomatik kayıt açık (25 sn)</p>`;
+    <p class="vcx-mini saved" id="vcx-seed-info">Seed: —</p>`;
   container.appendChild(menu);
   document.getElementById("vcx-play")!.addEventListener("click", () => {
     const fn = (window as unknown as { __vcxStart?: () => void }).__vcxStart;
@@ -1515,7 +1663,22 @@ function buildUI(container: HTMLElement) {
   document.getElementById("vcx-save")!.addEventListener("click", () => {
     (window as unknown as { __vcxSave?: () => void }).__vcxSave?.();
   });
+  const seedInput = document.getElementById("vcx-seed") as HTMLInputElement | null;
   document.getElementById("vcx-new")!.addEventListener("click", () => {
-    (window as unknown as { __vcxNewWorld?: () => void }).__vcxNewWorld?.();
+    (window as unknown as { __vcxNewWorld?: (s?: string) => void }).__vcxNewWorld?.(seedInput?.value ?? "");
   });
+  // görüş mesafesi seçici (mevcut değeri göster, değişince uygula)
+  const renderSel = document.getElementById("vcx-render") as HTMLSelectElement | null;
+  if (renderSel) {
+    const cur = (window as unknown as { __vcxRender?: () => number }).__vcxRender?.();
+    renderSel.value = String(cur ?? 5);
+    renderSel.addEventListener("change", () => {
+      (window as unknown as { __vcxSetRender?: (n: number) => void }).__vcxSetRender?.(Number(renderSel.value));
+    });
+  }
+  const seedInfo = document.getElementById("vcx-seed-info");
+  if (seedInfo) {
+    const s = (window as unknown as { __vcxSeed?: () => number }).__vcxSeed?.();
+    seedInfo.textContent = `Seed: ${s ?? "—"} · 💾 Otomatik kayıt (25 sn)`;
+  }
 }

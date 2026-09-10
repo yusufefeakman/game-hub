@@ -75,6 +75,14 @@ export interface BlockDef {
 }
 
 /* ------------------- atlas üretici ------------------- */
+export const ATLAS_COLS = 4;
+export const ATLAS_TILE = 16;
+// Her döşemenin çevresine 2px kenar kopyası (padding) eklenir: mipmap
+// seviyelerinde komşu döşemelerin sızmasını engeller → uzak mesafede
+// görüntü bozulması/titreme belirgin biçimde azalır.
+export const ATLAS_PAD = 2;
+export const ATLAS_CELL = ATLAS_TILE + ATLAS_PAD * 2;
+
 export const ATLAS_TILES: HTMLCanvasElement[] = [];
 export let ATLAS_CANVAS: HTMLCanvasElement | null = null;
 
@@ -94,10 +102,17 @@ function tileIndex(name: string): number {
   return i >= 0 ? i : 0;
 }
 
+/** Bir döşemenin atlas içindeki gerçek piksel konumu (padding hariç). */
+export function tileRect(index: number): { x: number; y: number } {
+  return {
+    x: (index % ATLAS_COLS) * ATLAS_CELL + ATLAS_PAD,
+    y: Math.floor(index / ATLAS_COLS) * ATLAS_CELL + ATLAS_PAD,
+  };
+}
+
 export function buildAtlas() {
   ATLAS_TILES.length = 0;
   tileNames.length = 0;
-  const T = 16;
 
   // helper: karışık gürültüyle dolu yüzey
   const speck = (rgb: [number, number, number], r1: [number, number, number], r2: [number, number, number], seed: number) => (c: CanvasRenderingContext2D) => {
@@ -156,25 +171,29 @@ export function buildAtlas() {
   regTile("mossy_cobble", (c) => { const cv2 = document.createElement("canvas"); cv2.width = 16; cv2.height = 16; const cc = cv2.getContext("2d")!; speck([120, 120, 120], [138, 138, 138], [104, 104, 104], 48)(cc); // moss patches
     for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 3.7 + y * 6.1 + 200); if (n > 0.72) { cc.fillStyle = "rgb(80,140,80)"; cc.fillRect(x, y, 1, 1); } } c.drawImage(cv2, 0, 0); });
 
-  // ---- atlas'ı derle: 4×N grid (16px tile) ----
-  const cols = 4, rows = Math.ceil(ATLAS_TILES.length / cols);
+  // ---- atlas'ı derle: 4×N grid + her döşemeye 2px kenar kopyası ----
+  const rows = Math.ceil(ATLAS_TILES.length / ATLAS_COLS);
   ATLAS_CANVAS = document.createElement("canvas");
-  ATLAS_CANVAS.width = cols * T;
-  ATLAS_CANVAS.height = rows * T;
+  ATLAS_CANVAS.width = ATLAS_COLS * ATLAS_CELL;
+  // yüksekliği 2'nin kuvvetine yuvarla (mipmap + NPOT sorunlarını önler)
+  let h = ATLAS_CELL;
+  while (h < rows * ATLAS_CELL) h *= 2;
+  ATLAS_CANVAS.height = h;
   const actx = ATLAS_CANVAS.getContext("2d")!;
+  actx.imageSmoothingEnabled = false;
   ATLAS_TILES.forEach((cv, i) => {
-    actx.drawImage(cv, (i % cols) * T, Math.floor(i / cols) * T);
+    const { x, y } = tileRect(i);
+    // tüm hücreye (padding dahil) çiz: kenar pikselleri kopyalanır
+    actx.drawImage(cv, x - ATLAS_PAD, y - ATLAS_PAD, ATLAS_CELL, ATLAS_CELL);
   });
 }
 
-/* atlas UV → 0..1 */
+/* atlas UV → 0..1 (padding hariç iç 16px bölge) */
 export function tileUV(index: number): [number, number, number, number] {
-  const cols = 4, T = 16;
-  const x = (index % cols) * T;
-  const y = Math.floor(index / cols) * T;
-  const W = ATLAS_CANVAS ? ATLAS_CANVAS.width : 64;
-  const H = ATLAS_CANVAS ? ATLAS_CANVAS.height : 112;
-  return [x / W, y / H, (x + T) / W, (y + T) / H];
+  const { x, y } = tileRect(index);
+  const W = ATLAS_CANVAS ? ATLAS_CANVAS.width : ATLAS_COLS * ATLAS_CELL;
+  const H = ATLAS_CANVAS ? ATLAS_CANVAS.height : ATLAS_CELL;
+  return [x / W, y / H, (x + ATLAS_TILE) / W, (y + ATLAS_TILE) / H];
 }
 
 /* ------------------- blok tanımları ------------------- */
