@@ -151,6 +151,7 @@ const PEDESTAL: Array<[number, number]> = [
   [0.38, 0.11],
   [0.32, 0.17],
   [0.24, 0.24],
+  [0, 0.24],
 ];
 
 function knightHeadGeo() {
@@ -195,12 +196,12 @@ function buildPieceMesh(
 
   switch (type) {
     case "p": {
-      add(latheGeo([[0.22, 0.24], [0.2, 0.34], [0.16, 0.42], [0.13, 0.5]]), 0);
+      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.2, 0.34], [0.16, 0.42], [0.13, 0.5], [0, 0.5]]), 0);
       add(new THREE.SphereGeometry(0.16, 28, 20), 0.62);
       break;
     }
     case "r": {
-      add(latheGeo([[0.22, 0.24], [0.24, 0.34], [0.24, 0.68], [0.2, 0.75]]), 0);
+      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.34], [0.24, 0.68], [0.2, 0.75], [0, 0.75]]), 0);
       add(new THREE.CylinderGeometry(0.27, 0.24, 0.08, 32), 0.79);
       const cren = [
         [0.16, 0.16],
@@ -217,14 +218,14 @@ function buildPieceMesh(
       break;
     }
     case "b": {
-      add(latheGeo([[0.2, 0.24], [0.22, 0.36], [0.2, 0.5], [0.13, 0.6]]), 0);
+      add(latheGeo([[0, 0.24], [0.2, 0.24], [0.22, 0.36], [0.2, 0.5], [0.13, 0.6], [0, 0.6]]), 0);
       add(new THREE.SphereGeometry(0.12, 24, 18), 0.65);
       add(new THREE.ConeGeometry(0.09, 0.17, 20), 0.79);
       add(new THREE.SphereGeometry(0.03, 12, 10), 0.88);
       break;
     }
     case "q": {
-      add(latheGeo([[0.22, 0.24], [0.25, 0.38], [0.22, 0.56], [0.15, 0.64]]), 0);
+      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.25, 0.38], [0.22, 0.56], [0.15, 0.64], [0, 0.64]]), 0);
       add(new THREE.CylinderGeometry(0.09, 0.11, 0.13, 20), 0.71);
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
@@ -237,21 +238,21 @@ function buildPieceMesh(
       break;
     }
     case "k": {
-      add(latheGeo([[0.24, 0.24], [0.27, 0.4], [0.24, 0.58], [0.16, 0.68]]), 0);
+      add(latheGeo([[0, 0.24], [0.24, 0.24], [0.27, 0.4], [0.24, 0.58], [0.16, 0.68], [0, 0.68]]), 0);
       add(new THREE.BoxGeometry(0.055, 0.2, 0.055), 0.8);
       add(new THREE.BoxGeometry(0.15, 0.05, 0.055), 0.84);
       break;
     }
     case "n": {
-      add(latheGeo([[0.22, 0.24], [0.24, 0.36], [0.2, 0.5], [0.15, 0.58]]), 0);
+      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.36], [0.2, 0.5], [0.15, 0.58], [0, 0.58]]), 0);
       const head = new THREE.Mesh(knightHeadGeo(), mat);
-      head.rotation.y = -Math.PI / 2; // face +z (toward the opponent)
-      head.position.set(0.07, 0.44, 0.0);
+      head.rotation.y = -Math.PI / 2;
+      head.position.set(0.07, 0.13, 0.0);
       head.castShadow = true;
       head.receiveShadow = true;
       g.add(head);
       const mane = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.05), mat);
-      mane.position.set(-0.04, 0.56, -0.02);
+      mane.position.set(-0.04, 0.3, -0.02);
       mane.rotation.z = 0.14;
       mane.castShadow = true;
       g.add(mane);
@@ -294,7 +295,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor(0x12121f, 1);
 
   /* ---------- background: premium dark gradient ---------- */
@@ -416,12 +417,14 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
 
   const lightSqMat = new THREE.MeshStandardMaterial({
     color: LIGHT_SQ,
-    roughness: 0.5,
+    map: makeWoodTexture(0xefd9ab, 0xd4b88a),
+    roughness: 0.55,
     metalness: 0.02,
   });
   const darkSqMat = new THREE.MeshStandardMaterial({
     color: DARK_SQ,
-    roughness: 0.5,
+    map: makeWoodTexture(0x8f5a2b, 0x6b3f1a),
+    roughness: 0.55,
     metalness: 0.02,
   });
   const frameMat = new THREE.MeshStandardMaterial({
@@ -979,7 +982,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
         const cap = pieceAt.get(info.captureSquare);
         if (cap) {
           pieceAt.delete(info.captureSquare);
-          animateScale(cap.group, 0.01, 0.2, () => {
+          animateScale(cap.group, 0, 0.2, () => {
             world.remove(cap.group);
             pieces.delete(cap.id);
           });
