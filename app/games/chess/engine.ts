@@ -158,26 +158,25 @@ const PEDESTAL: Array<[number, number]> = [
 
 function knightHeadGeo() {
   const s = new THREE.Shape();
-  s.moveTo(0.0, 0.0);
-  s.lineTo(-0.06, 0.06);
-  s.lineTo(-0.1, 0.16);
-  s.lineTo(-0.08, 0.26);
-  s.lineTo(-0.04, 0.32);
-  s.lineTo(0.02, 0.36);
-  s.lineTo(0.08, 0.38);
-  s.lineTo(0.14, 0.36);
-  s.lineTo(0.2, 0.3);
-  s.lineTo(0.24, 0.22);
-  s.lineTo(0.26, 0.14);
-  s.lineTo(0.24, 0.08);
-  s.lineTo(0.18, 0.04);
-  s.lineTo(0.1, 0.0);
+  // Centered horse-head profile, facing +x (will be rotated to face +z)
+  s.moveTo(-0.08, 0.0);   // back-neck bottom
+  s.lineTo(-0.12, 0.08);  // back of neck
+  s.lineTo(-0.14, 0.18);  // back of head
+  s.lineTo(-0.12, 0.28);  // ear base
+  s.lineTo(-0.06, 0.36);  // ear tip
+  s.lineTo(0.02, 0.34);   // forehead
+  s.lineTo(0.10, 0.30);   // nose bridge
+  s.lineTo(0.16, 0.24);   // nose
+  s.lineTo(0.18, 0.16);   // muzzle
+  s.lineTo(0.14, 0.08);   // jaw
+  s.lineTo(0.06, 0.02);   // chin
+  s.lineTo(-0.02, 0.0);   // under-jaw
   s.closePath();
   return new THREE.ExtrudeGeometry(s, {
-    depth: 0.14,
+    depth: 0.22,
     bevelEnabled: true,
-    bevelThickness: 0.03,
-    bevelSize: 0.025,
+    bevelThickness: 0.035,
+    bevelSize: 0.03,
     bevelSegments: 3,
     curveSegments: 10,
   });
@@ -206,16 +205,29 @@ function buildPieceMesh(
       break;
     }
     case "r": {
-      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.34], [0.24, 0.80]]), 0);
-      add(new THREE.CylinderGeometry(0.28, 0.24, 0.06, 32), 0.80);
+      // Single lathe: body + cap merged, no gap possible
+      add(
+        latheGeo([
+          [0, 0.24],
+          [0.22, 0.24],
+          [0.24, 0.34],
+          [0.24, 0.80],
+          [0.30, 0.80],
+          [0.30, 0.92],
+          [0.24, 0.92],
+          [0, 0.92],
+        ]),
+        0
+      );
+      // Crenellations overlap with cap top (cap top=0.92, cren bottom=0.88)
       const cren = [
-        [0.16, 0.16],
-        [-0.16, 0.16],
-        [0.16, -0.16],
-        [-0.16, -0.16],
+        [0.17, 0.17],
+        [-0.17, 0.17],
+        [0.17, -0.17],
+        [-0.17, -0.17],
       ];
       for (const [cx, cz] of cren) {
-        add(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 12), 0.86, (m) => {
+        add(new THREE.CylinderGeometry(0.055, 0.055, 0.14, 12), 0.92, (m) => {
           m.position.x = cx;
           m.position.z = cz;
         });
@@ -252,12 +264,12 @@ function buildPieceMesh(
       add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.36], [0.2, 0.5], [0.15, 0.58], [0, 0.58]]), 0);
       const head = new THREE.Mesh(knightHeadGeo(), mat);
       head.rotation.y = -Math.PI / 2;
-      head.position.set(0.07, 0.50, 0.0);
+      head.position.set(0.04, 0.50, 0.0);
       head.castShadow = true;
       head.receiveShadow = true;
       g.add(head);
-      const mane = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.05), mat);
-      mane.position.set(-0.04, 0.48, -0.02);
+      const mane = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.06), mat);
+      mane.position.set(-0.05, 0.44, -0.03);
       mane.rotation.z = 0.14;
       mane.castShadow = true;
       g.add(mane);
