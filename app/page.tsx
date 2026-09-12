@@ -146,6 +146,17 @@ const GAMES = [
     route: "/games/lets-world",
     status: "playable" as const,
   },
+  {
+    id: "candy-burst",
+    title: "Candy Burst",
+    subtitle: "Eşleştirme Macerası",
+    emoji: "🍬",
+    artClass: "art-3",
+    description:
+      "Candy Crush tarzı eşleştirme! Renkli boncukları 3+ eşleştir, zincirleme patlamalar yap, her 10 bölümde BOSS'u yen. Tıkla & sürükle ile takas et.",
+    route: "/games/candy-burst",
+    status: "playable" as const,
+  },
 ];
 
 export default function Home() {
