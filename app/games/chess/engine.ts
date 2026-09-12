@@ -137,44 +137,49 @@ const Snd = {
 
 /* ================= piece geometry builders ================= */
 
-function latheGeo(points: Array<[number, number]>, segments = 40) {
-  return new THREE.LatheGeometry(
+function latheGeo(points: Array<[number, number]>, segments = 64) {
+  const geo = new THREE.LatheGeometry(
     points.map(([x, y]) => new THREE.Vector2(x, y)),
     segments
   );
+  return geo;
 }
 
 const PEDESTAL: Array<[number, number]> = [
   [0, 0],
-  [0.3, 0],
-  [0.38, 0.05],
-  [0.38, 0.11],
-  [0.32, 0.17],
+  [0.28, 0],
+  [0.36, 0.04],
+  [0.36, 0.1],
+  [0.3, 0.16],
+  [0.26, 0.22],
   [0.24, 0.24],
   [0, 0.24],
 ];
 
 function knightHeadGeo() {
   const s = new THREE.Shape();
-  s.moveTo(0.02, 0.5); // neck bottom, back
-  s.lineTo(0.0, 0.64); // back of neck
-  s.lineTo(0.03, 0.76); // ear base
-  s.lineTo(0.09, 0.84); // ear tip
-  s.lineTo(0.15, 0.76); // ear front
-  s.lineTo(0.2, 0.73); // forehead
-  s.lineTo(0.27, 0.67); // nose bridge
-  s.lineTo(0.3, 0.59); // nose front
-  s.lineTo(0.26, 0.51); // muzzle bottom
-  s.lineTo(0.16, 0.47); // jaw
-  s.lineTo(0.06, 0.45); // under-jaw
+  s.moveTo(0.0, 0.0);
+  s.lineTo(-0.06, 0.06);
+  s.lineTo(-0.1, 0.16);
+  s.lineTo(-0.08, 0.26);
+  s.lineTo(-0.04, 0.32);
+  s.lineTo(0.02, 0.36);
+  s.lineTo(0.08, 0.38);
+  s.lineTo(0.14, 0.36);
+  s.lineTo(0.2, 0.3);
+  s.lineTo(0.24, 0.22);
+  s.lineTo(0.26, 0.14);
+  s.lineTo(0.24, 0.08);
+  s.lineTo(0.18, 0.04);
+  s.lineTo(0.1, 0.0);
   s.closePath();
   return new THREE.ExtrudeGeometry(s, {
-    depth: 0.13,
+    depth: 0.14,
     bevelEnabled: true,
-    bevelThickness: 0.035,
-    bevelSize: 0.03,
-    bevelSegments: 2,
-    curveSegments: 8,
+    bevelThickness: 0.03,
+    bevelSize: 0.025,
+    bevelSegments: 3,
+    curveSegments: 10,
   });
 }
 
@@ -201,8 +206,8 @@ function buildPieceMesh(
       break;
     }
     case "r": {
-      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.34], [0.24, 0.68], [0.2, 0.75], [0, 0.75]]), 0);
-      add(new THREE.CylinderGeometry(0.27, 0.24, 0.08, 32), 0.79);
+      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.34], [0.24, 0.80]]), 0);
+      add(new THREE.CylinderGeometry(0.28, 0.24, 0.06, 32), 0.80);
       const cren = [
         [0.16, 0.16],
         [-0.16, 0.16],
@@ -210,7 +215,7 @@ function buildPieceMesh(
         [-0.16, -0.16],
       ];
       for (const [cx, cz] of cren) {
-        add(new THREE.CylinderGeometry(0.05, 0.05, 0.1, 12), 0.88, (m) => {
+        add(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 12), 0.86, (m) => {
           m.position.x = cx;
           m.position.z = cz;
         });
@@ -247,12 +252,12 @@ function buildPieceMesh(
       add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.36], [0.2, 0.5], [0.15, 0.58], [0, 0.58]]), 0);
       const head = new THREE.Mesh(knightHeadGeo(), mat);
       head.rotation.y = -Math.PI / 2;
-      head.position.set(0.07, 0.13, 0.0);
+      head.position.set(0.07, 0.50, 0.0);
       head.castShadow = true;
       head.receiveShadow = true;
       g.add(head);
       const mane = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.05), mat);
-      mane.position.set(-0.04, 0.3, -0.02);
+      mane.position.set(-0.04, 0.48, -0.02);
       mane.rotation.z = 0.14;
       mane.castShadow = true;
       g.add(mane);
