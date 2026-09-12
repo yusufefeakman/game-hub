@@ -1,40 +1,63 @@
 /* =====================================================================
    CANDY BURST: Eşleştirme Macerası — Match-3 Game Engine
-   A Candy Crush-style match-3 game. Swap adjacent candies to match 3+.
-   All graphics drawn procedurally on canvas; all audio synthesized
-   with Web Audio API. No external assets.
-
-   Public API:
-     startGame(canvas) -> () => void   (returns a stop/cleanup function)
+   Progressive difficulty from easy to ultra hard. Boss every 10 levels.
+   All graphics procedural on canvas; all audio via Web Audio API.
    ===================================================================== */
 
-/* ================= 1. SETUP & CONSTANTS ================= */
 const W = 900;
 const H = 600;
-
 const GRID_SIZE = 8;
 const CELL_SIZE = 56;
 const GRID_OFFSET_X = (W - GRID_SIZE * CELL_SIZE) / 2;
-const GRID_OFFSET_Y = 80;
-
-const COLORS = [
-  { name: "red", base: "#e63946", light: "#ff6b6b", dark: "#b71c1c", symbol: "heart" },
-  { name: "orange", base: "#f4a261", light: "#ffc49a", dark: "#c8782a", symbol: "star" },
-  { name: "yellow", base: "#ffd23f", light: "#ffe680", dark: "#d4a820", symbol: "diamond" },
-  { name: "green", base: "#2a9d3a", light: "#5fd46e", dark: "#1a7028", symbol: "clover" },
-  { name: "blue", base: "#4a90d9", light: "#7ab8f0", dark: "#2a6aaa", symbol: "drop" },
-] as const;
-
-const NUM_COLORS = COLORS.length;
-const SWAP_DURATION = 200; // ms
-const CLEAR_DURATION = 300; // ms
-const FALL_SPEED = 12; // px per frame
-const MOVES_PER_LEVEL = 20;
-const TARGET_SCORE_BASE = 500;
+const GRID_OFFSET_Y = 100;
+const SWAP_DURATION = 200;
+const CLEAR_DURATION = 300;
+const FALL_SPEED = 12;
 const SCORE_PER_CANDY = 60;
 const COMBO_BONUS = 30;
 
-/* ================= 2. AUDIO (Web Audio, synthesized) ================= */
+const COLORS = [
+  { name: "red", base: "#e63946", light: "#ff6b6b", dark: "#b71c1c" },
+  { name: "orange", base: "#f4a261", light: "#ffc49a", dark: "#c8782a" },
+  { name: "yellow", base: "#ffd23f", light: "#ffe680", dark: "#d4a820" },
+  { name: "green", base: "#2a9d3a", light: "#5fd46e", dark: "#1a7028" },
+  { name: "blue", base: "#4a90d9", light: "#7ab8f0", dark: "#2a6aaa" },
+] as const;
+
+/* ---- Difficulty Tiers ---- */
+interface LevelConfig {
+  moves: number;
+  targetScore: number;
+  numColors: number;
+  bossHp: number;
+  name: string;
+  emoji: string;
+  color: string;
+}
+
+function getLevelConfig(lvl: number): LevelConfig {
+  if (lvl <= 3)
+    return { moves: 25, targetScore: 400 + lvl * 100, numColors: 3, bossHp: 0, name: "KOLAY", emoji: "🟢", color: "#4ade80" };
+  if (lvl <= 7)
+    return { moves: 22, targetScore: 800 + (lvl - 3) * 200, numColors: 4, bossHp: 0, name: "ORTA", emoji: "🟡", color: "#facc15" };
+  if (lvl <= 9)
+    return { moves: 19, targetScore: 1600 + (lvl - 7) * 300, numColors: 5, bossHp: 0, name: "ZOR", emoji: "🟠", color: "#fb923c" };
+  if (lvl === 10)
+    return { moves: 20, targetScore: 0, numColors: 5, bossHp: 12, name: "BOSS", emoji: "💀", color: "#ff4444" };
+  if (lvl <= 15)
+    return { moves: 17, targetScore: 2200 + (lvl - 10) * 400, numColors: 5, bossHp: 0, name: "ÇOK ZOR", emoji: "🟣", color: "#a78bfa" };
+  if (lvl <= 19)
+    return { moves: 14, targetScore: 4000 + (lvl - 15) * 500, numColors: 5, bossHp: 0, name: "EKSTREM", emoji: "🔥", color: "#f97316" };
+  if (lvl === 20)
+    return { moves: 18, targetScore: 0, numColors: 5, bossHp: 20, name: "BOSS", emoji: "💀", color: "#ff4444" };
+  if (lvl <= 25)
+    return { moves: 12, targetScore: 6000 + (lvl - 20) * 600, numColors: 5, bossHp: 0, name: "KÂBUS", emoji: "🖤", color: "#6b7280" };
+  if (lvl === 30)
+    return { moves: 15, targetScore: 0, numColors: 5, bossHp: 30, name: "BOSS", emoji: "💀", color: "#ff4444" };
+  return { moves: 10, targetScore: 8000 + (lvl - 25) * 700, numColors: 5, bossHp: 0, name: "ULTRA", emoji: "💀", color: "#dc2626" };
+}
+
+/* ---- Audio ---- */
 const AudioSys = {
   ctx: null as AudioContext | null,
   muted: false,
@@ -56,7 +79,6 @@ const AudioSys = {
     } catch { this.ctx = null; }
   },
   resume() { if (this.ctx && this.ctx.state === "suspended") this.ctx.resume(); },
-
   tone(type: OscillatorType, f0: number, f1: number, dur: number, vol = 0.5, delay = 0) {
     if (!this.ctx || this.muted) return;
     const t = this.ctx.currentTime + delay;
@@ -72,27 +94,19 @@ const AudioSys = {
     osc.start(t);
     osc.stop(t + dur + 0.02);
   },
-
   swap() { this.tone("sine", 300, 450, 0.1, 0.25); },
   invalid() { this.tone("square", 150, 100, 0.15, 0.2); },
   match() { this.tone("square", 660, 880, 0.12, 0.3); this.tone("square", 880, 1100, 0.1, 0.25, 0.08); },
   cascade() { [523, 659, 784].forEach((f, i) => this.tone("square", f, f * 1.2, 0.1, 0.3, i * 0.06)); },
-  coin() { this.tone("square", 987, 987, 0.06, 0.3); this.tone("square", 1319, 1319, 0.14, 0.3, 0.06); },
   levelup() { [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone("square", f, f, 0.15, 0.35, i * 0.1)); },
   lose() { this.tone("sawtooth", 300, 150, 0.4, 0.4); this.tone("sawtooth", 200, 80, 0.6, 0.4, 0.3); },
   bossHit() { this.tone("sawtooth", 400, 100, 0.2, 0.4); this.tone("square", 200, 80, 0.25, 0.3, 0.05); },
   bossDefeat() { [440, 554, 659, 880, 1108, 1319].forEach((f, i) => this.tone("square", f, f, 0.15, 0.35, i * 0.1)); this.tone("sawtooth", 80, 30, 1.0, 0.4, 0.7); },
-  break() { this.tone("sawtooth", 250, 80, 0.12, 0.3); },
 
   startMusic() {
     if (!this.ctx || this.muted || this.musicInterval) return;
     this.resume();
-    const melody = [
-      262, 330, 392, 523, 392, 330, 294, 349,
-      262, 330, 392, 523, 392, 330, 294, 349,
-      349, 440, 523, 698, 523, 440, 392, 440,
-      330, 392, 440, 523, 440, 392, 349, 330,
-    ];
+    const melody = [262,330,392,523,392,330,294,349, 262,330,392,523,392,330,294,349, 349,440,523,698,523,440,392,440, 330,392,440,523,440,392,349,330];
     this.musicNoteIndex = 0;
     this.musicInterval = setInterval(() => {
       if (!this.ctx || this.muted) return;
@@ -115,48 +129,39 @@ const AudioSys = {
   destroy() { this.stopMusic(); if (this.ctx) { this.ctx.close(); this.ctx = null; } },
 };
 
-/* ================= 3. TYPES ================= */
+/* ---- Types ---- */
 interface Candy {
   color: number;
-  x: number;
-  y: number;
-  targetX: number;
-  targetY: number;
+  x: number; y: number;
+  targetX: number; targetY: number;
   clearing: boolean;
   clearTimer: number;
   scale: number;
 }
-
 interface Particle {
   x: number; y: number; vx: number; vy: number;
   life: number; maxLife: number; size: number; color: string;
 }
-
 interface BossState {
-  hp: number;
-  maxHp: number;
+  hp: number; maxHp: number;
   x: number; y: number;
-  flashTimer: number;
-  alive: boolean;
-  deathTimer: number;
+  flashTimer: number; alive: boolean; deathTimer: number;
 }
-
 type GameState = "menu" | "playing" | "swapping" | "clearing" | "falling" | "levelComplete" | "gameover" | "victory";
 
-/* ================= 4. GAME ENGINE ================= */
+/* ================= MAIN ENGINE ================= */
 export function startGame(canvas: HTMLCanvasElement): () => void {
   const ctx = canvas.getContext("2d")!;
   canvas.width = W;
   canvas.height = H;
 
-  // --- State ---
   let state: GameState = "menu";
   let stateTimer = 0;
   let level = 1;
   let score = 0;
   let totalScore = 0;
-  let movesLeft = MOVES_PER_LEVEL;
-  let targetScore = TARGET_SCORE_BASE;
+  let movesLeft = 20;
+  let targetScore = 500;
   let combo = 0;
   let grid: (Candy | null)[][] = [];
   let selected: { r: number; c: number } | null = null;
@@ -169,13 +174,12 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   let animTime = 0;
   let shakeTimer = 0;
   let shakeIntensity = 0;
+  let currentConfig: LevelConfig = getLevelConfig(1);
   let floatTexts: { x: number; y: number; text: string; color: string; life: number }[] = [];
 
-  // --- Input ---
+  /* ---- Input ---- */
   let mouseDown = false;
   let mouseX = 0, mouseY = 0;
-  let touchStartX = 0, touchStartY = 0;
-  let touchStartR = -1, touchStartC = -1;
 
   function cellAt(px: number, py: number): { r: number; c: number } | null {
     const c = Math.floor((px - GRID_OFFSET_X) / CELL_SIZE);
@@ -186,7 +190,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   function onPointerDown(px: number, py: number) {
     if (state === "menu") { startGamePlay(); return; }
-    if (state === "gameover") { resetGame(); return; }
+    if (state === "gameover" || state === "victory") { resetGame(); return; }
     if (state !== "playing") return;
     mouseDown = true;
     mouseX = px; mouseY = py;
@@ -207,24 +211,21 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   function onPointerUp(px: number, py: number) {
     mouseDown = false;
-    if (state !== "playing") return;
-    if (selected && Math.abs(px - (GRID_OFFSET_X + selected.c * CELL_SIZE + CELL_SIZE / 2)) < CELL_SIZE) {
-      // drag to swap
-      const dx = px - (GRID_OFFSET_X + selected.c * CELL_SIZE + CELL_SIZE / 2);
-      const dy = py - (GRID_OFFSET_Y + selected.r * CELL_SIZE + CELL_SIZE / 2);
+    if (state !== "playing" || !selected) return;
+    const sx = GRID_OFFSET_X + selected.c * CELL_SIZE + CELL_SIZE / 2;
+    const sy = GRID_OFFSET_Y + selected.r * CELL_SIZE + CELL_SIZE / 2;
+    const dx = px - sx;
+    const dy = py - sy;
+    if (Math.abs(dx) > CELL_SIZE * 0.6 || Math.abs(dy) > CELL_SIZE * 0.6) {
       let target: { r: number; c: number };
-      if (Math.abs(dx) > Math.abs(dy)) {
-        target = { r: selected.r, c: selected.c + (dx > 0 ? 1 : -1) };
-      } else {
-        target = { r: selected.r + (dy > 0 ? 1 : -1), c: selected.c };
-      }
+      if (Math.abs(dx) > Math.abs(dy)) target = { r: selected.r, c: selected.c + (dx > 0 ? 1 : -1) };
+      else target = { r: selected.r + (dy > 0 ? 1 : -1), c: selected.c };
       if (target.r >= 0 && target.r < GRID_SIZE && target.c >= 0 && target.c < GRID_SIZE) {
         trySwap(selected, target);
       }
     }
   }
 
-  // Mouse events
   function onMouseDown(e: MouseEvent) {
     const rect = canvas.getBoundingClientRect();
     onPointerDown((e.clientX - rect.left) * (W / rect.width), (e.clientY - rect.top) * (H / rect.height));
@@ -238,26 +239,21 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     mouseX = (e.clientX - rect.left) * (W / rect.width);
     mouseY = (e.clientY - rect.top) * (H / rect.height);
   }
-
-  // Touch events
   function onTouchStart(e: TouchEvent) {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const t = e.touches[0];
-    const px = (t.clientX - rect.left) * (W / rect.width);
-    const py = (t.clientY - rect.top) * (H / rect.height);
-    touchStartX = px; touchStartY = py;
-    const cell = cellAt(px, py);
-    if (cell) { touchStartR = cell.r; touchStartC = cell.c; }
-    onPointerDown(px, py);
+    onPointerDown((t.clientX - rect.left) * (W / rect.width), (t.clientY - rect.top) * (H / rect.height));
   }
   function onTouchEnd(e: TouchEvent) {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const t = e.changedTouches[0];
-    const px = (t.clientX - rect.left) * (W / rect.width);
-    const py = (t.clientY - rect.top) * (H / rect.height);
-    onPointerUp(px, py);
+    onPointerUp((t.clientX - rect.left) * (W / rect.width), (t.clientY - rect.top) * (H / rect.height));
+  }
+  function onKeyDown(e: KeyboardEvent) {
+    if (state === "menu" && (e.code === "Space" || e.code === "Enter")) startGamePlay();
+    if ((state === "gameover" || state === "victory") && (e.code === "Space" || e.code === "Enter")) resetGame();
   }
 
   canvas.addEventListener("mousedown", onMouseDown);
@@ -265,15 +261,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.addEventListener("mousemove", onMouseMove);
   canvas.addEventListener("touchstart", onTouchStart, { passive: false });
   canvas.addEventListener("touchend", onTouchEnd, { passive: false });
-
-  // Keyboard
-  function onKeyDown(e: KeyboardEvent) {
-    if (state === "menu" && (e.code === "Space" || e.code === "Enter")) { startGamePlay(); return; }
-    if (state === "gameover" && (e.code === "Space" || e.code === "Enter")) { resetGame(); return; }
-  }
   window.addEventListener("keydown", onKeyDown);
 
-  // --- Grid Logic ---
+  /* ---- Grid Logic ---- */
   function createCandy(r: number, c: number, color: number, yOffset = 0): Candy {
     return {
       color,
@@ -287,14 +277,20 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     };
   }
 
-  function initGrid() {
-    grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
+  function createsInitialMatch(r: number, c: number, color: number): boolean {
+    if (c >= 2 && grid[r][c - 1]?.color === color && grid[r][c - 2]?.color === color) return true;
+    if (r >= 2 && grid[r - 1]?.[c]?.color === color && grid[r - 2]?.[c]?.color === color) return true;
+    return false;
+  }
+
+  function initGrid(numColors: number) {
+    grid = Array.from({ length: GRID_SIZE }, () => Array<Candy | null>(GRID_SIZE).fill(null));
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         let color: number;
         let attempts = 0;
         do {
-          color = Math.floor(Math.random() * NUM_COLORS);
+          color = Math.floor(Math.random() * numColors);
           attempts++;
         } while (attempts < 20 && createsInitialMatch(r, c, color));
         grid[r][c] = createCandy(r, c, color);
@@ -302,12 +298,41 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     }
   }
 
-  function createsInitialMatch(r: number, c: number, color: number): boolean {
-    // Check horizontal
-    if (c >= 2 && grid[r][c - 1]?.color === color && grid[r][c - 2]?.color === color) return true;
-    // Check vertical
-    if (r >= 2 && grid[r - 1]?.[c]?.color === color && grid[r - 2]?.[c]?.color === color) return true;
-    return false;
+  function findMatches(): { r: number; c: number }[] {
+    const matched = new Set<string>();
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE - 2; c++) {
+        const a = grid[r][c];
+        if (!a) continue;
+        const b = grid[r][c + 1];
+        const d = grid[r][c + 2];
+        if (b && d && a.color === b.color && b.color === d.color) {
+          matched.add(`${r},${c}`); matched.add(`${r},${c + 1}`); matched.add(`${r},${c + 2}`);
+          let ext = c + 3;
+          while (ext < GRID_SIZE) {
+            const e = grid[r][ext];
+            if (e && e.color === a.color) { matched.add(`${r},${ext}`); ext++; } else break;
+          }
+        }
+      }
+    }
+    for (let c = 0; c < GRID_SIZE; c++) {
+      for (let r = 0; r < GRID_SIZE - 2; r++) {
+        const a = grid[r][c];
+        if (!a) continue;
+        const b = grid[r + 1][c];
+        const d = grid[r + 2][c];
+        if (b && d && a.color === b.color && b.color === d.color) {
+          matched.add(`${r},${c}`); matched.add(`${r + 1},${c}`); matched.add(`${r + 2},${c}`);
+          let ext = r + 3;
+          while (ext < GRID_SIZE) {
+            const e = grid[ext][c];
+            if (e && e.color === a.color) { matched.add(`${ext},${c}`); ext++; } else break;
+          }
+        }
+      }
+    }
+    return [...matched].map(s => { const [r, c] = s.split(",").map(Number); return { r, c }; });
   }
 
   function trySwap(a: { r: number; c: number }, b: { r: number; c: number }) {
@@ -316,13 +341,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const candyB = grid[b.r][b.c];
     if (!candyA || !candyB) return;
 
-    // Perform swap in grid
     grid[a.r][a.c] = candyB;
     grid[b.r][b.c] = candyA;
 
-    // Check if match
     if (findMatches().length === 0) {
-      // Invalid swap - swap back
       grid[a.r][a.c] = candyA;
       grid[b.r][b.c] = candyB;
       AudioSys.invalid();
@@ -330,71 +352,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       return;
     }
 
-    // Valid swap
     AudioSys.swap();
     state = "swapping";
-    swapFrom = a;
-    swapTo = b;
-    swapProgress = 0;
+    swapFrom = a; swapTo = b; swapProgress = 0;
     movesLeft--;
     combo = 0;
     selected = null;
 
-    // Set targets
     candyA.targetX = GRID_OFFSET_X + b.c * CELL_SIZE + CELL_SIZE / 2;
     candyA.targetY = GRID_OFFSET_Y + b.r * CELL_SIZE + CELL_SIZE / 2;
     candyB.targetX = GRID_OFFSET_X + a.c * CELL_SIZE + CELL_SIZE / 2;
     candyB.targetY = GRID_OFFSET_Y + a.r * CELL_SIZE + CELL_SIZE / 2;
-  }
-
-  function findMatches(): { r: number; c: number }[] {
-    const matched = new Set<string>();
-
-    // Horizontal
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let c = 0; c < GRID_SIZE - 2; c++) {
-        const candy = grid[r][c];
-        if (!candy) continue;
-        const next1 = grid[r][c + 1];
-        const next2 = grid[r][c + 2];
-        if (next1 && next2 && candy.color === next1.color && next1.color === next2.color) {
-          matched.add(`${r},${c}`);
-          matched.add(`${r},${c + 1}`);
-          matched.add(`${r},${c + 2}`);
-          // Extend match
-          let ext = c + 3;
-          while (ext < GRID_SIZE && grid[r][ext] && grid[r][ext]!.color === candy.color) {
-            matched.add(`${r},${ext}`);
-            ext++;
-          }
-        }
-      }
-    }
-
-    // Vertical
-    for (let c = 0; c < GRID_SIZE; c++) {
-      for (let r = 0; r < GRID_SIZE - 2; r++) {
-        const candy = grid[r][c];
-        if (!candy) continue;
-        const next1 = grid[r + 1]?.[c];
-        const next2 = grid[r + 2]?.[c];
-        if (next1 && next2 && candy.color === next1.color && next1.color === next2.color) {
-          matched.add(`${r},${c}`);
-          matched.add(`${r + 1},${c}`);
-          matched.add(`${r + 2},${c}`);
-          let ext = r + 3;
-          while (ext < GRID_SIZE && grid[ext]?.[c] && grid[ext][c]!.color === candy.color) {
-            matched.add(`${ext},${c}`);
-            ext++;
-          }
-        }
-      }
-    }
-
-    return [...matched].map(s => {
-      const [r, c] = s.split(",").map(Number);
-      return { r, c };
-    });
   }
 
   function clearMatches(matches: { r: number; c: number }[]) {
@@ -404,7 +372,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     score += points;
     totalScore += points;
 
-    // Boss damage
     if (boss && boss.alive) {
       boss.hp = Math.max(0, boss.hp - matches.length);
       boss.flashTimer = 10;
@@ -426,7 +393,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     AudioSys.match();
     if (combo > 1) AudioSys.cascade();
 
-    // Float text
     const cx = matches.reduce((s, m) => s + m.c, 0) / matches.length;
     const cy = matches.reduce((s, m) => s + m.r, 0) / matches.length;
     floatTexts.push({
@@ -437,15 +403,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       life: 40,
     });
 
-    // Mark for clearing
     for (const m of matches) {
       const c = grid[m.r][m.c];
       if (c) {
         c.clearing = true;
         c.clearTimer = CLEAR_DURATION / 16;
-        // Particles
-        const color = COLORS[c.color].base;
-        spawnBurst(GRID_OFFSET_X + m.c * CELL_SIZE + CELL_SIZE / 2, GRID_OFFSET_Y + m.r * CELL_SIZE + CELL_SIZE / 2, 6, color);
+        const col = COLORS[c.color].base;
+        spawnBurst(GRID_OFFSET_X + m.c * CELL_SIZE + CELL_SIZE / 2, GRID_OFFSET_Y + m.r * CELL_SIZE + CELL_SIZE / 2, 6, col);
       }
     }
 
@@ -454,6 +418,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   function applyGravity() {
+    const numC = currentConfig.numColors;
     for (let c = 0; c < GRID_SIZE; c++) {
       let writeRow = GRID_SIZE - 1;
       for (let r = GRID_SIZE - 1; r >= 0; r--) {
@@ -467,9 +432,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
           writeRow--;
         }
       }
-      // Fill empty cells from top
       for (let r = writeRow; r >= 0; r--) {
-        const color = Math.floor(Math.random() * NUM_COLORS);
+        const color = Math.floor(Math.random() * numC);
         const newCandy = createCandy(r, c, color, -(writeRow - r + 1) * CELL_SIZE - 20);
         grid[r][c] = newCandy;
       }
@@ -479,10 +443,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function hasValidMoves(): boolean {
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
-        // Try swap right
         if (c < GRID_SIZE - 1) {
-          const a = grid[r][c];
-          const b = grid[r][c + 1];
+          const a = grid[r][c], b = grid[r][c + 1];
           if (a && b) {
             grid[r][c] = b; grid[r][c + 1] = a;
             const has = findMatches().length > 0;
@@ -490,10 +452,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
             if (has) return true;
           }
         }
-        // Try swap down
         if (r < GRID_SIZE - 1) {
-          const a = grid[r][c];
-          const b = grid[r + 1][c];
+          const a = grid[r][c], b = grid[r + 1][c];
           if (a && b) {
             grid[r][c] = b; grid[r + 1][c] = a;
             const has = findMatches().length > 0;
@@ -511,7 +471,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     for (let r = 0; r < GRID_SIZE; r++)
       for (let c = 0; c < GRID_SIZE; c++)
         if (grid[r][c]) allColors.push(grid[r][c]!.color);
-    // Fisher-Yates
     for (let i = allColors.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
@@ -526,48 +485,29 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const spd = 1 + Math.random() * 4;
-      particles.push({
-        x, y,
-        vx: Math.cos(angle) * spd,
-        vy: Math.sin(angle) * spd - 2,
-        life: 20 + Math.random() * 20,
-        maxLife: 40,
-        size: 2 + Math.random() * 4,
-        color,
-      });
+      particles.push({ x, y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd - 2, life: 20 + Math.random() * 20, maxLife: 40, size: 2 + Math.random() * 4, color });
     }
   }
 
-  // --- Level Management ---
+  /* ---- Level Management ---- */
   function startLevel(lvl: number) {
     level = lvl;
     score = 0;
-    movesLeft = MOVES_PER_LEVEL;
-    targetScore = TARGET_SCORE_BASE + (lvl - 1) * 200;
     combo = 0;
     isBossLevel = lvl % 10 === 0;
+    currentConfig = getLevelConfig(lvl);
+    movesLeft = currentConfig.moves;
+    targetScore = currentConfig.targetScore;
 
     if (isBossLevel) {
-      boss = {
-        hp: 8 + Math.floor(lvl / 10) * 4,
-        maxHp: 8 + Math.floor(lvl / 10) * 4,
-        x: W / 2,
-        y: 50,
-        flashTimer: 0,
-        alive: true,
-        deathTimer: 0,
-      };
+      boss = { hp: currentConfig.bossHp, maxHp: currentConfig.bossHp, x: W / 2, y: 50, flashTimer: 0, alive: true, deathTimer: 0 };
     } else {
       boss = null;
     }
 
-    initGrid();
-    // Ensure at least one valid move
+    initGrid(currentConfig.numColors);
     let attempts = 0;
-    while (!hasValidMoves() && attempts < 50) {
-      initGrid();
-      attempts++;
-    }
+    while (!hasValidMoves() && attempts < 50) { initGrid(currentConfig.numColors); attempts++; }
     state = "playing";
     selected = null;
   }
@@ -586,7 +526,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     AudioSys.startMusic();
   }
 
-  function checkLevelComplete() {
+  function checkLevelComplete(): boolean {
     if (isBossLevel) {
       if (boss && !boss.alive) {
         state = "levelComplete";
@@ -605,35 +545,23 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     return false;
   }
 
-  // --- Update ---
+  /* ---- Update ---- */
   function update() {
     animTime++;
     if (shakeTimer > 0) shakeTimer--;
 
-    // Particles
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.15;
-      p.life--;
+      p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life--;
       if (p.life <= 0) particles.splice(i, 1);
     }
-
-    // Float texts
     for (let i = floatTexts.length - 1; i >= 0; i--) {
-      floatTexts[i].y -= 1;
-      floatTexts[i].life--;
+      floatTexts[i].y -= 1; floatTexts[i].life--;
       if (floatTexts[i].life <= 0) floatTexts.splice(i, 1);
     }
-
-    // Boss flash
-    if (boss && boss.flashTimer > 0) boss.flashTimer--;
-    if (boss && !boss.alive && boss.deathTimer > 0) {
-      boss.deathTimer--;
-      if (boss.deathTimer <= 0) {
-        boss = null;
-      }
+    if (boss) {
+      if (boss.flashTimer > 0) boss.flashTimer--;
+      if (!boss.alive && boss.deathTimer > 0) { boss.deathTimer--; if (boss.deathTimer <= 0) boss = null; }
     }
 
     if (state === "swapping") {
@@ -651,22 +579,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
           if (t >= 1) {
             a.x = a.targetX; a.y = a.targetY;
             b.x = b.targetX; b.y = b.targetY;
-            // Check matches after swap
             const matches = findMatches();
-            if (matches.length > 0) {
-              clearMatches(matches);
-            } else {
-              // Should not happen (validated before), but just in case
-              grid[swapFrom.r][swapFrom.c] = a;
-              grid[swapTo.r][swapTo.c] = b;
-              state = "playing";
-              swapFrom = null; swapTo = null;
-            }
+            if (matches.length > 0) clearMatches(matches);
+            else { state = "playing"; swapFrom = null; swapTo = null; }
           }
-        } else {
-          state = "playing";
-          swapFrom = null; swapTo = null;
-        }
+        } else { state = "playing"; swapFrom = null; swapTo = null; }
       }
     } else if (state === "clearing") {
       stateTimer--;
@@ -676,17 +593,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
           if (candy?.clearing) {
             candy.clearTimer--;
             candy.scale = Math.max(0, candy.clearTimer / (CLEAR_DURATION / 16));
-            if (candy.clearTimer <= 0) {
-              grid[r][c] = null;
-            }
+            if (candy.clearTimer <= 0) grid[r][c] = null;
           }
         }
       }
-      if (stateTimer <= 0) {
-        // Remove cleared, apply gravity
-        applyGravity();
-        state = "falling";
-      }
+      if (stateTimer <= 0) { applyGravity(); state = "falling"; }
     } else if (state === "falling") {
       let allSettled = true;
       for (let r = 0; r < GRID_SIZE; r++) {
@@ -697,51 +608,27 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
             if (Math.abs(dy) > 1) {
               candy.y += Math.sign(dy) * Math.min(Math.abs(dy), FALL_SPEED);
               allSettled = false;
-            } else {
-              candy.y = candy.targetY;
-              candy.scale = 1;
-            }
+            } else { candy.y = candy.targetY; candy.scale = 1; }
           }
         }
       }
       if (allSettled) {
-        // Check for new matches (cascade)
         const matches = findMatches();
-        if (matches.length > 0) {
-          clearMatches(matches);
-        } else {
+        if (matches.length > 0) { clearMatches(matches); }
+        else {
           combo = 0;
-          // Check level complete
           if (!checkLevelComplete()) {
-            // Check moves
             if (movesLeft <= 0) {
               if (isBossLevel) {
-                if (boss && !boss.alive) {
-                  state = "levelComplete";
-                  stateTimer = 120;
-                  AudioSys.levelup();
-                } else {
-                  state = "gameover";
-                  AudioSys.stopMusic();
-                  AudioSys.lose();
-                }
+                if (boss && !boss.alive) { state = "levelComplete"; stateTimer = 120; AudioSys.levelup(); }
+                else { state = "gameover"; AudioSys.stopMusic(); AudioSys.lose(); }
               } else {
-                if (score < targetScore) {
-                  state = "gameover";
-                  AudioSys.stopMusic();
-                  AudioSys.lose();
-                } else {
-                  state = "levelComplete";
-                  stateTimer = 120;
-                  AudioSys.levelup();
-                }
+                if (score < targetScore) { state = "gameover"; AudioSys.stopMusic(); AudioSys.lose(); }
+                else { state = "levelComplete"; stateTimer = 120; AudioSys.levelup(); }
               }
             } else if (!hasValidMoves()) {
               reshuffleGrid();
-              // Check again after reshuffle
-              if (!hasValidMoves()) {
-                initGrid();
-              }
+              if (!hasValidMoves()) initGrid(currentConfig.numColors);
             }
             state = "playing";
           }
@@ -750,18 +637,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     } else if (state === "levelComplete") {
       stateTimer--;
       if (stateTimer <= 0) {
-        if (level >= 30) {
-          state = "victory";
-          AudioSys.stopMusic();
-          AudioSys.levelup();
-        } else {
-          startLevel(level + 1);
-        }
+        if (level >= 30) { state = "victory"; AudioSys.stopMusic(); AudioSys.levelup(); }
+        else startLevel(level + 1);
       }
     }
   }
 
-  // --- Drawing ---
+  /* ---- Drawing ---- */
   function drawCandy(candy: Candy) {
     if (!candy) return;
     const x = candy.x;
@@ -770,17 +652,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (size <= 0) return;
 
     const col = COLORS[candy.color];
-
     ctx.save();
     ctx.translate(x, y);
 
-    // Shadow
     ctx.fillStyle = "rgba(0,0,0,0.15)";
     ctx.beginPath();
     ctx.ellipse(2, size * 0.3, size * 0.9, size * 0.3, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Main circle with gradient
     const grad = ctx.createRadialGradient(-size * 0.2, -size * 0.2, size * 0.1, 0, 0, size);
     grad.addColorStop(0, col.light);
     grad.addColorStop(0.7, col.base);
@@ -790,93 +669,16 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.arc(0, 0, size, 0, Math.PI * 2);
     ctx.fill();
 
-    // Outline
     ctx.strokeStyle = col.dark;
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Highlight
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.beginPath();
     ctx.ellipse(-size * 0.25, -size * 0.3, size * 0.3, size * 0.2, -0.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Symbol
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.strokeStyle = "rgba(255,255,255,0.8)";
-    ctx.lineWidth = 1.5;
-    ctx.font = `${size}px Arial`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    switch (col.symbol) {
-      case "heart":
-        drawHeart(0, 0, size * 0.4);
-        break;
-      case "star":
-        drawStar(0, 0, size * 0.4, size * 0.2);
-        break;
-      case "diamond":
-        drawDiamond(0, 0, size * 0.35);
-        break;
-      case "clover":
-        drawClover(0, 0, size * 0.35);
-        break;
-      case "drop":
-        drawDrop(0, 0, size * 0.35);
-        break;
-    }
-
     ctx.restore();
-  }
-
-  function drawHeart(x: number, y: number, s: number) {
-    ctx.beginPath();
-    ctx.moveTo(x, y + s * 0.3);
-    ctx.bezierCurveTo(x - s, y - s * 0.5, x - s * 0.5, y - s, x, y - s * 0.3);
-    ctx.bezierCurveTo(x + s * 0.5, y - s, x + s, y - s * 0.5, x, y + s * 0.3);
-    ctx.fill();
-  }
-
-  function drawStar(x: number, y: number, outerR: number, innerR: number) {
-    ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const outerAngle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
-      const innerAngle = outerAngle + (2 * Math.PI) / 5;
-      if (i === 0) ctx.moveTo(x + Math.cos(outerAngle) * outerR, y + Math.sin(outerAngle) * outerR);
-      else ctx.lineTo(x + Math.cos(outerAngle) * outerR, y + Math.sin(outerAngle) * outerR);
-      ctx.lineTo(x + Math.cos(innerAngle) * innerR, y + Math.sin(innerAngle) * innerR);
-    }
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  function drawDiamond(x: number, y: number, s: number) {
-    ctx.beginPath();
-    ctx.moveTo(x, y - s);
-    ctx.lineTo(x + s * 0.7, y);
-    ctx.lineTo(x, y + s);
-    ctx.lineTo(x - s * 0.7, y);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  function drawClover(x: number, y: number, s: number) {
-    for (let i = 0; i < 3; i++) {
-      const angle = (i * 2 * Math.PI) / 3 - Math.PI / 2;
-      ctx.beginPath();
-      ctx.arc(x + Math.cos(angle) * s * 0.4, y + Math.sin(angle) * s * 0.4, s * 0.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawDrop(x: number, y: number, s: number) {
-    ctx.beginPath();
-    ctx.moveTo(x, y - s);
-    ctx.quadraticCurveTo(x + s, y, x + s * 0.5, y + s * 0.6);
-    ctx.arc(x, y + s * 0.3, s * 0.5, 0, Math.PI);
-    ctx.quadraticCurveTo(x - s, y, x, y - s);
-    ctx.fill();
   }
 
   function drawBoss(b: BossState) {
@@ -888,17 +690,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const flash = b.flashTimer > 0 && b.flashTimer % 4 < 2;
     ctx.scale(pulse, pulse);
 
-    // Glow
     ctx.shadowColor = flash ? "#ffffff" : "#ff0000";
     ctx.shadowBlur = 20;
 
-    // Body
     ctx.fillStyle = flash ? "#ff6666" : "#2a1a3a";
     ctx.beginPath();
     ctx.ellipse(0, 0, 50, 40, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Armor
     ctx.fillStyle = flash ? "#ff8888" : "#3a2a4a";
     ctx.beginPath();
     ctx.ellipse(0, -5, 38, 32, 0, 0, Math.PI * 2);
@@ -907,7 +706,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Horns
     ctx.fillStyle = flash ? "#ffaaaa" : "#4a3a5a";
     ctx.beginPath();
     ctx.moveTo(-25, -25); ctx.lineTo(-40, -55); ctx.lineTo(-15, -30); ctx.fill();
@@ -916,38 +714,23 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
     ctx.shadowBlur = 0;
 
-    // Eyes
     ctx.fillStyle = flash ? "#ffffff" : "#ff2200";
     ctx.shadowColor = "#ff2200";
     ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.ellipse(-15, -8, 8, 6, -0.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(15, -8, 8, 6, 0.2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-15, -8, 8, 6, -0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(15, -8, 8, 6, 0.2, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffff00";
-    ctx.beginPath();
-    ctx.arc(-15, -8, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(15, -8, 3, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(-15, -8, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(15, -8, 3, 0, Math.PI * 2); ctx.fill();
 
-    // Mouth
     ctx.fillStyle = "#ff4400";
-    ctx.beginPath();
-    ctx.arc(0, 12, 12, 0, Math.PI);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 12, 12, 0, Math.PI); ctx.fill();
     ctx.fillStyle = "#fff";
-    for (let i = -9; i <= 9; i += 4) {
-      ctx.fillRect(i - 1.5, 12, 3, 6);
-    }
+    for (let i = -9; i <= 9; i += 4) ctx.fillRect(i - 1.5, 12, 3, 6);
 
     ctx.restore();
 
-    // HP Bar
     const barW = 100;
     const barH = 10;
     const bx = b.x - barW / 2;
@@ -966,12 +749,12 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = "#ff4444";
     ctx.font = "bold 12px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("💀 BOSS", b.x, by - 6);
+    ctx.fillText("BOSS", b.x, by - 6);
   }
 
   function drawBackground() {
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    if (isBossLevel) {
+    if (currentConfig.name === "BOSS" || currentConfig.name === "KÂBUS" || currentConfig.name === "ULTRA") {
       grad.addColorStop(0, "#1a0a2e");
       grad.addColorStop(0.5, "#2d1b4e");
       grad.addColorStop(1, "#0a0a1a");
@@ -983,7 +766,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // Stars
     ctx.fillStyle = "rgba(255,255,255,0.3)";
     for (let i = 0; i < 50; i++) {
       const x = (i * 173.7) % W;
@@ -991,13 +773,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       const size = (i % 3) + 1;
       ctx.fillRect(x, y, size, size);
     }
-
-    // Grid background
-    ctx.fillStyle = "rgba(255,255,255,0.03)";
-    ctx.fillRect(GRID_OFFSET_X - 20, GRID_OFFSET_Y - 20, GRID_SIZE * CELL_SIZE + 40, GRID_SIZE * CELL_SIZE + 40);
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(GRID_OFFSET_X - 20, GRID_OFFSET_Y - 20, GRID_SIZE * CELL_SIZE + 40, GRID_SIZE * CELL_SIZE + 40);
   }
 
   function drawHUD() {
@@ -1005,15 +780,21 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "bold 18px Arial";
     ctx.textBaseline = "top";
 
+    // Difficulty label
+    ctx.fillStyle = currentConfig.color;
+    ctx.textAlign = "left";
+    ctx.fillText(`${currentConfig.emoji} ${currentConfig.name}`, 15, 10);
+
     // Level
     ctx.fillStyle = "#69dbff";
     ctx.textAlign = "left";
-    ctx.fillText(`Bölüm ${level}`, 15, 12);
+    ctx.fillText(`Bölüm ${level}`, 15, 36);
 
     // Score / Target
     ctx.fillStyle = "#ffd700";
     ctx.textAlign = "center";
-    ctx.fillText(`Skor: ${score} / ${isBossLevel ? "BOSS" : targetScore}`, W / 2, 12);
+    const targetText = isBossLevel ? "BOSS'u Yen!" : `${score} / ${targetScore}`;
+    ctx.fillText(targetText, W / 2, 12);
 
     // Moves
     ctx.fillStyle = movesLeft <= 5 ? "#ff6b6b" : "#ccc";
@@ -1044,7 +825,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = "#ffd700";
     ctx.shadowColor = "#ffd700";
     ctx.shadowBlur = 20;
-    ctx.fillText("🍬 CANDY BURST", 0, 0);
+    ctx.fillText("CANDY BURST", 0, 0);
     ctx.shadowBlur = 0;
     ctx.restore();
 
@@ -1072,19 +853,19 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
     ctx.font = "18px Arial";
     ctx.fillStyle = "#ccc";
-    ctx.fillText("Boncukları eşleştir, 3+ aynı renk yan yana getir!", W / 2, H / 2 + 80);
-    ctx.fillText("Her 10 bölümde BOSS seni bekliyor! 💀", W / 2, H / 2 + 110);
+    ctx.fillText("Boncukları eşleştir, zincirleme patlamalar yap!", W / 2, H / 2 + 80);
+    ctx.fillText("Her 10 bölümde BOSS seni bekliyor!", W / 2, H / 2 + 110);
 
     const alpha = 0.5 + Math.sin(animTime * 0.06) * 0.5;
     ctx.globalAlpha = alpha;
     ctx.font = "bold 26px Arial";
     ctx.fillStyle = "#fff";
-    ctx.fillText("▶ Tıkla veya SPACE ile Başla", W / 2, H / 2 + 180);
+    ctx.fillText("Tıkla veya SPACE ile Başla", W / 2, H / 2 + 170);
     ctx.globalAlpha = 1;
 
     ctx.font = "14px Arial";
     ctx.fillStyle = "#888";
-    ctx.fillText("Tıkla & sürükle veya tıklama ile takas et", W / 2, H - 40);
+    ctx.fillText("Kolay → Ultra | 30 Bölüm | Boss'lar dahil", W / 2, H - 40);
 
     ctx.restore();
   }
@@ -1099,14 +880,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = "#ffd700";
     ctx.shadowColor = "#ffd700";
     ctx.shadowBlur = 15;
-    ctx.fillText(`🎉 BÖLÜM ${level} TAMAMLANDI!`, W / 2, H / 2 - 40);
+    ctx.fillText(`BÖLÜM ${level} TAMAMLANDI!`, W / 2, H / 2 - 40);
     ctx.shadowBlur = 0;
     ctx.font = "22px Arial";
     ctx.fillStyle = "#ccc";
     ctx.fillText(`Skor: ${score}  |  Toplam: ${totalScore}`, W / 2, H / 2 + 20);
     if (isBossLevel) {
       ctx.fillStyle = "#ff6b6b";
-      ctx.fillText("💀 BOSS YENİLDİ!", W / 2, H / 2 + 55);
+      ctx.font = "bold 24px Arial";
+      ctx.fillText("BOSS YENİLDİ!", W / 2, H / 2 + 55);
     }
     ctx.restore();
   }
@@ -1121,7 +903,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = "#ff4444";
     ctx.shadowColor = "#ff0000";
     ctx.shadowBlur = 20;
-    ctx.fillText("💀 OYUN BİTTİ", W / 2, H / 2 - 50);
+    ctx.fillText("OYUN BİTTİ", W / 2, H / 2 - 50);
     ctx.shadowBlur = 0;
     ctx.font = "22px Arial";
     ctx.fillStyle = "#fff";
@@ -1145,7 +927,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = "#ffd700";
     ctx.shadowColor = "#ffd700";
     ctx.shadowBlur = 25;
-    ctx.fillText("🏆 TEBRİKLER!", W / 2, H / 2 - 60);
+    ctx.fillText("TEBRİKLER!", W / 2, H / 2 - 60);
     ctx.shadowBlur = 0;
     ctx.font = "28px Arial";
     ctx.fillStyle = "#fff";
@@ -1165,12 +947,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function draw() {
     ctx.clearRect(0, 0, W, H);
 
-    if (state === "menu") {
-      drawMenu();
-      return;
-    }
+    if (state === "menu") { drawMenu(); return; }
 
-    // Screen shake
     ctx.save();
     if (shakeTimer > 0) {
       const shake = shakeIntensity * (shakeTimer / 20);
@@ -1179,7 +957,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
     drawBackground();
 
-    // Draw grid cells (subtle)
+    // Grid background
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         const x = GRID_OFFSET_X + c * CELL_SIZE;
@@ -1200,11 +978,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       ctx.setLineDash([]);
     }
 
-    // Draw candies
+    // Candies
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
-        const c2 = grid[r][c];
-        if (c2) drawCandy(c2);
+        const candy = grid[r][c];
+        if (candy) drawCandy(candy);
       }
     }
 
@@ -1233,27 +1011,23 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
     ctx.restore();
 
-    // HUD (not affected by shake)
     drawHUD();
 
-    // Overlays
     if (state === "levelComplete") drawLevelComplete();
     if (state === "gameover") drawGameOver();
     if (state === "victory") drawVictory();
   }
 
-  // --- Main Loop ---
+  /* ---- Main Loop ---- */
   let rafId = 0;
-
   function loop() {
     update();
     draw();
     rafId = requestAnimationFrame(loop);
   }
-
   rafId = requestAnimationFrame(loop);
 
-  // --- Cleanup ---
+  /* ---- Cleanup ---- */
   return () => {
     cancelAnimationFrame(rafId);
     canvas.removeEventListener("mousedown", onMouseDown);
