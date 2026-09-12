@@ -135,6 +135,17 @@ const GAMES = [
     route: "/fighting",
     status: "playable" as const,
   },
+  {
+    id: "lets-world",
+    title: "Let's World",
+    subtitle: "Platform Macerası",
+    emoji: "🌍",
+    artClass: "art-1",
+    description:
+      "Klasik platform oyunu! Yeşil şapkalı maceracınla koş, zıpla, jeton topla ve düşmanları ezip geç. Her 10 bölümde dev BOSS seni bekliyor. ← → hareket, SPACE zıpla.",
+    route: "/games/lets-world",
+    status: "playable" as const,
+  },
 ];
 
 export default function Home() {
