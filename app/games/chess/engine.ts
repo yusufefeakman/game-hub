@@ -264,7 +264,7 @@ function buildPieceMesh(
       add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.36], [0.2, 0.5], [0.15, 0.58], [0, 0.58]]), 0);
       const head = new THREE.Mesh(knightHeadGeo(), mat);
       head.rotation.y = -Math.PI / 2;
-      head.position.set(0.04, 0.50, 0.0);
+      head.position.set(0.04, 0.44, 0.0);
       head.castShadow = true;
       head.receiveShadow = true;
       g.add(head);
@@ -595,7 +595,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   const pieceAt = new Map<number, PieceObj>();
 
   // Pieces stand on the square TOP surface (y = 0.28), never sunk into it.
-  const SQUARE_TOP_Y = 0.28;
+  const SQUARE_TOP_Y = 0.29;
   const squareWorld = (i: number) =>
     new THREE.Vector3(Core.FILE(i) - 3.5, SQUARE_TOP_Y, Core.RANK(i) - 3.5);
 
