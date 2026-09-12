@@ -205,21 +205,22 @@ function buildPieceMesh(
       break;
     }
     case "r": {
-      // Single lathe: body + cap merged, no gap possible
+      // Solid body with integrated cap — no separate parts
       add(
         latheGeo([
           [0, 0.24],
           [0.22, 0.24],
           [0.24, 0.34],
-          [0.24, 0.80],
-          [0.30, 0.80],
-          [0.30, 0.92],
-          [0.24, 0.92],
-          [0, 0.92],
+          [0.24, 0.70],
+          [0.28, 0.74],
+          [0.30, 0.78],
+          [0.30, 0.96],
+          [0.26, 0.96],
+          [0, 0.96],
         ]),
         0
       );
-      // Crenellations overlap with cap top (cap top=0.92, cren bottom=0.88)
+      // Crenellations deeply embedded (cap top=0.96, cren center=0.94, height=0.18)
       const cren = [
         [0.17, 0.17],
         [-0.17, 0.17],
@@ -227,7 +228,7 @@ function buildPieceMesh(
         [-0.17, -0.17],
       ];
       for (const [cx, cz] of cren) {
-        add(new THREE.CylinderGeometry(0.055, 0.055, 0.14, 12), 0.92, (m) => {
+        add(new THREE.CylinderGeometry(0.07, 0.07, 0.18, 12), 0.94, (m) => {
           m.position.x = cx;
           m.position.z = cz;
         });
@@ -261,16 +262,16 @@ function buildPieceMesh(
       break;
     }
     case "n": {
-      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.36], [0.2, 0.5], [0.15, 0.58], [0, 0.58]]), 0);
+      add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.36], [0.21, 0.48], [0.18, 0.56], [0.14, 0.62], [0, 0.62]]), 0);
       const head = new THREE.Mesh(knightHeadGeo(), mat);
       head.rotation.y = -Math.PI / 2;
-      head.position.set(0.04, 0.44, 0.0);
+      head.position.set(0.02, 0.42, 0.0);
       head.castShadow = true;
       head.receiveShadow = true;
       g.add(head);
-      const mane = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.06), mat);
-      mane.position.set(-0.05, 0.44, -0.03);
-      mane.rotation.z = 0.14;
+      const mane = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.24, 0.06), mat);
+      mane.position.set(-0.04, 0.42, -0.02);
+      mane.rotation.z = 0.12;
       mane.castShadow = true;
       g.add(mane);
       break;
