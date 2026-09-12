@@ -156,30 +156,35 @@ const PEDESTAL: Array<[number, number]> = [
   [0, 0.24],
 ];
 
-function knightHeadGeo() {
-  const s = new THREE.Shape();
-  // Centered horse-head profile, facing +x (will be rotated to face +z)
-  s.moveTo(-0.08, 0.0);   // back-neck bottom
-  s.lineTo(-0.12, 0.08);  // back of neck
-  s.lineTo(-0.14, 0.18);  // back of head
-  s.lineTo(-0.12, 0.28);  // ear base
-  s.lineTo(-0.06, 0.36);  // ear tip
-  s.lineTo(0.02, 0.34);   // forehead
-  s.lineTo(0.10, 0.30);   // nose bridge
-  s.lineTo(0.16, 0.24);   // nose
-  s.lineTo(0.18, 0.16);   // muzzle
-  s.lineTo(0.14, 0.08);   // jaw
-  s.lineTo(0.06, 0.02);   // chin
-  s.lineTo(-0.02, 0.0);   // under-jaw
-  s.closePath();
-  return new THREE.ExtrudeGeometry(s, {
-    depth: 0.22,
-    bevelEnabled: true,
-    bevelThickness: 0.035,
-    bevelSize: 0.03,
-    bevelSegments: 3,
-    curveSegments: 10,
-  });
+function buildKnightHead(g: THREE.Group, mat: THREE.Material) {
+  const addM = (geo: THREE.BufferGeometry, x: number, y: number, z: number, rz = 0, rx = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    if (rz) m.rotation.z = rz;
+    if (rx) m.rotation.x = rx;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    g.add(m);
+    return m;
+  };
+  // Neck: solid tapered cylinder, tilted forward
+  addM(new THREE.CylinderGeometry(0.06, 0.12, 0.24, 10), 0.04, 0.64, 0.03, -0.4);
+  // Head: larger rounded block (scaled sphere)
+  const headS = new THREE.SphereGeometry(0.12, 14, 12);
+  headS.scale(1.0, 0.8, 1.2);
+  addM(headS, 0.07, 0.80, 0.06);
+  // Snout: forward-extending muzzle
+  const snoutS = new THREE.SphereGeometry(0.07, 10, 8);
+  snoutS.scale(0.8, 0.6, 1.5);
+  addM(snoutS, 0.07, 0.74, 0.17);
+  // Ears: two tall pointed cones
+  const earGeo = new THREE.ConeGeometry(0.03, 0.12, 6);
+  addM(earGeo, 0.03, 0.93, 0.03, 0.1);
+  addM(earGeo, 0.11, 0.93, 0.03, -0.1);
+  // Mane: back ridge
+  const maneS = new THREE.SphereGeometry(0.06, 8, 8);
+  maneS.scale(0.7, 1.4, 0.7);
+  addM(maneS, -0.01, 0.70, -0.04, 0.15);
 }
 
 function buildPieceMesh(
@@ -236,44 +241,79 @@ function buildPieceMesh(
       break;
     }
     case "b": {
+      // Body with ring collar
       add(latheGeo([[0, 0.24], [0.2, 0.24], [0.22, 0.36], [0.2, 0.5], [0.13, 0.6], [0, 0.6]]), 0);
-      add(new THREE.SphereGeometry(0.12, 24, 18), 0.65);
-      add(new THREE.ConeGeometry(0.09, 0.17, 20), 0.79);
-      add(new THREE.SphereGeometry(0.03, 12, 10), 0.88);
+      // Decorative collar ring
+      add(new THREE.TorusGeometry(0.14, 0.025, 8, 20), 0.38, (m) => {
+        m.rotation.x = Math.PI / 2;
+      });
+      // Upper body sphere
+      add(new THREE.SphereGeometry(0.13, 24, 18), 0.65);
+      // Miter: two angled cones forming a split-top hat
+      const miterL = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.18, 10), mat);
+      miterL.position.set(-0.035, 0.80, 0);
+      miterL.rotation.z = 0.15;
+      miterL.castShadow = true;
+      g.add(miterL);
+      const miterR = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.18, 10), mat);
+      miterR.position.set(0.035, 0.80, 0);
+      miterR.rotation.z = -0.15;
+      miterR.castShadow = true;
+      g.add(miterR);
+      // Top orb (cross base)
+      add(new THREE.SphereGeometry(0.03, 12, 10), 0.92);
+      // Small cross on top
+      add(new THREE.BoxGeometry(0.02, 0.07, 0.02), 0.96);
+      add(new THREE.BoxGeometry(0.05, 0.02, 0.02), 0.97);
       break;
     }
     case "q": {
       add(latheGeo([[0, 0.24], [0.22, 0.24], [0.25, 0.38], [0.22, 0.56], [0.15, 0.64], [0, 0.64]]), 0);
-      add(new THREE.CylinderGeometry(0.09, 0.11, 0.13, 20), 0.71);
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        add(new THREE.SphereGeometry(0.035, 10, 8), 0.8, (m) => {
+      // Decorative band
+      add(new THREE.TorusGeometry(0.16, 0.02, 8, 20), 0.42, (m) => {
+        m.rotation.x = Math.PI / 2;
+      });
+      // Crown base
+      add(new THREE.CylinderGeometry(0.10, 0.13, 0.10, 20), 0.70);
+      // Crown points (8 spikes)
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        add(new THREE.ConeGeometry(0.025, 0.10, 6), 0.82, (m) => {
           m.position.x = Math.cos(a) * 0.09;
           m.position.z = Math.sin(a) * 0.09;
         });
       }
-      add(new THREE.SphereGeometry(0.07, 16, 12), 0.84);
+      // Crown ring connecting spikes
+      add(new THREE.TorusGeometry(0.09, 0.015, 8, 20), 0.78, (m) => {
+        m.rotation.x = Math.PI / 2;
+      });
+      // Top orb
+      add(new THREE.SphereGeometry(0.055, 16, 12), 0.84);
       break;
     }
     case "k": {
       add(latheGeo([[0, 0.24], [0.24, 0.24], [0.27, 0.4], [0.24, 0.58], [0.16, 0.68], [0, 0.68]]), 0);
-      add(new THREE.BoxGeometry(0.055, 0.2, 0.055), 0.8);
-      add(new THREE.BoxGeometry(0.15, 0.05, 0.055), 0.84);
+      // Decorative band
+      add(new THREE.TorusGeometry(0.18, 0.02, 8, 20), 0.44, (m) => {
+        m.rotation.x = Math.PI / 2;
+      });
+      // Crown base
+      add(new THREE.CylinderGeometry(0.10, 0.14, 0.08, 20), 0.72);
+      // Crown rim
+      add(new THREE.TorusGeometry(0.10, 0.018, 8, 20), 0.76, (m) => {
+        m.rotation.x = Math.PI / 2;
+      });
+      // Cross: vertical bar
+      add(new THREE.BoxGeometry(0.05, 0.24, 0.05), 0.86);
+      // Cross: horizontal bar
+      add(new THREE.BoxGeometry(0.16, 0.05, 0.05), 0.88);
+      // Cross orb on top
+      add(new THREE.SphereGeometry(0.03, 10, 8), 0.99);
       break;
     }
     case "n": {
       add(latheGeo([[0, 0.24], [0.22, 0.24], [0.24, 0.36], [0.21, 0.48], [0.18, 0.56], [0.14, 0.62], [0, 0.62]]), 0);
-      const head = new THREE.Mesh(knightHeadGeo(), mat);
-      head.rotation.y = -Math.PI / 2;
-      head.position.set(0.02, 0.42, 0.0);
-      head.castShadow = true;
-      head.receiveShadow = true;
-      g.add(head);
-      const mane = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.24, 0.06), mat);
-      mane.position.set(-0.04, 0.42, -0.02);
-      mane.rotation.z = 0.12;
-      mane.castShadow = true;
-      g.add(mane);
+      buildKnightHead(g, mat);
       break;
     }
   }
