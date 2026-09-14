@@ -643,7 +643,60 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     }
   }
 
-  /* ---- Drawing ---- */
+  /* ---- Candy shape helpers ---- */
+  function starPath(cx: number, cy: number, spikes: number, outer: number, inner: number) {
+    ctx.beginPath();
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? outer : inner;
+      const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+      const px = cx + Math.cos(a) * r;
+      const py = cy + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  function hexPath(s: number) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+      const px = Math.cos(a) * s;
+      const py = Math.sin(a) * s;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  // Trace the silhouette for a candy color (centered at 0,0, radius ~ size).
+  function traceCandyShape(color: number, s: number) {
+    ctx.beginPath();
+    switch (color) {
+      case 0: // red → heart
+        ctx.moveTo(0, s * 0.85);
+        ctx.bezierCurveTo(-s * 1.35, s * 0.05, -s * 0.95, -s * 0.75, 0, -s * 0.2);
+        ctx.bezierCurveTo(s * 0.95, -s * 0.75, s * 1.35, s * 0.05, 0, s * 0.85);
+        ctx.closePath();
+        break;
+      case 1: // orange → round citrus
+        ctx.arc(0, 0, s, 0, Math.PI * 2);
+        ctx.closePath();
+        break;
+      case 2: // yellow → star
+        starPath(0, 0, 5, s, s * 0.45);
+        break;
+      case 3: // green → hexagon
+        hexPath(s);
+        break;
+      default: // blue → gem / diamond
+        ctx.moveTo(0, -s * 1.1);
+        ctx.lineTo(s * 0.85, 0);
+        ctx.lineTo(0, s * 1.1);
+        ctx.lineTo(-s * 0.85, 0);
+        ctx.closePath();
+        break;
+    }
+  }
+
   function drawCandy(candy: Candy) {
     if (!candy) return;
     const x = candy.x;
@@ -655,27 +708,59 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.save();
     ctx.translate(x, y);
 
-    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    // Soft drop shadow
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
     ctx.beginPath();
-    ctx.ellipse(2, size * 0.3, size * 0.9, size * 0.3, 0, 0, Math.PI * 2);
+    ctx.ellipse(2, size * 0.55, size * 0.9, size * 0.32, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const grad = ctx.createRadialGradient(-size * 0.2, -size * 0.2, size * 0.1, 0, 0, size);
+    // Body gradient (light source from top-left)
+    const grad = ctx.createRadialGradient(-size * 0.25, -size * 0.25, size * 0.1, 0, 0, size);
     grad.addColorStop(0, col.light);
-    grad.addColorStop(0.7, col.base);
+    grad.addColorStop(0.55, col.base);
     grad.addColorStop(1, col.dark);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(0, 0, size, 0, Math.PI * 2);
-    ctx.fill();
 
+    traceCandyShape(candy.color, size);
+    ctx.fillStyle = grad;
+    ctx.fill();
     ctx.strokeStyle = col.dark;
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    // Shape-specific inner detail
+    if (candy.color === 1) {
+      // orange segments
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * size * 0.28, Math.sin(a) * size * 0.28);
+        ctx.lineTo(Math.cos(a) * size * 0.9, Math.sin(a) * size * 0.9);
+        ctx.stroke();
+      }
+    } else if (candy.color === 4) {
+      // gem facet lines
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.42, -size * 0.55);
+      ctx.lineTo(size * 0.42, -size * 0.55);
+      ctx.moveTo(0, -size * 1.1);
+      ctx.lineTo(0, size * 1.1);
+      ctx.stroke();
+    } else if (candy.color === 2) {
+      // star inner glint
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.2, size * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Gloss highlight
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
     ctx.beginPath();
-    ctx.ellipse(-size * 0.25, -size * 0.3, size * 0.3, size * 0.2, -0.5, 0, Math.PI * 2);
+    ctx.ellipse(-size * 0.28, -size * 0.38, size * 0.3, size * 0.18, -0.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -773,6 +858,28 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       const size = (i % 3) + 1;
       ctx.fillRect(x, y, size, size);
     }
+
+    // Faint floating candy silhouettes drifting across the backdrop
+    for (let i = 0; i < 7; i++) {
+      const cx = ((i * 260 + animTime * 0.15) % (W + 220)) - 110;
+      const cy = 130 + ((i * 173 + animTime * 0.08) % 240);
+      const csize = 30 + (i % 3) * 18;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.globalAlpha = 0.07;
+      ctx.fillStyle = COLORS[i % 5].base;
+      traceCandyShape(i % 5, csize);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // Soft vignette for depth
+    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(0,0,0,0.32)");
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
   }
 
   function drawHUD() {
@@ -833,22 +940,24 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = "#69dbff";
     ctx.fillText("Eşleştirme Macerası", W / 2, H / 2 - 40);
 
-    // Candy preview
+    // Candy preview (matches the in-game shapes)
     const previewColors = [0, 1, 2, 3, 4];
     for (let i = 0; i < previewColors.length; i++) {
       const px = W / 2 - 120 + i * 60;
       const py = H / 2 + 20 + Math.sin(animTime * 0.05 + i) * 8;
       const col = COLORS[previewColors[i]];
-      const grad = ctx.createRadialGradient(px - 8, py - 8, 4, px, py, 20);
+      ctx.save();
+      ctx.translate(px, py);
+      const grad = ctx.createRadialGradient(-5, -5, 3, 0, 0, 20);
       grad.addColorStop(0, col.light);
       grad.addColorStop(1, col.dark);
+      traceCandyShape(previewColors[i], 20);
       ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(px, py, 20, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = col.dark;
       ctx.lineWidth = 2;
       ctx.stroke();
+      ctx.restore();
     }
 
     ctx.font = "18px Arial";
