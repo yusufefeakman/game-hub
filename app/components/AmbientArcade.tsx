@@ -36,64 +36,93 @@ const MELODY: Array<[number, number]> = [
   [NOTES.A4, 2.0], [0, 1.0], [NOTES.A4, 1.0],
 ];
 
-const BEAT = 0.7; // seconds per beat — slow & peaceful
+const BEAT = 1.0; // seconds per beat — heavily slowed (slowed + reverb)
 
 function createMusicBox() {
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
+  let dry: GainNode | null = null;
+  let wet: GainNode | null = null;
+  let convolver: ConvolverNode | null = null;
   let timer: number | null = null;
   let step = 0;
+
+  // Generate a long, smooth reverb impulse response (no external assets)
+  function makeImpulse(seconds: number) {
+    const rate = ctx!.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = ctx!.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+      }
+    }
+    return buf;
+  }
 
   function init() {
     if (ctx) return;
     try {
       ctx = new AudioContext();
+
       master = ctx.createGain();
-      master.gain.value = 0.22;
+      master.gain.value = 0.6;
       master.connect(ctx.destination);
+
+      // Wide, dreamy reverb tail
+      convolver = ctx.createConvolver();
+      convolver.buffer = makeImpulse(5);
+
+      dry = ctx.createGain();
+      dry.gain.value = 0.3;
+
+      wet = ctx.createGain();
+      wet.gain.value = 1.0;
+
+      convolver.connect(wet);
+      wet.connect(master);
+      dry.connect(master);
     } catch {
       ctx = null;
     }
   }
 
   function playNote(freq: number, dur: number) {
-    if (!ctx || !master) return;
+    if (!ctx || !master || !dry || !wet || !convolver) return;
     const t = ctx.currentTime;
-    const attack = 0.06;
-    const release = dur + 0.5; // long, soft tail for a dreamy feel
+    const attack = 0.12;
+    const release = dur + 1.6; // very long tail → reverb wash
 
-    // Warm fundamental (sine)
+    // Soft lowpass to muffle the tone (slowed + reverb character)
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 1600;
+    lp.Q.value = 0.35;
+
+    // Deep, mellow fundamental — pitch-down an octave for the "slowed" feel
     const osc = ctx.createOscillator();
     osc.type = "sine";
-    osc.frequency.value = freq;
+    osc.frequency.value = freq * 0.5;
+
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.7, t + attack);
+    g.gain.linearRampToValueAtTime(0.6, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + release);
-    osc.connect(g);
-    g.connect(master);
-    osc.start(t);
-    osc.stop(t + release + 0.05);
 
-    // Gentle body an octave down (triangle) for warmth
-    const sub = ctx.createOscillator();
-    sub.type = "triangle";
-    sub.frequency.value = freq / 2;
-    const g2 = ctx.createGain();
-    g2.gain.setValueAtTime(0.0001, t);
-    g2.gain.linearRampToValueAtTime(0.28, t + attack);
-    g2.gain.exponentialRampToValueAtTime(0.0001, t + release * 0.9);
-    sub.connect(g2);
-    g2.connect(master);
-    sub.start(t);
-    sub.stop(t + release + 0.05);
+    osc.connect(g);
+    g.connect(lp);
+    lp.connect(dry);
+    lp.connect(convolver);
+    osc.start(t);
+    osc.stop(t + release + 0.1);
   }
 
   function schedule() {
     if (!ctx) return;
     const [freq, beats] = MELODY[step % MELODY.length];
     const dur = beats * BEAT;
-    if (freq > 0) playNote(freq, dur * 0.92);
+    if (freq > 0) playNote(freq, dur);
     step++;
     timer = window.setTimeout(schedule, beats * BEAT * 1000);
   }
@@ -108,7 +137,7 @@ function createMusicBox() {
       }
     },
     setMuted(m: boolean) {
-      if (master) master.gain.value = m ? 0 : 0.22;
+      if (master) master.gain.value = m ? 0 : 0.6;
     },
     destroy() {
       if (timer) {
@@ -119,6 +148,9 @@ function createMusicBox() {
         ctx.close();
         ctx = null;
         master = null;
+        dry = null;
+        wet = null;
+        convolver = null;
       }
     },
   };
