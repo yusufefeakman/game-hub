@@ -4,6 +4,8 @@
    All graphics procedural on canvas; all audio via Web Audio API.
    ===================================================================== */
 
+import { saveScore } from "../../lib/auth";
+
 const W = 900;
 const H = 600;
 const GRID_SIZE = 8;
@@ -621,9 +623,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
             if (movesLeft <= 0) {
               if (isBossLevel) {
                 if (boss && !boss.alive) { state = "levelComplete"; stateTimer = 120; AudioSys.levelup(); }
-                else { state = "gameover"; AudioSys.stopMusic(); AudioSys.lose(); }
+                else { saveScore("candy-burst", totalScore); state = "gameover"; AudioSys.stopMusic(); AudioSys.lose(); }
               } else {
-                if (score < targetScore) { state = "gameover"; AudioSys.stopMusic(); AudioSys.lose(); }
+                if (score < targetScore) { saveScore("candy-burst", totalScore); state = "gameover"; AudioSys.stopMusic(); AudioSys.lose(); }
                 else { state = "levelComplete"; stateTimer = 120; AudioSys.levelup(); }
               }
             } else if (!hasValidMoves()) {
@@ -637,7 +639,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     } else if (state === "levelComplete") {
       stateTimer--;
       if (stateTimer <= 0) {
-        if (level >= 30) { state = "victory"; AudioSys.stopMusic(); AudioSys.levelup(); }
+        if (level >= 30) { saveScore("candy-burst", totalScore); state = "victory"; AudioSys.stopMusic(); AudioSys.levelup(); }
         else startLevel(level + 1);
       }
     }

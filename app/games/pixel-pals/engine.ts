@@ -8,6 +8,8 @@
      startGame(canvas) -> () => void   (returns a stop/cleanup function)
    ===================================================================== */
 
+import { saveScore } from "../../lib/auth";
+
 /* ================= 1. SETUP & CONSTANTS ================= */
 const W = 960;
 const H = 540;
@@ -808,6 +810,7 @@ const game = {
   },
   gameOver() {
     this.state = "gameover";
+    saveScore("pixel-pals", this.score);
     AudioSys.gameover();
     const el = document.getElementById("final-stats");
     if (el) el.innerHTML = `Score: ${this.score} &nbsp; Coins: ${this.coins}`;
@@ -818,6 +821,7 @@ const game = {
     AudioSys.victory();
     const bonus = Math.floor(this.timeLeft) * 10;
     this.score += bonus;
+    saveScore("pixel-pals", this.score);
     const el = document.getElementById("final-stats-v");
     if (el) el.innerHTML = `Score: ${this.score} (time bonus +${bonus}) &nbsp; Coins: ${this.coins} &nbsp; Lives left: ${this.lives}`;
     show("screen-victory");

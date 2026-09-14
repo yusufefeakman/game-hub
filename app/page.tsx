@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AmbientArcade from "./components/AmbientArcade";
+import MembershipUI from "./components/MembershipUI";
 
 // Game catalog — add new games here as they are built.
 // `route` is the Next.js route; `status` controls the card state.
@@ -164,6 +165,7 @@ export default function Home() {
   return (
     <>
       <AmbientArcade />
+      <MembershipUI />
       <main>
         <section className="hero">
         <h1>PIXEL ARCADE</h1>
