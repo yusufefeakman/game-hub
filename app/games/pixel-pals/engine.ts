@@ -12,6 +12,12 @@
 const W = 960;
 const H = 540;
 
+// Render resolution scale. The game draws into a low-res offscreen buffer
+// (W/PIXEL_SCALE x H/PIXEL_SCALE) and integer-upscales it to the visible
+// canvas for crisp, uniformly-sized pixel-art edges. 2 keeps every tile
+// (40px) and every character dimension on whole pixels.
+const PIXEL_SCALE = 2;
+
 // Physics tuning (pixels, seconds)
 const GRAVITY = 2300; // px/s^2
 const MAX_FALL = 1150; // terminal velocity
@@ -836,6 +842,9 @@ const game = {
     const target = Player.x + PLAYER_W / 2 - W * 0.42;
     this.camX += (target - this.camX) * Math.min(1, dt * 8);
     this.camX = Math.max(0, Math.min(LEVEL_W - W, this.camX));
+    // Snap the camera to the low-res pixel grid so tiles and sprites render
+    // on whole pixels (removes sub-pixel shimmer while the camera eases).
+    this.camX = Math.round(this.camX / PIXEL_SCALE) * PIXEL_SCALE;
 
     updateHUD();
   },
@@ -986,25 +995,26 @@ function drawCheckpoints() {
     ctx.closePath(); ctx.fill();
     if (cp.active) {
       ctx.fillStyle = "#fff";
-      ctx.font = "bold 10px monospace"; ctx.textAlign = "center";
+      ctx.font = "bold 14px monospace"; ctx.textAlign = "center";
       ctx.fillText("OK", x + 32, y + 16);
     }
   }
 }
 function drawMovingPlatforms() {
   for (const p of Level.movingPlatforms) {
-    const x = p.x - game.camX;
+    const x = Math.round(p.x - game.camX);
+    const py = Math.round(p.y);
     if (x + p.w < -20 || x > W + 20) continue;
-    ctx.fillStyle = "#7986cb"; ctx.fillRect(x, p.y, p.w, 14);
-    ctx.fillStyle = "#5c6bc0"; ctx.fillRect(x, p.y + 10, p.w, 4);
-    ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(x, p.y, p.w, 3);
+    ctx.fillStyle = "#7986cb"; ctx.fillRect(x, py, p.w, 14);
+    ctx.fillStyle = "#5c6bc0"; ctx.fillRect(x, py + 10, p.w, 4);
+    ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(x, py, p.w, 3);
     ctx.fillStyle = "#3949ab";
-    for (let i = 10; i < p.w - 6; i += 22) ctx.fillRect(x + i, p.y + 5, 4, 4);
+    for (let i = 10; i < p.w - 6; i += 22) ctx.fillRect(x + i, py + 5, 4, 4);
   }
 }
 function drawEnemies() {
   for (const e of Level.enemies) {
-    const x = e.x - game.camX;
+    const x = Math.round(e.x - game.camX);
     if (x + e.w < -20 || x > W + 20) continue;
     if (!e.alive) {
       if (e.squashT < 0.5) {
@@ -1055,7 +1065,7 @@ function drawEnemies() {
 function drawBoss() {
   const b = Level.boss;
   if (!b) return;
-  const x = b.x - game.camX;
+  const x = Math.round(b.x - game.camX);
   if (x + b.w < -40 || x > W + 40) return;
   if (!b.alive) {
     if (b.deadT < 1.5) {
@@ -1111,8 +1121,8 @@ function drawBoss() {
 function drawPlayer() {
   const p = Player;
   if (p.dead && p.deadT > 1.2) return;
-  const x = p.x - game.camX;
-  const y = p.y;
+  const x = Math.round(p.x - game.camX);
+  const y = Math.round(p.y);
   if (p.invuln > 0 && Math.floor(p.invuln * 15) % 2 === 0 && !p.dead) return;
 
   const runPhase = p.onGround && Math.abs(p.vx) > 30 ? Math.sin(p.animT * 16) : 0;
@@ -1243,6 +1253,14 @@ function render() {
 
 /* ================= 8. OVERLAY UI (injected DOM) ================= */
 const OVERLAY_CSS = `
+/* Crisp pixel-art upscaling for this game's canvas (nearest-neighbour).
+   Higher specificity than the hub's default .game-canvas-wrap canvas so it
+   wins without touching the global rule used by the hub's 3D games. */
+.game-canvas-wrap canvas.pp-canvas {
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
 .pp-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(10,10,30,0.82); color:#fff; z-index:10; text-align:center; font-family:'Courier New',monospace; }
 .pp-overlay.hidden { display:none; }
 .pp-overlay h1 { font-size:clamp(28px,6vw,54px); letter-spacing:3px; color:#ffd23f; text-shadow:3px 3px 0 #b3541e,6px 6px 0 rgba(0,0,0,0.4); margin-bottom:10px; }
@@ -1348,7 +1366,22 @@ function buildOverlayUI(container: HTMLElement) {
 
 /* ================= 9. MAIN LOOP & PUBLIC API ================= */
 export function startGame(canvas: HTMLCanvasElement): () => void {
-  ctx = canvas.getContext("2d")!;
+  // Visible canvas context: used only to blit the low-res pixel buffer up.
+  const screenCtx = canvas.getContext("2d")!;
+  screenCtx.imageSmoothingEnabled = false;
+
+  // Low-resolution offscreen buffer the game actually renders into. Drawing at
+  // 1/PIXEL_SCALE then integer-upscaling yields crisp, hard pixel-art edges.
+  const off = document.createElement("canvas");
+  off.width = W / PIXEL_SCALE;
+  off.height = H / PIXEL_SCALE;
+  ctx = off.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.scale(1 / PIXEL_SCALE, 1 / PIXEL_SCALE);
+
+  // Tag the canvas so the injected CSS can force crisp (nearest-neighbour)
+  // upscaling for this game without affecting the hub's other (3D) games.
+  canvas.classList.add("pp-canvas");
 
   // Wrap the canvas in a positioned container for overlay UI
   const wrap = document.createElement("div");
@@ -1359,7 +1392,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   // Fit canvas to window while keeping aspect ratio
   const resize = () => {
-    const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+    const fit = Math.min(window.innerWidth / W, window.innerHeight / H);
+    // Integer scaling keeps pixel-art edges crisp and every source pixel
+    // the same size on screen. Fall back to fractional only when the
+    // viewport is smaller than the native 960x540 (small phones).
+    const scale = fit >= 1 ? Math.floor(fit) : fit;
     canvas.style.width = W * scale + "px";
     canvas.style.height = H * scale + "px";
   };
@@ -1377,6 +1414,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     lastTime = ts;
     game.update(dt);
     render();
+    // Integer-upscale the pixel buffer onto the visible canvas (nearest-neighbour).
+    screenCtx.drawImage(off, 0, 0, W, H);
     raf = requestAnimationFrame(loop);
   };
   raf = requestAnimationFrame(loop);
