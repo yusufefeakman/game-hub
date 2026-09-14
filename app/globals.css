@@ -195,6 +195,19 @@ main {
 .auth-submit.danger { background: rgba(255, 255, 255, 0.08); color: #ff5d73; box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4); }
 .auth-submit:disabled { opacity: 0.6; cursor: default; }
 
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 84px 16px 40px;
+  position: relative;
+  z-index: 1;
+}
+.auth-link { color: var(--accent); font-weight: 700; }
+.auth-link:hover { text-decoration: underline; }
+.auth-ok { color: var(--green); font-size: 13px; margin: 8px 0; }
+
 .game-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

@@ -1,18 +1,21 @@
 /* =====================================================================
-   Pixel Arcade — client-side membership store.
-   Accounts are saved in the browser (localStorage); the site is static
-   (GitHub Pages) so there is no server. Passwords are hashed with
-   SHA-256 (crypto.subtle) before storage.
+   Pixel Arcade — membership (Supabase-backed).
+   Passwords are hashed server-side by Supabase Auth (never stored in
+   plain text and never touched by this client code). Sessions are JWTs
+   managed by the Supabase SDK.
    ===================================================================== */
 
-export interface UserProfile {
+import { supabase } from "./supabase";
+
+export interface Profile {
+  id: string;
+  email: string;
   username: string;
-  passwordHash: string;
   avatar: string;
   xp: number;
   level: number;
-  highScores: Record<string, number>;
-  createdAt: number;
+  high_scores: Record<string, number>;
+  created_at: string;
 }
 
 export const AVATARS = [
@@ -22,129 +25,170 @@ export const AVATARS = [
 
 export const XP_PER_LEVEL = 1000;
 
-const USERS_KEY = "pixelarcade_users";
-const SESSION_KEY = "pixelarcade_session";
+const NOT_CONFIGURED = {
+  ok: false,
+  error: "Üyelik sistemi henüz yapılandırılmadı.",
+};
 
-function readUsers(): Record<string, UserProfile> {
-  try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) || "{}") || {};
-  } catch {
-    return {};
+export function isAuthReady(): boolean {
+  return Boolean(supabase);
+}
+
+function translateAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("invalid login credentials")) return "E-posta veya şifre hatalı.";
+  if (m.includes("already registered") || m.includes("already been registered"))
+    return "Bu e-posta zaten kayıtlı.";
+  if (m.includes("password should be")) return "Şifre en az 6 karakter olmalı.";
+  if (m.includes("email")) return "Geçerli bir e-posta girin.";
+  return "Bir hata oluştu. Lütfen tekrar deneyin.";
+}
+
+export async function register(opts: {
+  email: string;
+  username: string;
+  password: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!supabase) return NOT_CONFIGURED;
+
+  const email = opts.email.trim().toLowerCase();
+  const username = opts.username.trim();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return { ok: false, error: "Geçerli bir e-posta girin." };
+  if (username.length < 3)
+    return { ok: false, error: "Kullanıcı adı en az 3 karakter olmalı." };
+  if (opts.password.length < 6)
+    return { ok: false, error: "Şifre en az 6 karakter olmalı." };
+
+  // Username uniqueness (email uniqueness is enforced by Supabase Auth)
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("username", username)
+    .maybeSingle();
+  if (existing) return { ok: false, error: "Bu kullanıcı adı zaten alınmış." };
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password: opts.password,
+    options: { data: { username } },
+  });
+
+  if (error) return { ok: false, error: translateAuthError(error.message) };
+
+  if (!data.session) {
+    return {
+      ok: false,
+      error: "Kayıt alındı! E-postana gelen doğrulama bağlantısını tıkla.",
+    };
   }
-}
-
-function writeUsers(users: Record<string, UserProfile>) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function setSession(username: string | null) {
-  if (username) localStorage.setItem(SESSION_KEY, username);
-  else localStorage.removeItem(SESSION_KEY);
-}
-
-async function hashPassword(pw: string): Promise<string> {
-  const input = "pixelarcade::" + pw;
-  try {
-    if (typeof crypto !== "undefined" && crypto.subtle) {
-      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-      return Array.from(new Uint8Array(buf))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    }
-  } catch {
-    /* fall through to the simple hash below */
-  }
-  // FNV-1a fallback (non-secure contexts)
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return "fnv_" + h.toString(16);
-}
-
-export function getCurrentUser(): UserProfile | null {
-  const uname = localStorage.getItem(SESSION_KEY);
-  if (!uname) return null;
-  return readUsers()[uname] || null;
-}
-
-export async function register(
-  username: string,
-  password: string,
-  avatar: string
-): Promise<{ ok: boolean; error?: string }> {
-  const name = username.trim();
-  if (name.length < 3) return { ok: false, error: "Kullanıcı adı en az 3 karakter olmalı." };
-  if (password.length < 4) return { ok: false, error: "Şifre en az 4 karakter olmalı." };
-
-  const users = readUsers();
-  const key = name.toLowerCase();
-  if (users[key]) return { ok: false, error: "Bu kullanıcı adı zaten alınmış." };
-
-  users[key] = {
-    username: name,
-    passwordHash: await hashPassword(password),
-    avatar,
-    xp: 0,
-    level: 1,
-    highScores: {},
-    createdAt: Date.now(),
-  };
-  writeUsers(users);
-  setSession(key);
   return { ok: true };
 }
 
 export async function login(
-  username: string,
+  identifier: string,
   password: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const users = readUsers();
-  const key = username.trim().toLowerCase();
-  const user = users[key];
-  if (!user) return { ok: false, error: "Kullanıcı bulunamadı." };
-  const h = await hashPassword(password);
-  if (h !== user.passwordHash) return { ok: false, error: "Şifre hatalı." };
-  setSession(key);
+  if (!supabase) return NOT_CONFIGURED;
+
+  const id = identifier.trim();
+  let email = id;
+
+  if (!id.includes("@")) {
+    // Username login → resolve the email via a security-definer RPC.
+    const { data, error } = await supabase.rpc("get_email_by_username", {
+      p_username: id,
+    });
+    if (error || !data) return { ok: false, error: "Kullanıcı bulunamadı." };
+    email = data as string;
+  }
+
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) return { ok: false, error: translateAuthError(error.message) };
   return { ok: true };
 }
 
-export function logout() {
-  setSession(null);
+export async function logout(): Promise<void> {
+  if (supabase) await supabase.auth.signOut();
 }
 
-export function setAvatar(avatar: string): UserProfile | null {
-  const uname = localStorage.getItem(SESSION_KEY);
-  if (!uname) return null;
-  const users = readUsers();
-  const u = users[uname];
-  if (u) {
-    u.avatar = avatar;
-    writeUsers(users);
+export async function getCurrentUser(): Promise<Profile | null> {
+  if (!supabase) return null;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+  return (data as Profile) || null;
+}
+
+export async function updateProfile(fields: {
+  username?: string;
+  avatar?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!supabase) return NOT_CONFIGURED;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Oturum bulunamadı." };
+
+  if (fields.username !== undefined) {
+    const name = fields.username.trim();
+    if (name.length < 3)
+      return { ok: false, error: "Kullanıcı adı en az 3 karakter olmalı." };
+    const { data: taken } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("username", name)
+      .neq("id", user.id)
+      .maybeSingle();
+    if (taken) return { ok: false, error: "Bu kullanıcı adı zaten alınmış." };
+    fields = { ...fields, username: name };
   }
-  return u || null;
+
+  const { error } = await supabase
+    .from("profiles")
+    .update(fields)
+    .eq("id", user.id);
+  if (error) return { ok: false, error: "Profil güncellenemedi." };
+  return { ok: true };
 }
 
-/**
- * Record a game score for the logged-in user. Only a new personal best
- * grants XP; repeated lower scores are ignored. Safe to call when logged
- * out (no-op).
- */
-export function saveScore(gameId: string, score: number): UserProfile | null {
-  const uname = localStorage.getItem(SESSION_KEY);
-  if (!uname) return null;
-  const users = readUsers();
-  const u = users[uname];
-  if (!u) return null;
+/** Record a best score. Fire-and-forget safe — never throws. */
+export async function saveScore(gameId: string, score: number): Promise<void> {
+  if (!supabase) return;
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
 
-  const old = u.highScores[gameId] || 0;
-  if (score > old) {
-    u.highScores[gameId] = Math.round(score);
+    const { data } = await supabase
+      .from("profiles")
+      .select("xp, high_scores")
+      .eq("id", user.id)
+      .single();
+    if (!data) return;
+
+    const highScores = (data.high_scores as Record<string, number>) || {};
+    const old = highScores[gameId] || 0;
+    if (score <= old) return;
+
+    highScores[gameId] = Math.round(score);
     const gain = Math.max(1, Math.round((score - old) / 10));
-    u.xp += gain;
-    u.level = Math.floor(u.xp / XP_PER_LEVEL) + 1;
-    writeUsers(users);
+    const xp = (data.xp as number) + gain;
+    const level = Math.floor(xp / XP_PER_LEVEL) + 1;
+
+    await supabase
+      .from("profiles")
+      .update({ high_scores: highScores, xp, level })
+      .eq("id", user.id);
+  } catch {
+    /* never break a game because of a score-save failure */
   }
-  return u;
 }
