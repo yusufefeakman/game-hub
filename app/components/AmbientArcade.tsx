@@ -27,17 +27,16 @@ const NOTES: Record<string, number> = {
   A5: 880.0,
 };
 
-// [frequency, beats] — 0 = rest
+// [frequency, beats] — 0 = rest (slow, gentle lullaby in A minor)
 const MELODY: Array<[number, number]> = [
-  [NOTES.E5, 0.5], [NOTES.C5, 0.5], [NOTES.A4, 0.5], [NOTES.C5, 0.5],
-  [NOTES.F5, 0.5], [NOTES.E5, 0.5], [NOTES.C5, 0.5], [NOTES.A4, 0.5],
-  [NOTES.G4, 0.5], [NOTES.B4, 0.5], [NOTES.D5, 0.5], [NOTES.B4, 0.5],
-  [NOTES.A4, 1.0], [0, 0.5],
-  [NOTES.E5, 0.5], [NOTES.C5, 0.5], [NOTES.A5, 0.5], [NOTES.E5, 0.5],
-  [NOTES.F5, 0.5], [NOTES.D5, 0.5], [NOTES.C5, 1.0], [0, 1.0],
+  [NOTES.E5, 1.0], [NOTES.C5, 1.0], [NOTES.A4, 1.0], [0, 1.0],
+  [NOTES.F5, 1.0], [NOTES.E5, 1.0], [NOTES.C5, 1.0], [0, 1.0],
+  [NOTES.D5, 1.0], [NOTES.B4, 1.0], [NOTES.G4, 1.0], [0, 1.0],
+  [NOTES.C5, 1.0], [NOTES.A4, 1.0], [NOTES.E4, 1.0], [0, 1.0],
+  [NOTES.A4, 2.0], [0, 1.0], [NOTES.A4, 1.0],
 ];
 
-const BEAT = 0.55; // seconds per beat
+const BEAT = 0.7; // seconds per beat — slow & peaceful
 
 function createMusicBox() {
   let ctx: AudioContext | null = null;
@@ -50,7 +49,7 @@ function createMusicBox() {
     try {
       ctx = new AudioContext();
       master = ctx.createGain();
-      master.gain.value = 0.12;
+      master.gain.value = 0.22;
       master.connect(ctx.destination);
     } catch {
       ctx = null;
@@ -60,32 +59,34 @@ function createMusicBox() {
   function playNote(freq: number, dur: number) {
     if (!ctx || !master) return;
     const t = ctx.currentTime;
+    const attack = 0.06;
+    const release = dur + 0.5; // long, soft tail for a dreamy feel
 
-    // Fundamental — soft triangle, music-box style
+    // Warm fundamental (sine)
     const osc = ctx.createOscillator();
-    osc.type = "triangle";
+    osc.type = "sine";
     osc.frequency.value = freq;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.6, t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    g.gain.linearRampToValueAtTime(0.7, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + release);
     osc.connect(g);
     g.connect(master);
     osc.start(t);
-    osc.stop(t + dur + 0.05);
+    osc.stop(t + release + 0.05);
 
-    // Quiet octave shimmer for a "music box" sparkle
-    const shimmer = ctx.createOscillator();
-    shimmer.type = "sine";
-    shimmer.frequency.value = freq * 2;
+    // Gentle body an octave down (triangle) for warmth
+    const sub = ctx.createOscillator();
+    sub.type = "triangle";
+    sub.frequency.value = freq / 2;
     const g2 = ctx.createGain();
     g2.gain.setValueAtTime(0.0001, t);
-    g2.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
-    g2.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.7);
-    shimmer.connect(g2);
+    g2.gain.linearRampToValueAtTime(0.28, t + attack);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + release * 0.9);
+    sub.connect(g2);
     g2.connect(master);
-    shimmer.start(t);
-    shimmer.stop(t + dur + 0.05);
+    sub.start(t);
+    sub.stop(t + release + 0.05);
   }
 
   function schedule() {
@@ -107,7 +108,7 @@ function createMusicBox() {
       }
     },
     setMuted(m: boolean) {
-      if (master) master.gain.value = m ? 0 : 0.12;
+      if (master) master.gain.value = m ? 0 : 0.22;
     },
     destroy() {
       if (timer) {
@@ -129,6 +130,8 @@ const PIXEL_COLORS = ["#ffd23f", "#7ee081", "#ff5d73", "#69dbff", "#a78bfa", "#f
 export default function AmbientArcade() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const musicRef = useRef<ReturnType<typeof createMusicBox> | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const startedRef = useRef(false);
   const [muted, setMuted] = useState(false);
 
   /* ---- Animated background ---- */
@@ -247,17 +250,19 @@ export default function AmbientArcade() {
     const music = createMusicBox();
     musicRef.current = music;
 
-    const startOnce = () => {
+    const onGesture = (e: Event) => {
+      // Ignore the toggle button — it manages its own state.
+      if (btnRef.current && e.target instanceof Node && btnRef.current.contains(e.target)) return;
+      if (startedRef.current) return;
+      startedRef.current = true;
       music.start();
-      window.removeEventListener("pointerdown", startOnce);
-      window.removeEventListener("keydown", startOnce);
     };
-    window.addEventListener("pointerdown", startOnce);
-    window.addEventListener("keydown", startOnce);
+    window.addEventListener("pointerdown", onGesture);
+    window.addEventListener("keydown", onGesture);
 
     return () => {
-      window.removeEventListener("pointerdown", startOnce);
-      window.removeEventListener("keydown", startOnce);
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
       music.destroy();
     };
   }, []);
@@ -265,7 +270,13 @@ export default function AmbientArcade() {
   function toggleMusic() {
     const music = musicRef.current;
     if (!music) return;
-    music.start();
+    if (!startedRef.current) {
+      // First tap: start playing (stay unmuted)
+      startedRef.current = true;
+      music.start();
+      setMuted(false);
+      return;
+    }
     const next = !muted;
     setMuted(next);
     music.setMuted(next);
@@ -275,6 +286,7 @@ export default function AmbientArcade() {
     <>
       <canvas ref={canvasRef} className="ambient-bg" aria-hidden="true" />
       <button
+        ref={btnRef}
         className="music-toggle"
         onClick={toggleMusic}
         title={muted ? "Müziği aç" : "Müziği kapat"}
