@@ -30,7 +30,7 @@ const GAMES = [
     title: "Sürat Teknesi Hücumu",
     subtitle: "Sürat Teknesi Engel Yarışı",
     emoji: "🚤",
-    artClass: "art-1",
+    artClass: "art-4",
     description:
       "Okyanus üzerinde 3 boyutlu sürat teknesi yarışı. Mayınlardan, kayalardan ve girdaplardan kaçın, engelleri atlatarak yarışmayı tamamla. WASD + Uzay ile hareket/nitro.",
     route: "/games/powerboat",
@@ -41,7 +41,7 @@ const GAMES = [
     title: "VoxelCraft",
     subtitle: "Survival Blok Dünyası",
     emoji: "⛏️",
-    artClass: "art-2",
+    artClass: "art-5",
     description:
       "Minecraft benzeri hayatta kalma! Seed'li prosedürel arazi (ova/tepe/mağara/cevher), huş-çam-meşe ormanları, gündüz/gece + yıldızlar, can/açlık, envanter (E), 2×2/3×3 üretim, aletler+dayanıklılık, canlılar ve seed+blok kaydı. Mobilde dokunmatik kontroller.",
     route: "/games/voxelcraft",
@@ -52,7 +52,7 @@ const GAMES = [
     title: "Yıldız Vurucu",
     subtitle: "Asteroid Saldırısı",
     emoji: "🚀",
-    artClass: "art-3",
+    artClass: "art-6",
     description:
       "3D uzay nişancı oyunu. Uzay aracını asteroid alanlarında yönlendir, kayaları ve düşman filolarını patlat. WASD ile hareket, Space ile ateş, Shift ile hızlan.",
     route: "/games/spaceship",
@@ -63,7 +63,7 @@ const GAMES = [
     title: "Doping Runner",
     subtitle: "Sonsuz Koşu ⚡",
     emoji: "⚡",
-    artClass: "art-2",
+    artClass: "art-7",
     description:
       "Neon şehirde sonsuz koşu! Doping kapsüllerini topla, süper hıza ulaş, engellerden kaç ve rekor kır. Space ile zıpla (çift zıplama var), mobilde butonlarla oyna.",
     route: "/games/doping-runner",
@@ -74,7 +74,7 @@ const GAMES = [
     title: "Cube Master",
     subtitle: "Akıl Küpü",
     emoji: "🧩",
-    artClass: "art-1",
+    artClass: "art-8",
     description:
       "Yüksek kaliteli 3D Rubik küpü! Akıcı animasyonlarla yüzleri çevir, karıştır, çöz ve rekorunu kır. Fareyle küpü döndür, yüzlerde sürükleyerek katman çevir, U/D/L/R/F/B tuşlarıyla hamle yap.",
     route: "/games/cube-master",
@@ -85,7 +85,7 @@ const GAMES = [
     title: "Anime Legends",
     subtitle: "Ultimate Arena",
     emoji: "🥷",
-    artClass: "art-2",
+    artClass: "art-9",
     description:
       "24 ikonik anime karakteriyle dövüş turnuvası! Naruto, Goku, Luffy, Ichigo, Gojo ve daha fazlası. Karakterini seç, 8 rakibi yen, şampiyon ol. A/D hareket, J/K/L saldırı, U ultimate.",
     route: "/games/anime-legends",
@@ -96,7 +96,7 @@ const GAMES = [
     title: "Astro Blaster",
     subtitle: "Uzay Blok Patlatma",
     emoji: "🛸",
-    artClass: "art-3",
+    artClass: "art-10",
     description:
       "Uzay temalı blok kırma oyunu. Plazma gemini yönlendir, kozmik blokları parçala; altın bloklar ekstra puan, elmas bloklar kırılmaz. W genişletir, M çoklu top, S yavaşlatır, E ekstra can.",
     route: "/games/astro-blaster",
@@ -107,7 +107,7 @@ const GAMES = [
     title: "Royal Chess",
     subtitle: "3D Strategy Classic",
     emoji: "♞",
-    artClass: "art-2",
+    artClass: "art-11",
     description:
       "Full 3D chess with complete rules: castling, en passant, promotion, checkmate and draw detection. Play a friend locally or challenge the built-in computer. Drag to orbit, scroll to zoom, click to move.",
     route: "/games/chess",
@@ -118,7 +118,7 @@ const GAMES = [
     title: "Dövüş Arenası",
     subtitle: "Efsane Savaşçılar",
     emoji: "🥊",
-    artClass: "art-3",
+    artClass: "art-12",
     description:
       "Özgün 3D dövüş arenası! 4 efsane savaşçıdan birini seç (Kor, Bora, Çelik, Gölge), bilgisayara ya da arkadaşına karşı dövüş. Yumruk, tekme, blok, kombo ve enerjiyle güçlenen özel saldırılar. P1: A/D + W/S + J/K/L — P2: Ok tuşları + 1/2/3.",
     route: "/games/fighter",
@@ -129,7 +129,7 @@ const GAMES = [
     title: "Neon Rivals",
     subtitle: "3D Dövüş Oyunu",
     emoji: "🥋",
-    artClass: "art-1",
+    artClass: "art-13",
     description:
       "Özgün 3D dövüş oyunu! 4 savaşçı (Kairo, Vexa, Rokan, Nyra), 2'şer özel saldırı, 3 arena (Neon City, Antik Tapınak, Cyber Arena), kombo ve stamina sistemi, eğitim modu ve EASY/NORMAL/HARD yapay zekâ. P1: A/D + W/S + J/K/L/U — P2: Oklar + Num1-4.",
     route: "/fighting",
@@ -140,7 +140,7 @@ const GAMES = [
     title: "Let's World",
     subtitle: "Platform Macerası",
     emoji: "🌍",
-    artClass: "art-1",
+    artClass: "art-14",
     description:
       "Klasik platform oyunu! Yeşil şapkalı maceracınla koş, zıpla, jeton topla ve düşmanları ezip geç. Her 10 bölümde dev BOSS seni bekliyor. ← → hareket, SPACE zıpla.",
     route: "/games/lets-world",
@@ -151,7 +151,7 @@ const GAMES = [
     title: "Candy Burst",
     subtitle: "Eşleştirme Macerası",
     emoji: "🍬",
-    artClass: "art-3",
+    artClass: "art-15",
     description:
       "Candy Crush tarzı eşleştirme! Renkli boncukları 3+ eşleştir, zincirleme patlamalar yap, her 10 bölümde BOSS'u yen. Tıkla & sürükle ile takas et.",
     route: "/games/candy-burst",

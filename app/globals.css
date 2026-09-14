@@ -47,6 +47,17 @@ a {
   color: var(--accent);
   text-shadow: 3px 3px 0 #b3541e, 6px 6px 0 rgba(0, 0, 0, 0.4);
   margin-bottom: 12px;
+  animation: hero-glow 3.2s ease-in-out infinite;
+}
+
+@keyframes hero-glow {
+  0%, 100% {
+    text-shadow: 3px 3px 0 #b3541e, 6px 6px 0 rgba(0, 0, 0, 0.4);
+  }
+  50% {
+    text-shadow: 3px 3px 0 #b3541e, 6px 6px 0 rgba(0, 0, 0, 0.4),
+      0 0 26px rgba(255, 210, 63, 0.6);
+  }
 }
 
 .hero p {
@@ -100,28 +111,74 @@ a {
   font-size: 64px;
   position: relative;
   overflow: hidden;
+  isolation: isolate;
 }
 
-.card-art.art-1 {
-  background: linear-gradient(135deg, #6fc3e8 0%, #5cb874 100%);
+/* Radial glow behind the artwork */
+.card-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0) 58%
+  );
+  z-index: 0;
 }
 
-.card-art.art-2 {
-  background: linear-gradient(135deg, #2d2d44 0%, #4a4a6a 100%);
+/* Retro pixel grid + scanline overlay */
+.card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.07) 1px, transparent 1px);
+  background-size: 8px 8px;
+  z-index: 3;
+  pointer-events: none;
 }
 
-.card-art.art-3 {
-  background: linear-gradient(135deg, #3d2d44 0%, #6a4a6a 100%);
-}
+.card-art.art-1 { background: linear-gradient(135deg, #6fc3e8 0%, #5cb874 100%); }
+.card-art.art-2 { background: linear-gradient(135deg, #2d2d44 0%, #4a4a6a 100%); }
+.card-art.art-3 { background: linear-gradient(135deg, #3d2d44 0%, #6a4a6a 100%); }
+.card-art.art-4 { background: linear-gradient(135deg, #1e88e5 0%, #0d47a1 100%); }
+.card-art.art-5 { background: linear-gradient(135deg, #66bb6a 0%, #33691e 100%); }
+.card-art.art-6 { background: linear-gradient(135deg, #0b0b2b 0%, #3a1a6a 100%); }
+.card-art.art-7 { background: linear-gradient(135deg, #ff2d78 0%, #7a1fa2 100%); }
+.card-art.art-8 { background: linear-gradient(135deg, #ff7043 0%, #ffb300 100%); }
+.card-art.art-9 { background: linear-gradient(135deg, #ff6f00 0%, #c62828 100%); }
+.card-art.art-10 { background: linear-gradient(135deg, #5e35b1 0%, #1a237e 100%); }
+.card-art.art-11 { background: linear-gradient(135deg, #a1887f 0%, #5d4037 100%); }
+.card-art.art-12 { background: linear-gradient(135deg, #ff1744 0%, #880e4f 100%); }
+.card-art.art-13 { background: linear-gradient(135deg, #00e5ff 0%, #004d40 100%); }
+.card-art.art-14 { background: linear-gradient(135deg, #42a5f5 0%, #1b5e20 100%); }
+.card-art.art-15 { background: linear-gradient(135deg, #ff4081 0%, #4a148c 100%); }
 
 .card-art .art-emoji {
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45));
+  animation: art-float 3.4s ease-in-out infinite;
+  scale: 1;
+  transition: scale 0.3s ease;
+}
+
+.game-card.playable:hover .art-emoji {
+  scale: 1.18;
+}
+
+@keyframes art-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
 }
 
 .card-badge {
   position: absolute;
   top: 12px;
   right: 12px;
+  z-index: 2;
   background: rgba(0, 0, 0, 0.6);
   color: var(--accent);
   font-size: 11px;
