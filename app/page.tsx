@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AmbientArcade from "./components/AmbientArcade";
 
 // Game catalog — add new games here as they are built.
 // `route` is the Next.js route; `status` controls the card state.
@@ -161,8 +162,10 @@ const GAMES = [
 
 export default function Home() {
   return (
-    <main>
-      <section className="hero">
+    <>
+      <AmbientArcade />
+      <main>
+        <section className="hero">
         <h1>PIXEL ARCADE</h1>
         <p>
           A growing collection of original browser games. No downloads, no
@@ -212,6 +215,7 @@ export default function Home() {
       <footer className="footer">
         Pixel Arcade — original games, built with Next.js &amp; Canvas
       </footer>
-    </main>
+      </main>
+    </>
   );
 }
