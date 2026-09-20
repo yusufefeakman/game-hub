@@ -472,6 +472,61 @@ main {
   border-top: 1px solid var(--border);
 }
 
+/* ============ 404 SAYFASI ============ */
+.nf-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(900px 600px at 50% -10%, #251a4a 0%, transparent 60%),
+    var(--bg, #0f0f1a);
+}
+.nf-card {
+  max-width: 460px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  padding: 34px 26px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.nf-emoji { font-size: 52px; line-height: 1; }
+.nf-card h1 {
+  margin: 10px 0 2px;
+  font-size: 54px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  background: linear-gradient(90deg, #22d3ee, #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.nf-title { margin: 0 0 10px; font-size: 18px; font-weight: 800; color: #fff; }
+.nf-text { margin: 0 0 20px; font-size: 14px; line-height: 1.65; color: #9aa5d1; }
+.nf-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.nf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform 0.12s, background 0.15s;
+}
+.nf-btn:hover { background: rgba(255, 255, 255, 0.15); transform: translateY(-2px); }
+.nf-btn.primary {
+  background: linear-gradient(90deg, #22d3ee, #8b5cf6);
+  border-color: transparent;
+  color: #04121a;
+}
+
 /* ============ ARCADE PORTAL (Lagged tarzı) ============ */
 .arc-wrap {
   position: relative;
