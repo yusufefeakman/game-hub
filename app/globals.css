@@ -474,12 +474,14 @@ main {
 
 /* ============ ARCADE PORTAL (Lagged tarzı) ============ */
 .arc-wrap {
+  position: relative;
+  z-index: 1;
   min-height: 100vh;
-  background:
-    radial-gradient(1100px 700px at 12% -8%, #1b2a54 0%, transparent 60%),
-    radial-gradient(900px 600px at 88% 4%, #3a1152 0%, transparent 55%),
-    #070a17;
   color: #e8ecf8;
+  /* Yarı saydam: alttaki ambient yıldız/piksel katmanı görünsün */
+  background:
+    radial-gradient(1100px 700px at 12% -8%, rgba(27, 42, 84, 0.75) 0%, transparent 60%),
+    radial-gradient(900px 600px at 88% 4%, rgba(58, 17, 82, 0.7) 0%, transparent 55%);
 }
 .arc-top {
   position: sticky;

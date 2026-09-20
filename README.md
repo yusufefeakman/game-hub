@@ -32,6 +32,7 @@ Katalog sayfasının yanında tam bir oyun portalı var: **`/game-hub/arcade`**
 - 🔥 Trend Olanlar, 🆕 Yeni Eklenenler ve 🕹️ Son Oynadıkların satırları
 - ❤️ Favoriler, oynanma sayacı ve 🎲 rastgele oyun butonu (tarayıcıda kalıcı)
 - Portal içi **oynatıcı**: oyunlar iframe ile açılır, tam ekran (⛶) ve yeni sekme desteği
+- 🎵 Ambient müzik + yıldız/piksel arka planı (ana sayfayla aynı `AmbientArcade` katmanı; ilk dokunuşta başlar, sağ alttaki 🎵 butonuyla kapanır)
 
 ## 🚀 Tek tıkla yayınla (Vercel / Netlify)
 

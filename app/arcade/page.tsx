@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AmbientArcade from "../components/AmbientArcade";
 
 /* =====================================================================
    PIXEL ARCADE — Lagged tarzı oyun portalı
@@ -302,6 +303,7 @@ export default function ArcadePage() {
 
   return (
     <div className="arc-wrap">
+      <AmbientArcade />
       {/* ---------------- üst bar ---------------- */}
       <header className="arc-top">
         <Link href="/" className="arc-logo">PIXEL<span>ARCADE</span></Link>
