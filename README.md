@@ -11,6 +11,7 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 | **VoxelCraft** ⛏️ | Seed'li voxel survival: ova/tepe/mağara/cevher, meşe-huş-çam ormanları, gündüz/gece + yıldızlar, envanter+üretim, aletler, canlılar, seed+blok kaydı, mobil dokunmatik | `/game-hub/games/voxelcraft` |
 | **Doping Runner** ⚡ | Neon şehirde sonsuz koşu: doping topla, hızlan, engellerden kaç — mobil uyumlu | `/game-hub/games/doping-runner` |
 | **Cube Master** 🧩 | Yüksek kaliteli 3D Rubik küpü: akıcı animasyonlar, rekor takibi, fare + klavye kontrolleri | `/game-hub/games/cube-master` |
+| **Akıl Küpü** 🧩 | SOMA tarzı 3D parça yerleştirme: 7 renkli parçayı 3×3×3 küpe yerleştir — dokunmatik, 3D önizleme, animasyonlu çözücü, rekor takibi | `/game-hub/games/akil-kupu` |
 | **Anime Legends** 🥷 | 24 ikonik anime karakteriyle dövüş turnuvası: Naruto, Goku, Luffy, Gojo, Saitama... 8 rakibi yen, şampiyon ol | `/game-hub/games/anime-legends` |
 | **Astro Blaster** 🛸 | Uzay temalı blok kırma (Breakout): 5 seviye, 4 blok tipi, güçlendirmeler | `/game-hub/games/astro-blaster` |
 | **Neon Rivals** 🥋 | 3D dövüş oyunu: 4 karakter (Kairo, Vexa, Rokan, Nyra), 2'şer özel saldırı, 3 arena, training modu, tuş yeniden atama, EASY/NORMAL/HARD yapay zekâ | `/game-hub/fighting` |
@@ -35,6 +36,7 @@ Bu repoyu kendi hesabına **tek tıkla** dağıtabilirsin — token gerekmez, bu
 Oyunların tek dosyalık oynanabilir sürümleri (GitHub Pages'te canlı):
 - **Anime Legends:** `public/anime-legends.html` → [anime-legends.html](https://yusufefeakman.github.io/game-hub/anime-legends.html)
 - **Astro Blaster:** `public/astro-blaster.html` → [astro-blaster.html](https://yusufefeakman.github.io/game-hub/astro-blaster.html)
+- **Akıl Küpü:** `public/akil-kupu.html` → [akil-kupu.html](https://yusufefeakman.github.io/game-hub/akil-kupu.html)
 
 itch.io'ya yüklemek için:
 1. itch.io'da yeni proje oluştur → **Kind: HTML** seç.

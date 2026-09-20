@@ -159,6 +159,17 @@ const GAMES = [
     route: "/games/candy-burst",
     status: "playable" as const,
   },
+  {
+    id: "akil-kupu",
+    title: "Akıl Küpü",
+    subtitle: "SOMA Parça Bulmacası",
+    emoji: "🧩",
+    artClass: "art-16",
+    description:
+      "SOMA tarzı 3D parça yerleştirme! 7 renkli parçayı 3×3×3 küpe yerleştirip tamamla. Parçayı seç, dokun, çevir — 3D önizleme, animasyonlu çözücü ve rekor takibi. Tamamen dokunmatik, mobil uyumlu.",
+    route: "/games/akil-kupu",
+    status: "playable" as const,
+  },
 ];
 
 export default function Home() {

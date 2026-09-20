@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b1220">
+<title>Akıl Küpü — SOMA Bulmacası</title>
+<style>
+:root{
+  --bg:#0b1220; --card:#151e31; --cell:#1e293b; --line:#334155;
+  --txt:#e2e8f0; --muted:#94a3b8; --accent:#22d3ee;
+  --cell-size:min(10.5vw,44px); --s:32px; --ms:13px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  background:radial-gradient(1200px 800px at 50% -10%,#16233c,var(--bg));
+  color:var(--txt); min-height:100vh; padding-bottom:24px;
+}
+header{
+  position:sticky;top:0;z-index:5;background:rgba(11,18,32,.92);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);padding:10px 12px;
+}
+.hrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h1{font-size:18px;margin:0;letter-spacing:.5px}
+h1 span{color:var(--accent)}
+.stat{font-size:13px;color:var(--muted)}
+.stat b{color:var(--txt);font-variant-numeric:tabular-nums}
+.btns{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+button{
+  font:inherit;font-size:13px;color:var(--txt);background:var(--cell);
+  border:1px solid var(--line);border-radius:10px;padding:7px 11px;cursor:pointer;
+  transition:transform .08s,background .15s;touch-action:manipulation;
+}
+button:active{transform:scale(.94)}
+button.primary{background:#0e7490;border-color:#155e75;font-weight:600}
+button:disabled{opacity:.4;pointer-events:none}
+.hint{font-size:12px;color:var(--muted);margin-top:6px}
+main{max-width:520px;margin:0 auto;padding:12px;display:flex;flex-direction:column;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px}
+.card h2{font-size:13px;margin:0 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+/* --- parça tepsisi --- */
+#tray{display:flex;gap:8px;overflow-x:auto;padding:4px 2px;touch-action:pan-x}
+.chip{
+  min-width:74px;height:84px;flex:0 0 auto;position:relative;background:#101a2e;
+  border:2px solid var(--line);border-radius:12px;perspective:260px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:border-color .15s,box-shadow .15s,opacity .2s;
+}
+.chip.sel{border-color:var(--accent);box-shadow:0 0 14px rgba(34,211,238,.35)}
+.chip.done{opacity:.25;pointer-events:none}
+.chip .pname{position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:11px;font-weight:700}
+.chip .pname i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+/* --- katman ızgaraları --- */
+#board{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.layer{display:flex;flex-direction:column;align-items:center;gap:6px}
+.layer .lab{font-size:11px;color:var(--muted);letter-spacing:1px}
+.grid{display:grid;grid-template-columns:repeat(3,var(--cell-size));gap:5px}
+.cell{
+  width:var(--cell-size);height:var(--cell-size);border-radius:9px;background:var(--cell);
+  border:1px solid var(--line);touch-action:manipulation;transition:transform .08s;
+}
+.cell:active{transform:scale(.92)}
+.cell.filled{border-color:transparent}
+.cell.preview{outline:2px dashed #fff;outline-offset:-2px;opacity:.6}
+.cell.invalid{outline-color:#ef4444;background:rgba(239,68,68,.25)}
+/* --- 3D sahne --- */
+#scene{height:240px;perspective:850px;touch-action:none;position:relative;overflow:hidden}
+#cubeWrap{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:preserve-3d;
+  transform:rotateX(var(--rx,-26deg)) rotateY(var(--ry,-32deg))}
+.unit{position:absolute;width:var(--s);height:var(--s);transform-style:preserve-3d;
+  transform:translate3d(calc(var(--x)*var(--s)),calc(var(--z)*var(--s)),calc(var(--y)*var(--s)))}
+.unit .f{position:absolute;width:var(--s);height:var(--s);border:1px solid rgba(0,0,0,.35)}
+.f.front {transform:translateZ(calc(var(--s)/2))}
+.f.back  {transform:rotateY(180deg) translateZ(calc(var(--s)/2))}
+.f.right {transform:rotateY(90deg)  translateZ(calc(var(--s)/2))}
+.f.left  {transform:rotateY(-90deg) translateZ(calc(var(--s)/2))}
+.f.top   {transform:rotateX(90deg)  translateZ(calc(var(--s)/2))}
+.f.bottom{transform:rotateX(-90deg) translateZ(calc(var(--s)/2))}
+.unit.ghost{opacity:.45}
+.mini{--s:var(--ms);width:calc(var(--ms)*3);height:calc(var(--ms)*3);transform-style:preserve-3d;
+  transform:rotateX(-24deg) rotateY(-32deg)}
+.mini .unit{width:var(--ms);height:var(--ms)}
+.mini .unit .f{width:var(--ms);height:var(--ms)}
+.sceneHint{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted);pointer-events:none}
+/* --- toast --- */
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#0e7490;color:#fff;
+  padding:8px 14px;border-radius:12px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:30}
+#toast.show{opacity:1}
+/* --- kazanma ekranı --- */
+#overlay{position:fixed;inset:0;background:rgba(8,12,24,.8);backdrop-filter:blur(6px);
+  display:none;align-items:center;justify-content:center;z-index:20}
+#overlay.show{display:flex}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:28px 32px;text-align:center;max-width:320px}
+.panel .big{font-size:44px}
+.panel h3{margin:8px 0 4px;font-size:22px}
+.panel p{margin:0 0 16px;color:var(--muted);font-size:14px}
+.conf{position:fixed;top:-24px;width:10px;height:16px;border-radius:3px;z-index:25;animation:fall linear forwards}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <h1>Akıl <span>Küpü</span></h1>
+    <div class="stat">⏱ <b id="time">00:00</b></div>
+    <div class="stat">🏆 <b id="best">—</b></div>
+    <div class="btns">
+      <button id="btnRotate">🔄 Çevir</button>
+      <button id="btnUndo">↩ Geri Al</button>
+      <button id="btnReset">♻ Sıfırla</button>
+      <button id="btnSolve" class="primary">💡 Çözüm</button>
+    </div>
+  </div>
+  <div class="hint">Parçayı seç → boş kareye dokun (önizleme) → aynı kareye tekrar dokun (yerleştir). Dolu kareye basılı tut = parçayı geri al. 3D görünümü parmakla çevir.</div>
+</header>
+<main>
+  <section class="card"><h2>Parçalar</h2><div id="tray"></div></section>
+  <section class="card"><h2>Küp Katmanları</h2><div id="board"></div></section>
+  <section class="card"><h2>3D Görünüm</h2><div id="scene"><div id="cubeWrap"></div><div class="sceneHint">↔ parmakla çevir</div></div></section>
+</main>
+<div id="toast"></div>
+<div id="overlay"><div class="panel">
+  <div class="big">🎉</div><h3>Tebrikler!</h3><p id="winText">Küpü tamamladın.</p>
+  <button id="btnAgain" class="primary">Tekrar Oyna</button>
+</div></div>
+<script>
+"use strict";
+/*CORE-START*/
+const PIECES=[
+  {name:"A",color:"#ef4444",cells:[[0,0,0],[1,0,0],[0,1,0],[1,1,0]]},          // kare
+  {name:"L",color:"#3b82f6",cells:[[0,0,0],[1,0,0],[2,0,0],[0,1,0]]},          // L
+  {name:"T",color:"#f59e0b",cells:[[0,0,0],[1,0,0],[2,0,0],[1,1,0]]},          // T
+  {name:"S",color:"#22c55e",cells:[[0,0,0],[1,0,0],[1,1,0],[2,1,0]]},          // S/zigzag
+  {name:"P",color:"#a855f7",cells:[[0,0,0],[1,0,0],[0,1,0],[0,1,1]]},          // 3D çıkıntı
+  {name:"Z",color:"#ec4899",cells:[[0,0,0],[1,0,0],[1,1,0],[1,1,1]]},          // 3D vidalı
+  {name:"V",color:"#06b6d4",cells:[[0,0,0],[1,0,0],[0,1,0]]}                   // köşe (3 küp)
+];
+function mulMat(a,b){const r=[[0,0,0],[0,0,0],[0,0,0]];for(let i=0;i<3;i++)for(let j=0;j<3;j++)for(let k=0;k<3;k++)r[i][j]+=a[i][k]*b[k][j];return r}
+function allRotations(){
+  const I=[[1,0,0],[0,1,0],[0,0,1]];
+  const Rx=[[1,0,0],[0,0,-1],[0,1,0]],Ry=[[0,0,1],[0,1,0],[-1,0,0]],Rz=[[0,-1,0],[1,0,0],[0,0,1]];
+  const seen=new Map(),q=[I];
+  while(q.length){const m=q.shift();const k=m.map(r=>r.join(",")).join(";");
+    if(seen.has(k))continue;seen.set(k,m);[Rx,Ry,Rz].forEach(r=>q.push(mulMat(r,m)));}
+  return [...seen.values()];
+}
+function applyMat(m,v){return [m[0][0]*v[0]+m[0][1]*v[1]+m[0][2]*v[2],m[1][0]*v[0]+m[1][1]*v[1]+m[1][2]*v[2],m[2][0]*v[0]+m[2][1]*v[1]+m[2][2]*v[2]]}
+function normalize(cells){
+  const mn=[Math.min(...cells.map(c=>c[0])),Math.min(...cells.map(c=>c[1])),Math.min(...cells.map(c=>c[2]))];
+  return cells.map(c=>[c[0]-mn[0],c[1]-mn[1],c[2]-mn[2]]);
+}
+function keyOf(cells){return cells.map(c=>c.join(",")).sort().join("|")}
+function generateOrientations(cells){
+  const out=[],seen=new Set();
+  for(const m of allRotations()){
+    const n=normalize(cells.map(c=>applyMat(m,c)));const k=keyOf(n);
+    if(!seen.has(k)){seen.add(k);out.push(n);}
+  }
+  return out;
+}
+const ORIENTATIONS=PIECES.map(p=>generateOrientations(p.cells));
+function boundsOf(cells){
+  return {maxX:Math.max(...cells.map(c=>c[0])),maxY:Math.max(...cells.map(c=>c[1])),maxZ:Math.max(...cells.map(c=>c[2]))};
+}
+function idx(x,y,z){return x+y*3+z*9}
+function solveSoma(ors){
+  const occ=new Uint8Array(27),result=[],seen=new Set();
+  function firstEmpty(){for(let i=0;i<27;i++)if(!occ[i])return i;return -1}
+  function mask(){let m=0n;for(let i=0;i<27;i++)if(occ[i])m|=1n<<BigInt(i);return m}
+  function dfs(remaining){
+    const t=firstEmpty();if(t<0)return true;
+    const key=mask()+"|"+remaining.slice().sort((a,b)=>a-b).join(",");
+    if(seen.has(key))return false;seen.add(key);
+    for(const p of remaining){
+      for(const or of ors[p]){
+        for(const anchor of or){
+          const dx=(t%3)-anchor[0],dy=Math.floor(t/3)%3-anchor[1],dz=Math.floor(t/9)-anchor[2];
+          let ok=true;const cells=[];
+          for(const c of or){
+            const x=c[0]+dx,y=c[1]+dy,z=c[2]+dz;
+            if(x<0||x>2||y<0||y>2||z<0||z>2){ok=false;break}
+            const i=idx(x,y,z);if(occ[i]){ok=false;break}cells.push(i);
+          }
+          if(!ok)continue;
+          cells.forEach(i=>occ[i]=p+1);result.push({piece:p,cells});
+          if(dfs(remaining.filter(r=>r!==p)))return true;
+          result.pop();cells.forEach(i=>occ[i]=0);
+        }
+      }
+    }
+    return false;
+  }
+  return dfs(PIECES.map((_,i)=>i))?result:null;
+}
+/*CORE-END*/
+if(typeof window==="undefined"){__dshCore={PIECES,ORIENTATIONS,generateOrientations,solveSoma,idx,boundsOf}}
+if(typeof document!=="undefined"){
+(function(){
+const $=s=>document.querySelector(s);
+const board=new Uint8Array(27);
+const orientIdx=PIECES.map(()=>0);
+const placed=PIECES.map(()=>false);
+let selected=null,preview=null,placements=[],timer=null,seconds=0,solving=false,won=false;
+
+/* ses */
+let AC=null;
+function beep(freq,dur,type,vol){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+  const o=AC.createOscillator(),g=AC.createGain();o.type=type||"sine";o.frequency.value=freq;
+  g.gain.value=vol||.12;o.connect(g);g.connect(AC.destination);o.start();
+  g.gain.exponentialRampToValueAtTime(.0001,AC.currentTime+(dur||.1));o.stop(AC.currentTime+(dur||.1));}catch(e){}}
+function sndPlace(){beep(520,.09,"triangle")}
+function sndPick(){beep(720,.06,"sine",.08)}
+function sndBad(){beep(160,.15,"sawtooth",.06)}
+function sndWin(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,.22,"triangle",.14),i*140))}
+
+/* renk gölgeleme */
+function shade(hex,f){const n=parseInt(hex.slice(1),16);
+  const r=Math.min(255,Math.round(((n>>16)&255)*f)),g=Math.min(255,Math.round(((n>>8)&255)*f)),b=Math.min(255,Math.round((n&255)*f));
+  return `rgb(${r},${g},${b})`}
+const FACE_F={top:1.3,front:1,right:.82,left:.68,back:.75,bottom:.5};
+function makeUnit(px,x,y,z,ghost){
+  const u=document.createElement("div");u.className="unit"+(ghost?" ghost":"");
+  u.style.setProperty("--x",x-1);u.style.setProperty("--y",y-1);u.style.setProperty("--z",-(z-1));
+  return u;
+}
+function addFaces(u,color){
+  for(const side in FACE_F){const f=document.createElement("div");
+    f.className="f "+side;f.style.background=shade(color,FACE_F[side]);u.appendChild(f);}
+}
+
+/* mini parça çizimi */
+function renderMini(el,cells,color){
+  el.innerHTML="";const m=document.createElement("div");m.className="mini";
+  const b=boundsOf(cells);const cx=b.maxX/2,cy=b.maxY/2,cz=b.maxZ/2;
+  for(const c of cells){const u=makeUnit(0,c[0]-cx,c[1]-cy,c[2]-cz,false);
+    u.style.setProperty("--x",c[0]-cx);u.style.setProperty("--y",c[1]-cy);u.style.setProperty("--z",-(c[2]-cz));
+    addFaces(u,color);m.appendChild(u);}
+  el.appendChild(m);
+}
+
+/* tepsi */
+const tray=$("#tray");
+const chips=PIECES.map((p,i)=>{
+  const d=document.createElement("div");d.className="chip";d.dataset.i=i;
+  const mini=document.createElement("div");d.appendChild(mini);
+  const lab=document.createElement("div");lab.className="pname";
+  lab.innerHTML=`<i style="background:${p.color}"></i>${p.name}`;d.appendChild(lab);
+  tray.appendChild(d);
+  d.addEventListener("click",()=>{
+    if(placed[i]||solving)return;
+    selected=(selected===i?null:i);sndPick();render();
+  });
+  return {el:d,mini};
+});
+
+/* katman ızgaraları */
+const boardEl=$("#board");const cellEls=[];
+for(let z=2;z>=0;z--){
+  const wrap=document.createElement("div");wrap.className="layer";
+  const lab=document.createElement("div");lab.className="lab";
+  lab.textContent=z===2?"ÜST":z===1?"ORTA":"ALT";wrap.appendChild(lab);
+  const g=document.createElement("div");g.className="grid";
+  for(let y=2;y>=0;y--)for(let x=0;x<3;x++){
+    const c=document.createElement("div");c.className="cell";c.dataset.x=x;c.dataset.y=y;c.dataset.z=z;
+    cellEls[idx(x,y,z)]=c;g.appendChild(c);
+    let lp=null;
+    c.addEventListener("pointerdown",()=>{
+      if(solving)return;
+      const i=idx(x,y,z);
+      if(board[i]){lp=setTimeout(()=>{removePieceAt(i);lp=null},450);}
+    });
+    c.addEventListener("pointerup",()=>{
+      if(lp){clearTimeout(lp);lp=null;return}
+      if(solving)return;
+      const i=idx(x,y,z);
+      if(board[i])return;
+      if(selected===null){toast("Önce bir parça seç 👆");return}
+      const pv=computePreview(x,y,z);
+      if(preview&&preview.x===x&&preview.y===y&&preview.z===z&&pv.valid){place(x,y,z)}
+      else{preview={x,y,z};if(!pv.valid)sndBad();render()}
+    });
+    c.addEventListener("pointerleave",()=>{if(lp){clearTimeout(lp);lp=null}});
+  }
+  wrap.appendChild(g);boardEl.appendChild(wrap);
+}
+
+/* önizleme hesabı: parça dokunulan kareye ortalanır */
+function computePreview(x,y,z){
+  const or=ORIENTATIONS[selected][orientIdx[selected]];
+  const b=boundsOf(or);
+  const ox=x-Math.floor(b.maxX/2),oy=y-Math.floor(b.maxY/2),oz=z-Math.floor(b.maxZ/2);
+  const cells=or.map(c=>[c[0]+ox,c[1]+oy,c[2]+oz]);
+  const valid=cells.every(c=>c[0]>=0&&c[0]<=2&&c[1]>=0&&c[1]<=2&&c[2]>=0&&c[2]<=2&&!board[idx(c[0],c[1],c[2])]);
+  return {cells,valid};
+}
+
+/* yerleştirme */
+function place(x,y,z){
+  const pv=computePreview(x,y,z);if(!pv.valid){sndBad();toast("Buraya sığmadı — çevir veya başka yere koy");return}
+  const ids=pv.cells.map(c=>idx(c[0],c[1],c[2]));
+  ids.forEach(i=>board[i]=selected+1);
+  placed[selected]=true;
+  placements.push({piece:selected,cells:ids});
+  sndPlace();selected=null;preview=null;
+  if(!timer)startTimer();
+  render();
+  if(placements.length===PIECES.length)win();
+}
+function removePieceAt(i){
+  const p=board[i]-1;if(p<0)return;
+  const at=placements.map((pl,j)=>({pl,j})).filter(o=>o.pl.cells.includes(i)).pop();
+  if(!at)return;
+  at.pl.cells.forEach(c=>board[c]=0);
+  placements.splice(at.j,1);placed[p]=false;preview=null;
+  sndPick();toast(PIECES[p].name+" parçası geri alındı");render();
+}
+function undo(){
+  const pl=placements.pop();if(!pl)return;
+  pl.cells.forEach(c=>board[c]=0);placed[pl.piece]=false;preview=null;
+  sndPick();render();
+}
+
+/* 3D sahne */
+const cubeWrap=$("#cubeWrap"),scene=$("#scene");
+let rx=-26,ry=-32;
+function renderScene(){
+  cubeWrap.innerHTML="";
+  for(let i=0;i<27;i++)if(board[i]){
+    const x=i%3,y=Math.floor(i/3)%3,z=Math.floor(i/9);
+    const u=makeUnit(0,x,y,z,false);addFaces(u,PIECES[board[i]-1].color);cubeWrap.appendChild(u);
+  }
+  if(preview&&selected!==null){
+    const pv=computePreview(preview.x,preview.y,preview.z);
+    for(const c of pv.cells){const u=makeUnit(0,c[0],c[1],c[2],true);
+      addFaces(u,pv.valid?PIECES[selected].color:"#ef4444");cubeWrap.appendChild(u);}
+  }
+}
+let drag=null;
+scene.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};scene.setPointerCapture(e.pointerId)});
+scene.addEventListener("pointermove",e=>{if(!drag)return;
+  ry+=(e.clientX-drag.x)*.6;rx-=(e.clientY-drag.y)*.6;
+  rx=Math.max(-85,Math.min(20,rx));drag={x:e.clientX,y:e.clientY};
+  cubeWrap.style.setProperty("--rx",rx+"deg");cubeWrap.style.setProperty("--ry",ry+"deg");});
+scene.addEventListener("pointerup",()=>drag=null);
+scene.addEventListener("pointercancel",()=>drag=null);
+
+/* render */
+function render(){
+  chips.forEach((ch,i)=>{
+    ch.el.classList.toggle("sel",selected===i);
+    ch.el.classList.toggle("done",placed[i]);
+    renderMini(ch.mini,ORIENTATIONS[i][orientIdx[i]],PIECES[i].color);
+  });
+  const pv=preview&&selected!==null?computePreview(preview.x,preview.y,preview.z):null;
+  const pvSet=new Map();
+  if(pv)pv.cells.forEach(c=>pvSet.set(idx(c[0],c[1],c[2]),pv.valid));
+  cellEls.forEach((el,i)=>{
+    el.classList.toggle("filled",!!board[i]);
+    el.style.background=board[i]?PIECES[board[i]-1].color:"";
+    el.classList.toggle("preview",pvSet.has(i)&&pvSet.get(i));
+    el.classList.toggle("invalid",pvSet.has(i)&&!pvSet.get(i));
+  });
+  $("#btnUndo").disabled=!placements.length||solving;
+  $("#btnRotate").disabled=selected===null||solving;
+  $("#btnSolve").disabled=solving;
+  renderScene();
+}
+
+/* çevir */
+$("#btnRotate").addEventListener("click",()=>{
+  if(selected===null)return;
+  orientIdx[selected]=(orientIdx[selected]+1)%ORIENTATIONS[selected].length;
+  sndPick();render();
+});
+$("#btnUndo").addEventListener("click",undo);
+$("#btnReset").addEventListener("click",reset);
+$("#btnAgain").addEventListener("click",()=>{$("#overlay").classList.remove("show");reset()});
+
+/* süre */
+function fmt(s){return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")}
+function startTimer(){timer=setInterval(()=>{seconds++;$("#time").textContent=fmt(seconds)},1000)}
+function stopTimer(){clearInterval(timer);timer=null}
+function reset(){
+  stopTimer();seconds=0;$("#time").textContent="00:00";
+  board.fill(0);placed.fill(false);placements=[];selected=null;preview=null;solving=false;
+  $("#btnSolve").disabled=false;render();
+}
+
+/* çözüm animasyonu */
+$("#btnSolve").addEventListener("click",()=>{
+  if(solving)return;
+  const sol=solveSoma(ORIENTATIONS);
+  if(!sol){toast("Çözüm bulunamadı");return}
+  solving=true;stopTimer();board.fill(0);placed.fill(false);placements=[];selected=null;preview=null;render();
+  toast("Çözüm yükleniyor…");
+  let k=0;
+  (function step(){
+    if(k>=sol.length){solving=false;render();toast("İşte çözüm! Şimdi sıra sende 💪");return}
+    const pl=sol[k++];pl.cells.forEach(c=>board[c]=pl.piece+1);
+    placed[pl.piece]=true;placements.push(pl);render();sndPick();
+    setTimeout(step,140);
+  })();
+});
+
+/* kazanma */
+function win(){
+  stopTimer();won=true;sndWin();
+  const best=+localStorage.getItem("akilkupu_best")||0;
+  let msg=`Küpü ${fmt(seconds)} sürede tamamladın.`;
+  if(!best||seconds<best){localStorage.setItem("akilkupu_best",seconds);msg+=" 🏆 Yeni rekor!"}
+  else msg+=` En iyi: ${fmt(best)}`;
+  $("#winText").textContent=msg;$("#best").textContent=fmt(+localStorage.getItem("akilkupu_best")||seconds);
+  $("#overlay").classList.add("show");
+  for(let i=0;i<36;i++){
+    const c=document.createElement("div");c.className="conf";
+    c.style.left=Math.random()*100+"vw";c.style.background=PIECES[i%PIECES.length].color;
+    c.style.animationDuration=(1.6+Math.random()*1.8)+"s";c.style.animationDelay=Math.random()*.7+"s";
+    document.body.appendChild(c);setTimeout(()=>c.remove(),4200);
+  }
+}
+
+/* toast */
+let toastT=null;
+function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800)}
+
+/* başlangıç */
+const best=+localStorage.getItem("akilkupu_best")||0;
+if(best)$("#best").textContent=fmt(best);
+render();
+toast("Hoş geldin! Bir parça seçerek başla 🧩");
+})();
+}
+</script>
+</body>
+</html>
