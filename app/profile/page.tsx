@@ -22,7 +22,6 @@ const GAME_TITLES: Record<string, string> = {
   voxelcraft: "VoxelCraft",
   spaceship: "Yıldız Vurucu",
   "doping-runner": "Doping Runner",
-  "cube-master": "Cube Master",
   "anime-legends": "Anime Legends",
   "astro-blaster": "Astro Blaster",
   fighter: "Dövüş Arenası",

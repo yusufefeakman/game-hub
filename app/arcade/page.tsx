@@ -35,12 +35,6 @@ interface ArcadeGame {
 
 const GAMES: ArcadeGame[] = [
   {
-    id: "cube-master", title: "Cube Master", emoji: "🧩", category: "Bulmaca",
-    tags: ["3D", "Rubik", "Zekâ"], route: "/games/cube-master", pop: 98, featured: true,
-    description: "Yüksek kaliteli 3D Rubik küpü: akıcı animasyonlar, gerçekçi ışıklandırma ve rekor takibi. Fareyle küpü döndür, yüzleri sürükleyerek çevir ya da U/D/L/R/F/B tuşlarını kullan.",
-    art: "linear-gradient(135deg,#ff7043 0%,#ffb300 100%)",
-  },
-  {
     id: "akil-kupu", title: "Akıl Küpü", emoji: "🧠", category: "Bulmaca",
     tags: ["SOMA", "3D", "Dokunmatik"], route: "/games/akil-kupu", pop: 86, isNew: true, featured: true,
     standalone: "/akil-kupu.html",

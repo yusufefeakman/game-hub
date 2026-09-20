@@ -17,7 +17,7 @@ const APP_NAME = "Pixel Arcade — Game Hub";
 export const metadata: Metadata = {
   title: APP_NAME,
   description:
-    "A growing collection of original browser games: Doping Runner, Anime Legends, Astro Blaster, Cube Master. Installable as a mobile app.",
+    "A growing collection of original browser games: Doping Runner, Anime Legends, Astro Blaster, Akıl Küpü. Installable as a mobile app.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

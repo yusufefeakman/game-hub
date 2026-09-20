@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Pixel Arcade — Game Hub",
     short_name: "Pixel Arcade",
     description:
-      "A growing collection of original browser games: Doping Runner, Anime Legends, Astro Blaster, Cube Master and more. Installable mobile app.",
+      "A growing collection of original browser games: Doping Runner, Anime Legends, Astro Blaster, Akıl Küpü and more. Installable mobile app.",
     start_url: "/",
     display: "standalone",
     background_color: "#0a0e28",

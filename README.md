@@ -10,7 +10,6 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 |---|---|---|
 | **VoxelCraft** ⛏️ | Seed'li voxel survival: ova/tepe/mağara/cevher, meşe-huş-çam ormanları, gündüz/gece + yıldızlar, envanter+üretim, aletler, canlılar, seed+blok kaydı, mobil dokunmatik | `/game-hub/games/voxelcraft` |
 | **Doping Runner** ⚡ | Neon şehirde sonsuz koşu: doping topla, hızlan, engellerden kaç — mobil uyumlu | `/game-hub/games/doping-runner` |
-| **Cube Master** 🧩 | Yüksek kaliteli 3D Rubik küpü: akıcı animasyonlar, rekor takibi, fare + klavye kontrolleri | `/game-hub/games/cube-master` |
 | **Akıl Küpü** 🧩 | SOMA tarzı 3D parça yerleştirme: 7 renkli parçayı 3×3×3 küpe yerleştir — dokunmatik, 3D önizleme, animasyonlu çözücü, rekor takibi | `/game-hub/games/akil-kupu` |
 | **Anime Legends** 🥷 | 24 ikonik anime karakteriyle dövüş turnuvası: Naruto, Goku, Luffy, Gojo, Saitama... 8 rakibi yen, şampiyon ol | `/game-hub/games/anime-legends` |
 | **Astro Blaster** 🛸 | Uzay temalı blok kırma (Breakout): 5 seviye, 4 blok tipi, güçlendirmeler | `/game-hub/games/astro-blaster` |
