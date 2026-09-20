@@ -22,6 +22,17 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 | **World War Z** 🧟 | 3D FPS zombi hayatta kalma | `/game-hub/games/world-war-z` |
 | **Pixel Pals** 🌟 | Platform macerası | `/game-hub/games/pixel-pals` |
 
+## 🕹️ Arcade Portal (Lagged tarzı)
+
+Katalog sayfasının yanında tam bir oyun portalı var: **`/game-hub/arcade`**
+
+- Otomatik dönen **öne çıkan oyun vitrini** (hero slider)
+- Kategori filtreleri (Aksiyon, Bulmaca, Dövüş, Yarış, Platform, Strateji, Macera, Arcade)
+- **Anlık arama** + popülerlik / yenilik / A-Z sıralaması
+- 🔥 Trend Olanlar, 🆕 Yeni Eklenenler ve 🕹️ Son Oynadıkların satırları
+- ❤️ Favoriler, oynanma sayacı ve 🎲 rastgele oyun butonu (tarayıcıda kalıcı)
+- Portal içi **oynatıcı**: oyunlar iframe ile açılır, tam ekran (⛶) ve yeni sekme desteği
+
 ## 🚀 Tek tıkla yayınla (Vercel / Netlify)
 
 Bu repoyu kendi hesabına **tek tıkla** dağıtabilirsin — token gerekmez, buton hesabına yönlendirir:

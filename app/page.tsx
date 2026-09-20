@@ -184,6 +184,9 @@ export default function Home() {
           A growing collection of original browser games. No downloads, no
           accounts — just play. New games added regularly.
         </p>
+        <Link href="/arcade" className="hero-cta">
+          🎮 Arcade Portal — Hemen Oyna
+        </Link>
       </section>
 
       <section className="game-grid">
