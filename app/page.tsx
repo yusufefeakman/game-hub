@@ -149,6 +149,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "sunny-side-ride",
+    title: "Sunny Side Ride",
+    subtitle: "3D Bisiklet Macerası",
+    emoji: "🚲",
+    artClass: "art-17",
+    description:
+      "Açık dünya 3D bisiklet macerası! Ağaç tünelleriyle kaplı kıvrımlı sokaklarda pedal çevir, rampalardan zıpla, tokenları topla ve checkpointleri geç. Prosedürel mahalle: tepeler, ahşap köprü, parklar, sokak lambaları, yayalar ve trafik. W/S pedal-fren, A/D direksiyon, Space zıplama, Shift sprint.",
+    route: "/games/sunny-side-ride",
+    status: "playable" as const,
+  },
+  {
     id: "akil-kupu",
     title: "Akıl Küpü",
     subtitle: "SOMA Parça Bulmacası",

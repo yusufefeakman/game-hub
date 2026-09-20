@@ -1,0 +1,2670 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sunny Side Ride — 3D Bisiklet Macerası</title>
+<style>
+  :root{
+    --ink:#0d1b2a; --paper:#fdfaf3; --accent:#ff8b3d; --accent2:#37b5a4;
+    --shadow:0 10px 30px rgba(10,20,40,.35);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#8fc7e8;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;color:var(--ink)}
+  canvas{display:block}
+  #app{position:fixed;inset:0}
+  .hidden{display:none !important}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+  .panel{
+    background:rgba(253,250,243,.9);backdrop-filter:blur(6px);
+    border-radius:14px;box-shadow:var(--shadow);border:2px solid rgba(13,27,42,.12);
+  }
+  #hudTop{position:absolute;top:14px;left:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+  .stat{padding:8px 13px;display:flex;flex-direction:column;gap:1px;min-width:78px}
+  .stat b{font-size:19px;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat span{font-size:10px;letter-spacing:.9px;text-transform:uppercase;opacity:.65;font-weight:700}
+  #speedBox b{color:var(--accent)}
+  #objBox{max-width:290px}
+  #objBox b{font-size:13px;font-weight:700;line-height:1.35}
+
+  /* sprint bar */
+  #sprintWrap{position:absolute;left:14px;bottom:14px;padding:9px 12px;width:210px}
+  #sprintWrap .lbl{display:flex;justify-content:space-between;font-size:10px;
+    letter-spacing:.9px;text-transform:uppercase;font-weight:800;opacity:.7;margin-bottom:5px}
+  #sprintBar{height:11px;border-radius:6px;background:rgba(13,27,42,.16);overflow:hidden}
+  #sprintFill{height:100%;width:100%;border-radius:6px;
+    background:linear-gradient(90deg,#37b5a4,#7de2c4);transition:width .08s linear}
+  #sprintFill.low{background:linear-gradient(90deg,#e05a4e,#ffa06b)}
+
+  /* score popups */
+  #popups{position:absolute;top:96px;left:50%;transform:translateX(-50%);
+    display:flex;flex-direction:column;align-items:center;gap:4px}
+  .pop{font-size:17px;font-weight:900;color:#fff;padding:5px 13px;border-radius:999px;
+    background:rgba(255,139,61,.94);box-shadow:var(--shadow);animation:popUp 1.05s ease-out forwards}
+  .pop.good{background:rgba(55,181,164,.94)}
+  .pop.warn{background:rgba(224,90,78,.94)}
+  @keyframes popUp{0%{opacity:0;transform:translateY(14px) scale(.85)}
+    18%{opacity:1;transform:translateY(0) scale(1.06)}100%{opacity:0;transform:translateY(-42px) scale(1)}}
+
+  /* ---------- controls panel ---------- */
+  #controls{position:absolute;right:14px;bottom:14px;padding:13px 16px;max-width:270px;
+    pointer-events:auto;transition:opacity .35s,transform .35s}
+  #controls.min{opacity:0;transform:translateY(14px);pointer-events:none}
+  #controls h3{font-size:12px;letter-spacing:1px;text-transform:uppercase;margin-bottom:9px;opacity:.7}
+  #controls table{width:100%;border-collapse:collapse;font-size:12.5px}
+  #controls td{padding:2.5px 0}
+  #controls td:first-child{width:92px}
+  kbd{display:inline-block;min-width:20px;text-align:center;padding:2px 6px;border-radius:5px;
+    background:#0d1b2a;color:#fdfaf3;font-size:11px;font-family:inherit;font-weight:700;
+    box-shadow:0 2px 0 rgba(0,0,0,.35)}
+  #ctlToggle{position:absolute;right:14px;bottom:14px;padding:10px 15px;font-size:12.5px;font-weight:800;
+    border:none;cursor:pointer;pointer-events:auto;display:none}
+  #ctlToggle.show{display:block}
+  #muteBtn{margin-top:9px;width:100%;padding:7px;border-radius:9px;border:2px solid rgba(13,27,42,.16);
+    background:transparent;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+  #muteBtn:hover{background:rgba(13,27,42,.07)}
+
+  /* ---------- overlays ---------- */
+  #overlay{position:fixed;inset:0;z-index:30;display:flex;align-items:flex-start;justify-content:center;
+    background:linear-gradient(180deg,rgba(13,27,42,.30) 0%,rgba(13,27,42,.55) 55%,rgba(13,27,42,.78) 100%);
+    backdrop-filter:blur(2px);padding:18px;overflow-y:auto}
+  .card{background:rgba(253,250,243,.96);border-radius:22px;box-shadow:0 24px 60px rgba(0,0,0,.45);
+    max-width:600px;width:100%;padding:26px 32px;text-align:center;border:3px solid rgba(255,255,255,.65);
+    margin:auto 0}
+  @media (min-height:760px){ #overlay{align-items:center} }
+  .card h1{font-size:clamp(28px,5.4vw,42px);letter-spacing:-.5px;margin-bottom:6px;line-height:1.05}
+  .card h1 em{font-style:normal;color:var(--accent)}
+  .card .sub{font-size:14px;opacity:.75;margin-bottom:20px;line-height:1.55}
+  .keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:8px;margin:18px 0;
+    text-align:left;font-size:12.5px}
+  .keys div{display:flex;align-items:center;gap:7px;background:rgba(13,27,42,.05);
+    padding:7px 10px;border-radius:10px}
+  .btn{border:none;cursor:pointer;font:inherit;font-weight:900;font-size:16px;padding:14px 34px;
+    border-radius:999px;background:linear-gradient(180deg,#ffa95c,var(--accent));color:#fff;
+    box-shadow:0 7px 0 #d96f26,0 12px 24px rgba(217,111,38,.35);transition:transform .08s,box-shadow .08s}
+  .btn:hover{transform:translateY(-2px)}
+  .btn:active{transform:translateY(4px);box-shadow:0 3px 0 #d96f26}
+  .btn.alt{background:linear-gradient(180deg,#5fd3c0,var(--accent2));box-shadow:0 7px 0 #26857a,0 12px 24px rgba(38,133,122,.3)}
+  .btn.alt:active{box-shadow:0 3px 0 #26857a}
+  .btnRow{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+  .scoreGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px;margin:18px 0}
+  .scoreGrid div{background:rgba(13,27,42,.06);border-radius:12px;padding:11px 8px}
+  .scoreGrid b{display:block;font-size:23px;font-variant-numeric:tabular-nums}
+  .scoreGrid span{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;font-weight:800;opacity:.62}
+  .best{font-size:13px;font-weight:800;color:var(--accent2);margin-top:4px}
+  #loadNote{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#8fc7e8;z-index:40;font-size:17px;font-weight:800;color:#0d1b2a;flex-direction:column;gap:14px}
+  .spin{width:42px;height:42px;border:5px solid rgba(13,27,42,.2);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (max-width:720px){
+    #controls{max-width:none;left:14px;right:14px;bottom:76px}
+    #sprintWrap{width:150px}
+    .card{padding:22px 18px}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="loadNote"><div class="spin"></div><div>Dünya kuruluyor…</div></div>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+  <div id="hudTop">
+    <div class="panel stat" id="speedBox"><b id="hSpeed">0</b><span>km/s</span></div>
+    <div class="panel stat"><b id="hScore">0</b><span>Puan</span></div>
+    <div class="panel stat"><b id="hTokens">0/0</b><span>Token</span></div>
+    <div class="panel stat"><b id="hTime">0:00</b><span>Süre</span></div>
+    <div class="panel stat" id="objBox"><b id="hObj">Başla ve tokenları topla!</b><span>Görev</span></div>
+  </div>
+
+  <div id="popups"></div>
+
+  <div id="sprintWrap" class="panel">
+    <div class="lbl"><span>Sprint</span><span id="sprintPct">100%</span></div>
+    <div id="sprintBar"><div id="sprintFill"></div></div>
+  </div>
+
+  <div id="controls" class="panel">
+    <h3>Kontroller</h3>
+    <table>
+      <tr><td><kbd>W</kbd> <kbd>↑</kbd></td><td>Pedal / Gaz</td></tr>
+      <tr><td><kbd>S</kbd> <kbd>↓</kbd></td><td>Fren / Geri</td></tr>
+      <tr><td><kbd>A</kbd> <kbd>D</kbd></td><td>Sağa / Sola dön</td></tr>
+      <tr><td><kbd>Space</kbd></td><td>Zıpla (bunny hop)</td></tr>
+      <tr><td><kbd>Shift</kbd></td><td>Sprint (enerji)</td></tr>
+      <tr><td><kbd>C</kbd></td><td>Kamera değiştir</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Bisikleti sıfırla</td></tr>
+      <tr><td><kbd>P</kbd> <kbd>Esc</kbd></td><td>Duraklat</td></tr>
+    </table>
+    <button id="muteBtn">🔊 Ses açık</button>
+  </div>
+  <button id="ctlToggle" class="panel">⌨ Kontroller</button>
+</div>
+
+<!-- ================= OVERLAYS ================= -->
+<div id="overlay">
+  <!-- start -->
+  <div class="card" id="startCard">
+    <h1>Sunny Side <em>Ride</em></h1>
+    <p class="sub">Mahallede özgür bir bisiklet turuna çık! Tokenları topla, rampalardan zıpla,
+      trafikte süzül ve en yüksek puanı kır. Acele etme — keşfet.</p>
+    <div class="keys">
+      <div><kbd>W</kbd><kbd>↑</kbd> Pedal</div>
+      <div><kbd>S</kbd><kbd>↓</kbd> Fren / Geri</div>
+      <div><kbd>A</kbd><kbd>D</kbd> Direksiyon</div>
+      <div><kbd>Space</kbd> Zıpla</div>
+      <div><kbd>Shift</kbd> Sprint</div>
+      <div><kbd>C</kbd> Kamera</div>
+      <div><kbd>R</kbd> Sıfırla</div>
+      <div><kbd>P</kbd><kbd>Esc</kbd> Duraklat</div>
+    </div>
+    <div class="btnRow"><button class="btn" id="startBtn">▶ Bin ve Sür</button></div>
+    <div class="best" id="bestLine"></div>
+  </div>
+
+  <!-- pause -->
+  <div class="card hidden" id="pauseCard">
+    <h1>Duraklatıldı</h1>
+    <p class="sub">Nefes al. Hazır olduğunda devam et.</p>
+    <div class="btnRow">
+      <button class="btn" id="resumeBtn">▶ Devam</button>
+      <button class="btn alt" id="restartBtn1">↻ Yeniden Başla</button>
+    </div>
+  </div>
+
+  <!-- finish -->
+  <div class="card hidden" id="endCard">
+    <h1 id="endTitle">Tur Tamamlandı!</h1>
+    <p class="sub" id="endSub">Harika bir sürüştü.</p>
+    <div class="scoreGrid">
+      <div><b id="eScore">0</b><span>Toplam Puan</span></div>
+      <div><b id="eTokens">0</b><span>Token</span></div>
+      <div><b id="eTime">0:00</b><span>Süre</span></div>
+      <div><b id="eAir">0s</b><span>Havada</span></div>
+    </div>
+    <div class="best" id="endBest"></div>
+    <div class="btnRow"><button class="btn" id="restartBtn2">↻ Tekrar Sür</button></div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* =====================================================================
+   SUNNY SIDE RIDE — 3D bisiklet macerası
+   Tek dosya, build adımı yok, tüm geometri ve sesler prosedürel.
+   ===================================================================== */
+
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+// kare yumuşatma; dt'den bağımsız. Bozuk girdide hedefe atlar (NaN yaymaz).
+const damp = (a, b, lambda, dt) => {
+  const t = 1 - Math.exp(-lambda * dt);
+  const r = a + (b - a) * t;
+  return Number.isFinite(r) ? r : (Number.isFinite(b) ? b : 0);
+};
+const rnd = (a, b) => a + Math.random() * (b - a);
+const TAU = Math.PI * 2;
+
+/* ---------------- 0. Durum / debug API ---------------- */
+const dbg = {
+  ready: false, started: false, paused: false, over: false,
+  speed: 0, score: 0, collectibles: 0, totalCollectibles: 0,
+  playerPosition: { x: 0, y: 0, z: 0 }, cameraMode: 0, fps: 0,
+  sprint: 100, time: 0, airtime: 0, nearMisses: 0, checkpoints: 0,
+  totalCheckpoints: 0, errors: []
+};
+window.gameDebug = dbg;
+window.addEventListener('error', (e) => dbg.errors.push(String(e.message)));
+
+/* ---------------- 1. Ses (Web Audio, prosedürel) ---------------- */
+const Sound = (() => {
+  let ctx = null, master = null, muted = false;
+  function init() {
+    if (ctx) return;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain();
+      master.gain.value = 0.35;
+      master.connect(ctx.destination);
+    } catch (e) { ctx = null; }
+  }
+  function blip(freq, dur, type = 'sine', vol = 0.22, slide = 0) {
+    if (!ctx || muted) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+  }
+  // tekerlek hışırtısı — sürekli, hıza göre
+  let rollSrc = null, rollGain = null;
+  function ensureRoll() {
+    if (!ctx || rollSrc) return;
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.5;
+    rollSrc = ctx.createBufferSource();
+    rollSrc.buffer = buf; rollSrc.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 620;
+    rollGain = ctx.createGain(); rollGain.gain.value = 0;
+    rollSrc.connect(lp); lp.connect(rollGain); rollGain.connect(master);
+    rollSrc.start();
+  }
+  return {
+    init() { init(); if (ctx && ctx.state === 'suspended') ctx.resume(); ensureRoll(); },
+    start() { init(); ensureRoll(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
+    coin() { blip(880, 0.09, 'triangle', 0.26); setTimeout(() => blip(1320, 0.13, 'triangle', 0.22), 70); },
+    checkpoint() { [660, 880, 1100].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'triangle', 0.24), i * 95)); },
+    jump() { blip(320, 0.14, 'sine', 0.2, 260); },
+    land() { blip(150, 0.1, 'sine', 0.18, -60); },
+    crash() { blip(110, 0.35, 'sawtooth', 0.24, -60); },
+    nearMiss() { blip(1500, 0.06, 'square', 0.12); },
+    finish() { [523, 659, 784, 1046, 1318].forEach((f, i) => setTimeout(() => blip(f, 0.3, 'triangle', 0.26), i * 130)); },
+    hour() { blip(196, 0.55, 'sine', 0.2); setTimeout(() => blip(147, 0.7, 'sine', 0.18), 260); },
+    roll(speed01) { if (rollGain) rollGain.gain.value = muted ? 0 : clamp(speed01, 0, 1) * 0.055; },
+    toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.35; return muted; },
+    get muted() { return muted; }
+  };
+})();
+
+/* ---------------- 2. Sahne kurulumu ---------------- */
+const scene = new THREE.Scene();
+const SKY_TOP = new THREE.Color(0x5fa8dd), SKY_BOT = new THREE.Color(0xd9eefb);
+scene.background = SKY_BOT.clone();
+scene.fog = new THREE.Fog(0xcfe6f5, 70, 340);
+
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 900);
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+// Yazılım rasterleştirmede (SwiftShader) düşük DPR şart; donanımda 1.5'e kadar çık.
+const IS_SWIFT = /SwiftShader|llvmpipe|Software/i.test(
+  (() => { try { const g = renderer.getContext(); const d = g.getExtension('WEBGL_debug_renderer_info');
+    return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : ''; } catch (e) { return ''; } })()
+);
+const DPR_CAP = IS_SWIFT ? 1 : 1.5;
+renderer.setPixelRatio(Math.min(devicePixelRatio, DPR_CAP));
+renderer.shadowMap.enabled = true;
+// Yazılım rasterleştirmede PCFSoft çok pahalı → temel gölge
+renderer.shadowMap.type = IS_SWIFT ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.06;
+$('#app').appendChild(renderer.domElement);
+
+/* --- ışıklar: sıcak öğleden sonra güneşi --- */
+const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x6f8a4a, 1.05);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0d0, 2.5);
+sun.position.set(70, 105, 55);
+sun.castShadow = true;
+const SHADOW_SIZE = IS_SWIFT ? 1024 : 2048;
+sun.shadow.mapSize.set(SHADOW_SIZE, SHADOW_SIZE);
+sun.shadow.camera.near = 10; sun.shadow.camera.far = 320;
+// Gölge alanı ne kadar küçükse o kadar keskin ve hızlı: oyuncu etrafında dar bir kutu
+const SHADOW_EXTENT = IS_SWIFT ? 40 : 78;
+sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
+sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
+sun.shadow.bias = -0.0009;
+sun.shadow.normalBias = 0.035;
+scene.add(sun, sun.target);
+const bounce = new THREE.DirectionalLight(0xbcd9ff, 0.42);
+bounce.position.set(-60, 42, -50);
+scene.add(bounce);
+
+/* ---------------- 3. Yol ağı (spline) ---------------- */
+/* Ana cadde geniş bir halka; yan yollarla birlikte R=104 ile dünya ~210m yarıçap. */
+const ROAD_W = 9.0;          // sürüş yüzeyi genişliği
+const RING = [], RING_N = 300, RING_R = 104;
+for (let i = 0; i < RING_N; i++) {
+  const a = (i / RING_N) * TAU;
+  // hafif organik kıvrım
+  const r = RING_R + Math.sin(a * 3) * 8.5 + Math.cos(a * 5 + 1.1) * 4.5 + Math.sin(a * 7) * 2;
+  RING.push(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
+}
+const ringLen = (() => { let L = 0; for (let i = 0; i < RING_N; i++) L += RING[i].distanceTo(RING[(i + 1) % RING_N]); return L; })();
+
+// dünya merkezine göre yükseklik: dışarıda yükselen tepeler, yollarda 0
+const WORLD_R = 232;
+function terrainH(x, z) {
+  const d = Math.hypot(x, z);
+  let h = 0;
+  // dış bilezik tepeleri
+  const t = clamp((d - 128) / 92, 0, 1);
+  h += t * t * 15.5;
+  // büyük yumuşak dalgalar
+  h += Math.sin(x * 0.0125) * Math.cos(z * 0.0135) * 2.3;
+  h += Math.sin((x + z) * 0.026) * 0.8;
+  // iç bahçe hafif eğim
+  h -= clamp((104 - d) / 104, 0, 1) * 0.7;
+  return h;
+}
+
+/* --- ana yolu örnekleyip segment listesi çıkar --- */
+function buildPath(points, closed) {
+  const curve = new THREE.CatmullRomCurve3(points, closed, 'catmullrom', 0.5);
+  const N = closed ? RING_N : Math.max(24, points.length * 12);
+  const pts = [], tans = [], norms = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / N;
+    const p = curve.getPointAt(t);
+    const tan = curve.getTangentAt(t).setY(0).normalize();
+    pts.push(p); tans.push(tan);
+    norms.push(new THREE.Vector3(-tan.z, 0, tan.x));
+  }
+  let len = 0;
+  for (let i = 0; i < N; i++) len += pts[i].distanceTo(pts[(i + 1) % N]);
+  return { pts, tans, norms, N, len, closed };
+}
+
+const mainRoad = buildPath(RING, true);
+
+/* yan yollar: merkezden dışarı doğru kıvrılan sokaklar */
+const SIDE_ROADS = [];
+const sideAngles = [0.0, 1.15, 2.35, 3.5, 4.75, 5.8];
+for (let s = 0; s < sideAngles.length; s++) {
+  const a = sideAngles[s];
+  const pts = [];
+  const innerR = 26, outerR = 118;
+  const steps = 9;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const r = lerp(innerR, outerR, t);
+    const wob = Math.sin(t * Math.PI) * 14 * (s % 2 ? 1 : -1);
+    const aa = a + wob * 0.012;
+    pts.push(new THREE.Vector3(Math.cos(aa) * r, 0, Math.sin(aa) * r));
+  }
+  SIDE_ROADS.push(buildPath(pts, false));
+}
+const ALL_ROADS = [mainRoad, ...SIDE_ROADS];
+
+/* --- yol örneklerini düzleştir (sürüş/çarpışma sorgusu için) --- */
+const roadSamples = [];  // {p, tan, nor, len, halfW, kind}
+ALL_ROADS.forEach((rd, ri) => {
+  const halfW = ri === 0 ? ROAD_W / 2 : 4.1;
+  for (let i = 0; i < rd.N; i++) {
+    roadSamples.push({ p: rd.pts[i], tan: rd.tans[i], nor: rd.norms[i], halfW, kind: ri === 0 ? 'main' : 'side' });
+  }
+});
+
+const CELL = 10;
+const roadGrid = new Map();
+function gkey(x, z) { return Math.floor(x / CELL) + ':' + Math.floor(z / CELL); }
+roadSamples.forEach((s, i) => {
+  const cx = Math.floor(s.p.x / CELL), cz = Math.floor(s.p.z / CELL);
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const k = (cx + dx) + ':' + (cz + dz);
+    if (!roadGrid.has(k)) roadGrid.set(k, []);
+    roadGrid.get(k).push(i);
+  }
+});
+/** en yakın yol örneğini bul → { dist, sample } — sample asla null olmaz */
+function nearestRoad(x, z) {
+  const list = roadGrid.get(gkey(x, z));
+  let best = null, bd = Infinity;
+  if (list) {
+    for (let i = 0; i < list.length; i++) {
+      const s = roadSamples[list[i]];
+      const d = (s.p.x - x) ** 2 + (s.p.z - z) ** 2;
+      if (d < bd) { bd = d; best = s; }
+    }
+  }
+  if (!best) {  // hücre boşsa en yakını bul (nadiren olur)
+    for (let i = 0; i < roadSamples.length; i++) {
+      const s = roadSamples[i];
+      const d = (s.p.x - x) ** 2 + (s.p.z - z) ** 2;
+      if (d < bd) { bd = d; best = s; }
+    }
+  }
+  if (!best) best = roadSamples[0];
+  return { dist: Math.sqrt(bd), sample: best };
+}
+
+/* ---------------- 4. Zemin ve yollar ---------------- */
+const groundMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+{
+  // Arazi ızgarası: yazılım rasterleştirmede 200×200 = 80k üçgen tek başına çok ağır.
+  const seg = IS_SWIFT ? 96 : 150, size = WORLD_R * 2;
+  const geo = new THREE.PlaneGeometry(size, size, seg, seg);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const cGrass = new THREE.Color(0x74b653), cGrass2 = new THREE.Color(0x8cc963),
+        cDirt = new THREE.Color(0xb99a63), cSand = new THREE.Color(0xd9c88f);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const y = terrainH(x, z);
+    pos.setY(i, y);
+    const d = Math.hypot(x, z);
+    // yol kenarları toprak, dışarısı çimen, tepeler kumlu
+    const road = nearestRoad(x, z);
+    if (road.dist < road.sample.halfW + 2.6) tmp.copy(cDirt).lerp(cGrass, clamp((road.dist - road.sample.halfW) / 2.6, 0, 1) * 0.55);
+    else {
+      const hb = clamp((y - 8) / 12, 0, 1);
+      tmp.copy(cGrass).lerp(cGrass2, (Math.sin(x * 0.4) * Math.cos(z * 0.37) + 1) / 2).lerp(cSand, hb);
+    }
+    colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  const ground = new THREE.Mesh(geo, groundMat);
+  ground.receiveShadow = true;
+  scene.add(ground);
+}
+
+/* --- yol şeritleri: yol yüzeyi + kenar çizgileri + orta şerit --- */
+function buildRibbon(road, halfW, y, color, opts = {}) {
+  const N = road.N;
+  const verts = [], idx = [], uvs = [];
+  for (let i = 0; i <= N; i++) {
+    const j = i % N;
+    const p = road.pts[j], n = road.norms[j];
+    const o = opts.offset || 0;
+    const a = (opts.dash ? (i % 4 < 2 ? 1 : 0) : 1);
+    verts.push(p.x + n.x * (o - halfW), y, p.z + n.z * (o - halfW));
+    verts.push(p.x + n.x * (o + halfW), y, p.z + n.z * (o + halfW));
+    uvs.push(0, 0, 1, a);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+    idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({
+    color, side: THREE.DoubleSide, transparent: !!opts.dash, alphaTest: opts.dash ? 0.4 : 0
+  }));
+  m.receiveShadow = true;
+  return m;
+}
+
+ALL_ROADS.forEach((rd, ri) => {
+  const halfW = ri === 0 ? ROAD_W / 2 : 4.1;
+  const surface = buildRibbon(rd, halfW, 0.035, ri === 0 ? 0x4a4f57 : 0x5b6068);
+  scene.add(surface);
+  // kenar çizgileri (kaldırım dibi)
+  if (ri === 0) {
+    scene.add(buildRibbon(rd, 0.16, 0.05, 0xf3f0e4, { offset: halfW - 0.5 }));
+    scene.add(buildRibbon(rd, 0.16, 0.05, 0xf3f0e4, { offset: -(halfW - 0.5) }));
+    // kesikli orta şerit
+    const mid = buildRibbon(rd, 0.14, 0.052, 0xffd34d, { dash: true });
+    mid.material.transparent = false; mid.material.alphaTest = 0;
+    // kesik efekti için ayrı geometri: kısa parçalar
+    scene.add(mid);
+  }
+});
+
+/* --- kaldırımlar + bordür --- */
+function buildSidewalk(road, halfW) {
+  const grp = new THREE.Group();
+  const slab = buildRibbon(road, 1.5, 0.14, 0xbdb7a8, { offset: halfW + 1.5 });
+  const slab2 = buildRibbon(road, 1.5, 0.14, 0xbdb7a8, { offset: -(halfW + 1.5) });
+  const curb1 = buildRibbon(road, 0.16, 0.15, 0x9b9689, { offset: halfW + 0.08 });
+  const curb2 = buildRibbon(road, 0.16, 0.15, 0x9b9689, { offset: -(halfW + 0.08) });
+  // dikey bordür yüzü
+  const face1 = buildRibbon(road, 0.14, 0.075, 0xa8a396, { offset: halfW + 0.1 });
+  const face2 = buildRibbon(road, 0.14, 0.075, 0xa8a396, { offset: -(halfW + 0.1) });
+  grp.add(slab, slab2, curb1, curb2, face1, face2);
+  return grp;
+}
+scene.add(buildSidewalk(mainRoad, ROAD_W / 2));
+
+/* ---------------- 5. Ağaçlar (instanced) ---------------- */
+/* Gövde ve yaprak kümeleri ayrı InstancedMesh; 3 farklı yaprak tonu. */
+const treePositions = [];
+function buildTrees() {
+  const trunkGeo = new THREE.CylinderGeometry(0.26, 0.42, 4.4, IS_SWIFT ? 5 : 7, 1);
+  trunkGeo.translate(0, 2.2, 0);
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 });
+  const leafMat = [
+    new THREE.MeshLambertMaterial({ color: 0x4e9b3a, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x63b04a, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x3f8a46, flatShading: true })
+  ];
+  const blobGeo = new THREE.IcosahedronGeometry(1, 0);
+
+  // yerleşim: ana yol boyunca sık, yan yollarda orta, dışarıda seyrek
+  const places = [];
+  for (let i = 0; i < mainRoad.N; i += 3) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    for (const side of [1, -1]) {
+      if (Math.random() < 0.28) continue;
+      const off = ROAD_W / 2 + rnd(3.6, 7.0);
+      const x = p.x + n.x * off * side, z = p.z + n.z * off * side;
+      places.push({ x, z, s: rnd(0.85, 1.35), canopy: Math.random() < 0.55 });
+    }
+  }
+  SIDE_ROADS.forEach(rd => {
+    for (let i = 0; i < rd.N; i += 4) {
+      const p = rd.pts[i], n = rd.norms[i];
+      for (const side of [1, -1]) {
+        if (Math.random() < 0.55) continue;
+        const off = 4.1 + rnd(3.2, 6.5);
+        places.push({ x: p.x + n.x * off * side, z: p.z + n.z * off * side, s: rnd(0.8, 1.2), canopy: false });
+      }
+    }
+  });
+  for (let i = 0; i < 520; i++) {
+    const a = Math.random() * TAU, r = rnd(52, WORLD_R - 26);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (nearestRoad(x, z).dist < ROAD_W / 2 + 4.5) continue;
+    places.push({ x, z, s: rnd(0.7, 1.25), canopy: false });
+  }
+  // Yazılım rasterleştirmede örnek sayısını kıs (görsel yoğunluk korunur, maliyet düşer)
+  const places2 = IS_SWIFT ? places.filter((_, i) => i % 2 === 0 || i < 260) : places;
+
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, places2.length);
+  const leafCount = places2.length * 4;
+  const leaves = [0, 1, 2].map(t => new THREE.InstancedMesh(blobGeo, leafMat[t], Math.ceil(leafCount / 3) + 8));
+  const li = [0, 0, 0];
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+  const col = new THREE.Color();
+  trunks.castShadow = true;
+  // Yapraklar gölge yapmaz: 2000+ örnekli yaprak gölgesi yazılım rasterleştirmede çok pahalı.
+  leaves.forEach(l => { l.castShadow = false; l.receiveShadow = true; });
+
+  places2.forEach((pl, i) => {
+    const y = terrainH(pl.x, pl.z);
+    const h = 4.4 * pl.s;
+    m.compose(v.set(pl.x, y, pl.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * TAU), sc.set(pl.s, pl.s, pl.s));
+    trunks.setMatrixAt(i, m);
+    treePositions.push({ x: pl.x, z: pl.z, y, r: 0.44 * pl.s, h });
+
+    // taç: 3-4 küre, canopyler yola doğru genişler
+    const blobs = pl.canopy ? 5 : 3;
+    const spread = pl.canopy ? 3.5 : 2.3;
+    for (let b = 0; b < blobs; b++) {
+      const ang = (b / blobs) * TAU + Math.random() * 0.6;
+      const rad = b === 0 ? 0 : Math.random() * spread * 0.55;
+      const bx = pl.x + Math.cos(ang) * rad * (pl.canopy ? 1.45 : 1);
+      const bz = pl.z + Math.sin(ang) * rad * (pl.canopy ? 1.45 : 1);
+      const by = y + h * rnd(0.86, 1.12) + (b === 0 ? 0.5 : 0);
+      const bs = (pl.canopy ? rnd(1.9, 2.9) : rnd(1.5, 2.4)) * pl.s;
+      const t = b % 3;
+      const target = leaves[t];
+      if (li[t] < target.count) {
+        m.compose(v.set(bx, by, bz), q.setFromEuler(new THREE.Euler(Math.random(), Math.random(), Math.random())), sc.set(bs, bs * rnd(0.8, 1.05), bs));
+        target.setMatrixAt(li[t], m);
+        col.setHSL(0.27 + rnd(-0.035, 0.05), rnd(0.42, 0.62), rnd(0.3, 0.44));
+        target.setColorAt(li[t], col);
+        li[t]++;
+      }
+    }
+  });
+  leaves.forEach((l, i) => { l.count = li[i]; l.instanceMatrix.needsUpdate = true; if (l.instanceColor) l.instanceColor.needsUpdate = true; });
+  trunks.instanceMatrix.needsUpdate = true;
+  scene.add(trunks, ...leaves);
+}
+buildTrees();
+
+/* ---------------- 6. Evler, çitler, banklar, lambalar, parklar ---------------- */
+const colliders = [];   // { x, z, r, h }  dairesel engeller
+const boxColliders = []; // { x, z, hw, hd, h, rot, mesh? }
+const HOUSES = [];
+const staticGroups = [];   // birleştirilecek statik gruplar
+function buildHouse(x, z, rotY, palette) {
+  const g = new THREE.Group();
+  const w = rnd(6.5, 8.6), d = rnd(6.0, 7.6), wallH = rnd(3.2, 4.0);
+  const wallMat = new THREE.MeshLambertMaterial({ color: palette.wall });
+  const roofMat = new THREE.MeshLambertMaterial({ color: palette.roof });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
+  body.position.y = wallH / 2; body.castShadow = true; body.receiveShadow = true;
+  g.add(body);
+  // çatı (beşik)
+  const roofH = rnd(1.9, 2.7);
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(0.001, 1, roofH, 4, 1), roofMat);
+  roof.rotation.y = Math.PI / 4;
+  roof.scale.set(w * 0.78, 1, d * 0.78);
+  roof.position.y = wallH + roofH / 2;
+  roof.castShadow = true;
+  g.add(roof);
+  // kapı
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.05, 2.05, 0.14), new THREE.MeshLambertMaterial({ color: palette.door }));
+  door.position.set(0, 1.02, d / 2 + 0.05); g.add(door);
+  // pencereler
+  const winMat = new THREE.MeshLambertMaterial({ color: 0x9ad7f0, emissive: 0x24404d, emissiveIntensity: 0.45 });
+  for (const sx of [-w * 0.26, w * 0.26]) {
+    const win = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.25, 0.12), winMat);
+    win.position.set(sx, wallH * 0.62, d / 2 + 0.04); g.add(win);
+  }
+  for (const sd of [-1, 1]) {
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.1, 1.1), winMat);
+    win.position.set(sd * (w / 2 + 0.02), wallH * 0.6, 0); g.add(win);
+  }
+  // baca
+  const chim = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.7), new THREE.MeshLambertMaterial({ color: 0x8d6a5b }));
+  chim.position.set(w * 0.3, wallH + roofH * 0.75, -d * 0.2); chim.castShadow = true; g.add(chim);
+  g.position.set(x, terrainH(x, z), z);
+  g.rotation.y = rotY;
+  scene.add(g);
+  staticGroups.push(g);
+  const R = Math.max(w, d) * 0.62;
+  colliders.push({ x, z, r: R, h: wallH + roofH });
+  HOUSES.push({ x, z, rotY, w, d });
+  return g;
+}
+const PALETTES = [
+  { wall: 0xf6e3c5, roof: 0xc0563f, door: 0x6b3f2a },
+  { wall: 0xe8d5e5, roof: 0x7a5aa8, door: 0x4a3566 },
+  { wall: 0xcfe6d8, roof: 0x3f7a5c, door: 0x2c5340 },
+  { wall: 0xf7d9c0, roof: 0xd88b3c, door: 0x8a5320 },
+  { wall: 0xdfe8f5, roof: 0x4a6fa8, door: 0x2f4a75 },
+  { wall: 0xf3e0a8, roof: 0xb85a4a, door: 0x7a3a2f }
+];
+function buildNeighborhood() {
+  // ana yolun dış tarafına evler
+  for (let i = 0; i < mainRoad.N; i += 16) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i], tan = mainRoad.tans[i];
+    const side = (i / 16) % 3 === 0 ? -1 : 1;
+    const off = ROAD_W / 2 + rnd(15, 24);
+    const x = p.x + n.x * off * side, z = p.z + n.z * off * side;
+    if (Math.hypot(x, z) > WORLD_R - 30) continue;
+    const rot = Math.atan2(tan.x, tan.z) + (side > 0 ? Math.PI : 0) + rnd(-0.3, 0.3);
+    buildHouse(x, z, rot, PALETTES[(i / 16) % PALETTES.length]);
+  }
+  // yan yollar boyunca birkaç ev
+  SIDE_ROADS.forEach((rd, k) => {
+    for (let i = 4; i < rd.N - 2; i += 9) {
+      const p = rd.pts[i], n = rd.norms[i], tan = rd.tans[i];
+      const side = (i + k) % 2 ? 1 : -1;
+      const off = rnd(11, 17);
+      const x = p.x + n.x * off * side, z = p.z + n.z * off * side;
+      if (nearestRoad(x, z).dist < 8) continue;
+      if (Math.hypot(x, z) > WORLD_R - 34) continue;
+      buildHouse(x, z, Math.atan2(tan.x, tan.z) + (side > 0 ? Math.PI : 0), PALETTES[(i + k) % PALETTES.length]);
+    }
+  });
+}
+buildNeighborhood();
+
+/* --- çitler (instanced) --- */
+function buildFences() {
+  const postGeo = new THREE.BoxGeometry(0.14, 1.05, 0.14);
+  const railGeo = new THREE.BoxGeometry(1.0, 0.13, 0.09);
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0xe9e2d0 });
+  const posts = [], rails = [];
+  const segs = [];
+  // ana yol kenarlarına parçalı çitler
+  for (let i = 0; i < mainRoad.N; i += 22) {
+    if (Math.random() < 0.35) continue;
+    const p = mainRoad.pts[i], n = mainRoad.norms[i], tan = mainRoad.tans[i];
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const off = ROAD_W / 2 + rnd(7, 12);
+    segs.push({ x: p.x + n.x * off * side, z: p.z + n.z * off * side, a: Math.atan2(tan.x, tan.z), len: rnd(9, 20) });
+  }
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1);
+  const up = new THREE.Vector3(0, 1, 0);
+  segs.forEach(s => {
+    const n = Math.floor(s.len / 1.6);
+    for (let i = 0; i <= n; i++) {
+      const t = i * 1.6 - s.len / 2;
+      const x = s.x + Math.sin(s.a) * t, z = s.z + Math.cos(s.a) * t;
+      const y = terrainH(x, z);
+      posts.push({ x, y, z });
+      if (i < n) rails.push({ x: x + Math.sin(s.a) * 0.8, y, z: z + Math.cos(s.a) * 0.8, a: s.a });
+    }
+  });
+  const pi = new THREE.InstancedMesh(postGeo, woodMat, posts.length);
+  const ri2 = new THREE.InstancedMesh(railGeo, woodMat, rails.length * 2);
+  pi.castShadow = true; ri2.castShadow = true;
+  posts.forEach((p, i) => { m.compose(v.set(p.x, p.y + 0.52, p.z), q.identity(), sc); pi.setMatrixAt(i, m); });
+  rails.forEach((r, i) => {
+    q.setFromAxisAngle(up, r.a);
+    m.compose(v.set(r.x, r.y + 0.78, r.z), q, sc); ri2.setMatrixAt(i * 2, m);
+    m.compose(v.set(r.x, r.y + 0.36, r.z), q, sc); ri2.setMatrixAt(i * 2 + 1, m);
+  });
+  pi.instanceMatrix.needsUpdate = true; ri2.instanceMatrix.needsUpdate = true;
+  scene.add(pi, ri2);
+}
+buildFences();
+
+/* --- sokak lambaları --- */
+const streetLights = [];
+function buildLamps() {
+  const poleGeo = new THREE.CylinderGeometry(0.08, 0.11, 5.0, 6); poleGeo.translate(0, 2.5, 0);
+  const armGeo = new THREE.BoxGeometry(1.1, 0.1, 0.1); armGeo.translate(0.55, 0, 0);
+  const headGeo = new THREE.BoxGeometry(0.55, 0.22, 0.34);
+  const metal = new THREE.MeshLambertMaterial({ color: 0x39424d });
+  const glass = new THREE.MeshLambertMaterial({ color: 0xfff3cf, emissive: 0xffe9a8, emissiveIntensity: 0.75 });
+  const spots = [];
+  for (let i = 0; i < mainRoad.N; i += 12) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    const side = (i / 12) % 2 ? 1 : -1;
+    const off = ROAD_W / 2 + 1.7;
+    spots.push({ x: p.x + n.x * off * side, z: p.z + n.z * off * side, a: Math.atan2(n.x * side, n.z * side) });
+  }
+  const p1 = new THREE.InstancedMesh(poleGeo, metal, spots.length);
+  const p2 = new THREE.InstancedMesh(armGeo, metal, spots.length);
+  const p3 = new THREE.InstancedMesh(headGeo, glass, spots.length);
+  p1.castShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1);
+  const up = new THREE.Vector3(0, 1, 0);
+  spots.forEach((s, i) => {
+    const y = terrainH(s.x, s.z);
+    q.setFromAxisAngle(up, s.a);
+    m.compose(v.set(s.x, y, s.z), q, sc); p1.setMatrixAt(i, m);
+    m.compose(v.set(s.x, y + 4.9, s.z), q, sc); p2.setMatrixAt(i, m);
+    m.compose(v.set(s.x + Math.sin(s.a + Math.PI / 2) * 1.1, y + 4.76, s.z + Math.cos(s.a + Math.PI / 2) * 1.1), q, sc); p3.setMatrixAt(i, m);
+    colliders.push({ x: s.x, z: s.z, r: 0.28, h: 5 });
+    streetLights.push({ x: s.x, y, z: s.z });
+  });
+  p1.instanceMatrix.needsUpdate = true; p2.instanceMatrix.needsUpdate = true; p3.instanceMatrix.needsUpdate = true;
+  scene.add(p1, p2, p3);
+}
+buildLamps();
+
+/* --- banklar --- */
+function buildBench(x, z, rotY) {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshLambertMaterial({ color: 0xa9713f });
+  const iron = new THREE.MeshLambertMaterial({ color: 0x3b4249 });
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.11, 0.62), wood);
+  seat.position.y = 0.52; g.add(seat);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.5, 0.09), wood);
+  back.position.set(0, 0.86, -0.26); back.rotation.x = -0.16; g.add(back);
+  for (const sx of [-0.78, 0.78]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.52, 0.55), iron);
+    leg.position.set(sx, 0.26, 0); g.add(leg);
+  }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const y = terrainH(x, z);
+  g.position.set(x, y, z); g.rotation.y = rotY;
+  scene.add(g);
+  staticGroups.push(g);
+  boxColliders.push({ x, z, hw: 1.0, hd: 0.4, h: 1.1, rot: rotY });
+}
+function buildBenches() {
+  for (let i = 0; i < mainRoad.N; i += 30) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i], tan = mainRoad.tans[i];
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const off = ROAD_W / 2 + 2.9;
+    buildBench(p.x + n.x * off * side, p.z + n.z * off * side, Math.atan2(-n.x * side, -n.z * side) + rnd(-0.2, 0.2));
+  }
+}
+buildBenches();
+
+/* --- çiçek tarhları (instanced) --- */
+function buildFlowers() {
+  const geo = new THREE.SphereGeometry(0.19, 5, 4);
+  const stemGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.34, 4); stemGeo.translate(0, 0.17, 0);
+  const stemMat = new THREE.MeshLambertMaterial({ color: 0x47803a });
+  const petals = [0xff6b8a, 0xffd23f, 0xc084fc, 0xff8b3d, 0xffffff, 0x67c7f0].map(c =>
+    new THREE.MeshLambertMaterial({ color: c }));
+  const spots = [];
+  for (let i = 0; i < mainRoad.N; i += 2) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    for (const side of [1, -1]) {
+      if (Math.random() < 0.72) continue;
+      const off = ROAD_W / 2 + rnd(3.2, 9);
+      spots.push({ x: p.x + n.x * off * side, z: p.z + n.z * off * side });
+    }
+  }
+  const heads = petals.map(m => new THREE.InstancedMesh(geo, m, Math.ceil(spots.length / 6) + 4));
+  const stems = new THREE.InstancedMesh(stemGeo, stemMat, spots.length);
+  const hi = new Array(6).fill(0), si = { n: 0 };
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+  spots.forEach((s, i) => {
+    if (si.n >= stems.count) return;
+    const y = terrainH(s.x, s.z);
+    const k = i % 6;
+    if (hi[k] < heads[k].count) {
+      m4.compose(v.set(s.x, y + 0.42, s.z), q, sc.set(rnd(0.8, 1.4), rnd(0.8, 1.3), rnd(0.8, 1.4)));
+      heads[k].setMatrixAt(hi[k], m4); hi[k]++;
+    }
+    m4.compose(v.set(s.x, y, s.z), q, sc.set(1, rnd(0.8, 1.3), 1));
+    stems.setMatrixAt(si.n, m4); si.n++;
+  });
+  heads.forEach((h, i) => { h.count = hi[i]; h.instanceMatrix.needsUpdate = true; scene.add(h); });
+  stems.count = si.n; stems.instanceMatrix.needsUpdate = true; scene.add(stems);
+}
+buildFlowers();
+
+/* --- parklar: birkaç yeşil alan + piknik masaları --- */
+function buildParks() {
+  const mat = new THREE.MeshLambertMaterial({ color: 0x6ec157 });
+  const tableMat = new THREE.MeshLambertMaterial({ color: 0xb07a45 });
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * TAU + 0.6, r = 62;
+    const cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+    if (nearestRoad(cx, cz).dist < 14) continue;
+    const patch = new THREE.Mesh(new THREE.CircleGeometry(rnd(11, 15), 22), mat);
+    patch.rotation.x = -Math.PI / 2;
+    patch.position.set(cx, terrainH(cx, cz) + 0.06, cz);
+    patch.receiveShadow = true;
+    scene.add(patch);
+    for (let t = 0; t < 2; t++) {
+      const tx = cx + rnd(-5, 5), tz = cz + rnd(-5, 5);
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 0.14, 10), tableMat);
+      const ty = terrainH(tx, tz);
+      top.position.set(tx, ty + 0.78, tz); top.castShadow = true; scene.add(top);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.78, 0.22), tableMat);
+      leg.position.set(tx, ty + 0.39, tz); scene.add(leg);
+      colliders.push({ x: tx, z: tz, r: 1.0, h: 0.9 });
+    }
+  }
+}
+buildParks();
+
+/* ---------------- 6b. Statik geometri birleştirme (draw-call azaltma) ---------------- */
+/* Evler, banklar, lambalar, rampalar, köprü gibi statik parçalar yüzlerce ayrı
+   mesh = yüzlerce draw call demek. Aynı renk+malzeme sınıfındaki statik mesh'leri
+   tek BufferGeometry'ye birleştiriyoruz. Işıklandırma aynı kalır (Lambert). */
+const staticRoots = [];   // birleştirilecek gruplar
+
+/** Bir grup içindeki tüm mesh'leri renk başına birleştirir ve grubu sahneden kaldırır. */
+function mergeStaticGroup(group, opts = {}) {
+  const byKey = new Map();     // 'hex|castShadow' → geometry listesi
+  const meshes = [];
+  group.updateWorldMatrix(true, true);
+  group.traverse(o => {
+    if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh) return;
+    if (!o.geometry || !o.geometry.attributes.position) return;
+    meshes.push(o);
+    const hex = o.material && o.material.color ? o.material.color.getHex() : 0xffffff;
+    const key = hex + '|' + (o.castShadow ? 1 : 0) + '|' + (o.material.transparent ? 1 : 0) + '|' + (o.material.opacity ?? 1);
+    if (!byKey.has(key)) byKey.set(key, { hex, cast: o.castShadow, mat: o.material, geos: [] });
+    const g = o.geometry.clone();
+    g.applyMatrix4(o.matrixWorld);
+    byKey.get(key).geos.push(g);
+  });
+  if (meshes.length < 2) return null;
+
+  const out = new THREE.Group();
+  byKey.forEach(rec => {
+    const merged = mergeGeometries(rec.geos, false);
+    rec.geos.forEach(g => g.dispose());
+    if (!merged) return;
+    merged.computeBoundingSphere();
+    const mat = rec.mat.isMeshLambertMaterial || rec.mat.isMeshStandardMaterial
+      ? new THREE.MeshLambertMaterial({
+        color: rec.hex,
+        transparent: rec.mat.transparent,
+        opacity: rec.mat.opacity,
+        emissive: rec.mat.emissive ? rec.mat.emissive.clone() : undefined,
+        emissiveIntensity: rec.mat.emissiveIntensity
+      })
+      : rec.mat;
+    const m = new THREE.Mesh(merged, mat);
+    m.castShadow = rec.cast;
+    m.receiveShadow = true;
+    out.add(m);
+  });
+  scene.add(out);
+  group.parent && group.parent.remove(group);
+  return out;
+}
+
+/* ---------------- 7. Rampalar, köprüler, inişler ---------------- */
+const ramps = [];   // { x, z, rotY, w, len, h, mesh }
+function buildRamp(x, z, rotY, w = 5.4, len = 8.0, h = 1.9) {
+  const geo = new THREE.BufferGeometry();
+  const hw = w / 2;
+  // eğimli üst yüzey + yan üçgenler
+  const v = [
+    -hw, 0, -len / 2, hw, 0, -len / 2, hw, h, len / 2, -hw, h, len / 2, // üst
+    -hw, 0, -len / 2, -hw, h, len / 2, hw, h, len / 2, hw, 0, -len / 2  // alt kapanış
+  ];
+  const idx = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xb5713c, side: THREE.DoubleSide }));
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  const y = terrainH(x, z);
+  mesh.position.set(x, y + 0.03, z);
+  mesh.rotation.y = rotY;
+  scene.add(mesh);
+  ramps.push({ x, z, rotY, w, len, h, baseY: y + 0.03, mesh });
+  // rampa yan destekleri
+  for (const sx of [-hw, hw]) {
+    const sup = new THREE.Mesh(new THREE.BoxGeometry(0.3, h, len), new THREE.MeshLambertMaterial({ color: 0x8d5a33 }));
+    sup.position.set(sx, h / 2, 0);
+    mesh.add(sup);
+  }
+  return mesh;
+}
+// ana yol boyunca rampalar (yol üzerinde veya kenarında)
+const RAMP_SITES = [26, 74, 121, 168, 214, 262];
+RAMP_SITES.forEach((idx) => {
+  const i = idx % mainRoad.N;
+  const p = mainRoad.pts[i], n = mainRoad.norms[i], tan = mainRoad.tans[i];
+  const off = (idx % 2 ? 1 : -1) * rnd(1.2, 2.6);
+  const x = p.x + n.x * off, z = p.z + n.z * off;
+  buildRamp(x, z, Math.atan2(tan.x, tan.z), rnd(4.6, 5.8), rnd(7, 9.5), rnd(1.5, 2.1));
+});
+
+/* --- ahşap köprü (dere üzerinde) --- */
+let BRIDGE = null;
+function buildBridge() {
+  const idx = 150;
+  const p = mainRoad.pts[idx], n = mainRoad.norms[idx], tan = mainRoad.tans[idx];
+  const cx = p.x + n.x * 13.5, cz = p.z + n.z * 13.5;
+  const rotY = Math.atan2(tan.x, tan.z);
+  const g = new THREE.Group();
+  const plankMat = new THREE.MeshLambertMaterial({ color: 0xa87a4a });
+  const railMat = new THREE.MeshLambertMaterial({ color: 0x8a6039 });
+  const LEN = 22, W = 6.4;
+  // dere (mavi su şeridi)
+  const brook = new THREE.Mesh(new THREE.PlaneGeometry(6, 34),
+    new THREE.MeshLambertMaterial({ color: 0x5fb4d8, transparent: true, opacity: 0.88 }));
+  brook.rotation.x = -Math.PI / 2; brook.rotation.z = rotY + Math.PI / 2;
+  brook.position.set(cx, terrainH(cx, cz) + 0.05, cz);
+  scene.add(brook);
+  // köprü güvertesi: hafif bombeli
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16;
+    const px = -LEN / 2 + t * LEN;
+    const py = 0.62 + Math.sin(t * Math.PI) * 0.55;
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.16, W), plankMat);
+    plank.position.set(px, py, 0);
+    plank.castShadow = true; plank.receiveShadow = true;
+    g.add(plank);
+  }
+  for (const sz of [-W / 2, W / 2]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(LEN, 0.14, 0.14), railMat);
+    rail.position.set(0, 1.42, sz); g.add(rail);
+    for (let i = 0; i <= 6; i++) {
+      const t = i / 6;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.95, 0.14), railMat);
+      post.position.set(-LEN / 2 + t * LEN, 0.98 + Math.sin(t * Math.PI) * 0.55, sz);
+      g.add(post);
+    }
+  }
+  const y = terrainH(cx, cz);
+  g.position.set(cx, y, cz); g.rotation.y = rotY;
+  scene.add(g);
+  staticGroups.push(g);
+  BRIDGE = { x: cx, z: cz, rotY, w: W, len: LEN, y };
+  // korkuluklar: köprü ekseninde iki ince kutu (döndürülmüş çarpışma)
+  for (const s of [-1, 1]) {
+    const nx = Math.cos(rotY), nz = -Math.sin(rotY);
+    boxColliders.push({
+      x: cx + nx * (W / 2) * s, z: cz + nz * (W / 2) * s,
+      hw: LEN / 2, hd: 0.2, h: 1.5, rot: rotY
+    });
+  }
+}
+buildBridge();
+
+/* ---------------- 8. Gökyüzü, bulutlar, yapraklar ---------------- */
+/* gradyan gökyüzü (shader'sız: büyük ters küre + vertex renkleri) */
+{
+  const g = new THREE.SphereGeometry(600, 24, 16);
+  const pos = g.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 600;
+    c.copy(SKY_BOT).lerp(SKY_TOP, clamp((y + 0.15) * 1.25, 0, 1));
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const sky = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  scene.add(sky);
+}
+/* güneş diski */
+{
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(22, 24),
+    new THREE.MeshBasicMaterial({ color: 0xfff4cf, fog: false, transparent: true, opacity: 0.95 }));
+  disc.position.copy(sun.position).normalize().multiplyScalar(520);
+  disc.lookAt(0, 0, 0);
+  scene.add(disc);
+}
+/* bulutlar: yumuşak küme topları, yavaşça süzülür */
+const clouds = [];
+function buildClouds() {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xdfeaf5, emissiveIntensity: 0.55, fog: false, transparent: true, opacity: 0.94 });
+  const geo = new THREE.SphereGeometry(1, 6, 4);
+  const cloudN = IS_SWIFT ? 12 : 26;
+  for (let i = 0; i < cloudN; i++) {
+    const g = new THREE.Group();
+    const n = 4 + Math.floor(Math.random() * 4);
+    for (let b = 0; b < n; b++) {
+      const s = rnd(7, 15);
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(rnd(-14, 14), rnd(-2, 3), rnd(-8, 8));
+      m.scale.set(s, s * rnd(0.5, 0.7), s * rnd(0.75, 1));
+      g.add(m);
+    }
+    const a = Math.random() * TAU, r = rnd(40, 250);
+    g.position.set(Math.cos(a) * r, rnd(58, 96), Math.sin(a) * r);
+    scene.add(g); clouds.push(g);
+  }
+}
+buildClouds();
+
+/* süzülen yapraklar (instanced) */
+const LEAF_N = IS_SWIFT ? 120 : 260;
+const leafData = [];
+let leafMesh = null;
+function buildLeafDrift() {
+  const geo = new THREE.PlaneGeometry(0.36, 0.26);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x7fbf4f, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+  leafMesh = new THREE.InstancedMesh(geo, mat, LEAF_N);
+  for (let i = 0; i < LEAF_N; i++) {
+    leafData.push({
+      x: rnd(-110, 110), y: rnd(0.5, 16), z: rnd(-110, 110),
+      vy: rnd(-0.5, -0.16), spin: rnd(0.6, 2.2), ph: Math.random() * TAU,
+      drift: rnd(0.5, 1.6)
+    });
+  }
+  scene.add(leafMesh);
+}
+buildLeafDrift();
+
+/* ---------------- 9. Toplanabilirler + checkpoint + engeller ---------------- */
+const collectibles = [];   // { mesh, x,y,z, taken, type }
+const checkpoints = [];    // { x,z, r, mesh, passed }
+const obstacles = [];      // { type, x,z, mesh, ... , update? }
+
+/* tokenlar: yol boyunca sıralı yerleştir (sık aralıklı, toplanabilir) */
+function buildCollectibles() {
+  const coinGeo = new THREE.TorusGeometry(0.42, 0.14, 7, 14);
+  const starGeo = new THREE.OctahedronGeometry(0.42, 0);
+  const coinMat = new THREE.MeshLambertMaterial({ color: 0xffd23f, emissive: 0xa87a00, emissiveIntensity: 0.6 });
+  const starMat = new THREE.MeshLambertMaterial({ color: 0x67e8f9, emissive: 0x0e7490, emissiveIntensity: 0.7 });
+  let idx = 0;
+  // Ana yol: her 3 örnekte bir token → hattı takip eden oyuncu sürekli toplar
+  for (let i = 0; i < mainRoad.N; i += 3) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    const kind = idx % 6 === 0;
+    const off = rnd(-ROAD_W / 2 + 1.8, ROAD_W / 2 - 1.8);
+    const mesh = new THREE.Mesh(kind ? starGeo : coinGeo, kind ? starMat : coinMat);
+    const y = 1.05 + (kind ? 0.5 : 0);
+    mesh.position.set(p.x + n.x * off, y, p.z + n.z * off);
+    mesh.castShadow = true;
+    scene.add(mesh);
+    collectibles.push({ mesh, x: mesh.position.x, y, z: mesh.position.z, taken: false, type: kind ? 'star' : 'coin', val: kind ? 25 : 10 });
+    idx++;
+  }
+  // Yan yollarda da birkaç token (keşif ödülü)
+  SIDE_ROADS.forEach(rd => {
+    for (let i = 2; i < rd.N; i += 3) {
+      const p = rd.pts[i], n = rd.norms[i];
+      const off = rnd(-3, 3);
+      const mesh = new THREE.Mesh(coinGeo, coinMat);
+      mesh.position.set(p.x + n.x * off, 1.05, p.z + n.z * off);
+      scene.add(mesh);
+      collectibles.push({ mesh, x: mesh.position.x, y: 1.05, z: mesh.position.z, taken: false, type: 'coin', val: 10 });
+    }
+  });
+  dbg.totalCollectibles = collectibles.length;
+
+  // checkpoint halkaları (ana yol üzerinde, geniş)
+  const ringGeo = new THREE.TorusGeometry(3.6, 0.22, 8, 22);
+  const ringMat = new THREE.MeshLambertMaterial({ color: 0x37b5a4, emissive: 0x0d6b60, emissiveIntensity: 0.65 });
+  for (let k = 0; k < 8; k++) {
+    const i = Math.floor((k / 8) * mainRoad.N);
+    const p = mainRoad.pts[i], tan = mainRoad.tans[i];
+    const mesh = new THREE.Mesh(ringGeo, ringMat.clone());
+    mesh.position.set(p.x, 3.4, p.z);
+    mesh.rotation.y = Math.atan2(tan.x, tan.z);
+    scene.add(mesh);
+    checkpoints.push({ x: p.x, z: p.z, mesh, passed: false, idx: k });
+  }
+  dbg.totalCheckpoints = checkpoints.length;
+}
+buildCollectibles();
+
+/* --- hareketli/kaçınılabilir engeller --- */
+function makeCone(x, z) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.92, 9), new THREE.MeshLambertMaterial({ color: 0xff6b1a }));
+  body.position.y = 0.46; body.castShadow = true;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.16, 9), new THREE.MeshLambertMaterial({ color: 0xfdfaf3 }));
+  band.position.y = 0.5;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.07, 0.68), new THREE.MeshLambertMaterial({ color: 0xd4550f }));
+  base.position.y = 0.035;
+  g.add(body, band, base);
+  const y = terrainH(x, z);
+  g.position.set(x, y, z);
+  scene.add(g);
+  obstacles.push({ type: 'cone', x, z, mesh: g, r: 0.42, y, solid: true });
+}
+function makeBoxStack(x, z, rotY) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0xc08a55 });
+  const mat2 = new THREE.MeshLambertMaterial({ color: 0xa9743f });
+  let h = 0;
+  for (let i = 0; i < 3; i++) {
+    const s = 0.72 - i * 0.06;
+    const b = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), i % 2 ? mat2 : mat);
+    b.position.y = h + s / 2; b.castShadow = true; b.receiveShadow = true;
+    g.add(b); h += s;
+  }
+  const y = terrainH(x, z);
+  g.position.set(x, y, z); g.rotation.y = rotY;
+  scene.add(g);
+  obstacles.push({ type: 'boxes', x, z, mesh: g, r: 0.66, y, solid: true, knock: true });
+}
+function makePuddle(x, z) {
+  const m = new THREE.Mesh(new THREE.CircleGeometry(rnd(0.9, 1.5), 14),
+    new THREE.MeshLambertMaterial({ color: 0x6fa8d0, transparent: true, opacity: 0.72 }));
+  m.rotation.x = -Math.PI / 2;
+  const y = terrainH(x, z);
+  m.position.set(x, y + 0.045, z);
+  scene.add(m);
+  obstacles.push({ type: 'puddle', x, z, mesh: m, r: 1.3, y, solid: false, slip: true });
+}
+function makeBranch(x, z, rotY) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.26, 3.4, 7), new THREE.MeshLambertMaterial({ color: 0x6f4a2c }));
+  trunk.rotation.z = Math.PI / 2; trunk.position.y = 0.24; trunk.castShadow = true;
+  g.add(trunk);
+  for (let i = 0; i < 3; i++) {
+    const tw = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 0.9, 5), new THREE.MeshLambertMaterial({ color: 0x5f4126 }));
+    tw.position.set(rnd(-1.2, 1.2), 0.5, rnd(-0.25, 0.25));
+    tw.rotation.set(rnd(-0.6, 0.6), 0, rnd(0.7, 1.5));
+    g.add(tw);
+  }
+  const y = terrainH(x, z);
+  g.position.set(x, y, z); g.rotation.y = rotY;
+  scene.add(g);
+  obstacles.push({ type: 'branch', x, z, mesh: g, r: 1.5, y, solid: true, low: true });
+}
+function makeDog(x, z) {
+  const g = new THREE.Group();
+  const fur = new THREE.MeshLambertMaterial({ color: 0xd8a066 });
+  const fur2 = new THREE.MeshLambertMaterial({ color: 0xb07f47 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.45), fur);
+  body.position.y = 0.52; body.castShadow = true; g.add(body);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.4), fur2);
+  head.position.set(0.55, 0.72, 0); head.castShadow = true; g.add(head);
+  const snout = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.2), fur2);
+  snout.position.set(0.78, 0.66, 0); g.add(snout);
+  for (const s of [-0.28, 0.28]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.24, 4), fur2);
+    ear.position.set(0.5, 0.98, s); g.add(ear);
+  }
+  const legs = [];
+  for (const dx of [-0.3, 0.3]) for (const dz of [-0.15, 0.15]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.42, 0.13), fur2);
+    leg.position.set(dx, 0.21, dz); leg.castShadow = true; g.add(leg); legs.push(leg);
+  }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.5), fur2);
+  tail.position.set(-0.5, 0.68, 0); g.add(tail);
+  const y = terrainH(x, z);
+  g.position.set(x, y, z);
+  scene.add(g);
+  obstacles.push({ type: 'dog', x, z, mesh: g, r: 0.6, y, legs, phase: Math.random() * TAU, solid: true, moving: true, baseX: x, baseZ: z });
+}
+function makePed(x, z, color) {
+  const g = new THREE.Group();
+  const shirt = new THREE.MeshLambertMaterial({ color });
+  const pants = new THREE.MeshLambertMaterial({ color: 0x3d4a5c });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xf1c39a });
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.66, 0.3), shirt);
+  torso.position.y = 1.19; torso.castShadow = true; g.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 9, 7), skin);
+  head.position.y = 1.68; head.castShadow = true; g.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.2, 9, 6, 0, TAU, 0, 1.5), new THREE.MeshLambertMaterial({ color: 0x2e2620 }));
+  hair.position.y = 1.71; g.add(hair);
+  const legs = [];
+  for (const s of [-0.13, 0.13]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.86, 0.19), pants);
+    leg.position.set(s, 0.43, 0); leg.castShadow = true; g.add(leg); legs.push(leg);
+  }
+  const arms = [];
+  for (const s of [-0.34, 0.34]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.62, 0.15), shirt);
+    arm.position.set(s, 1.2, 0); arm.castShadow = true; g.add(arm); arms.push(arm);
+  }
+  const y = terrainH(x, z);
+  g.position.set(x, y, z);
+  scene.add(g);
+  obstacles.push({ type: 'ped', x, z, mesh: g, r: 0.5, y, legs, arms, phase: Math.random() * TAU, solid: true, moving: true, baseX: x, baseZ: z, speed: rnd(0.5, 1.0), dir: Math.random() * TAU });
+}
+function makeCar(x, z, rotY, color) {
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color });
+  const glass = new THREE.MeshLambertMaterial({ color: 0x8ecae6, emissive: 0x1f3b47, emissiveIntensity: 0.4 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.85, 1.9), bodyMat);
+  body.position.y = 0.72; body.castShadow = true; body.receiveShadow = true; g.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.72, 1.7), glass);
+  cabin.position.set(-0.25, 1.45, 0); cabin.castShadow = true; g.add(cabin);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.14, 1.75), bodyMat);
+  roof.position.set(-0.25, 1.83, 0); g.add(roof);
+  const wheels = [];
+  for (const dx of [-1.35, 1.35]) for (const dz of [-0.95, 0.95]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.26, 10), new THREE.MeshLambertMaterial({ color: 0x22262b }));
+    w.rotation.x = Math.PI / 2; w.position.set(dx, 0.36, dz); w.castShadow = true; g.add(w); wheels.push(w);
+  }
+  for (const dz of [-0.6, 0.6]) {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.4), new THREE.MeshLambertMaterial({ color: 0xfff3cf, emissive: 0xffe9a8, emissiveIntensity: 0.8 }));
+    lamp.position.set(2.1, 0.82, dz); g.add(lamp);
+  }
+  const y = terrainH(x, z);
+  g.position.set(x, y, z); g.rotation.y = rotY;
+  scene.add(g);
+  obstacles.push({ type: 'car', x, z, mesh: g, r: 2.3, y, wheels, solid: true, moving: true, baseX: x, baseZ: z, speed: rnd(2.2, 4.2), dir: rotY, lane: rnd(-2.4, 2.4) });
+}
+const CAR_COLORS = [0xd94f4f, 0x4f7fd9, 0xe8b23c, 0x58b783, 0xe0e0e6, 0x9a6fd0];
+function buildObstacles() {
+  // koniler: yol kenarına yakın kümeler (kaçınılabilir, yolu kapatmaz)
+  for (let i = 20; i < mainRoad.N; i += 37) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    const off = rnd(-2.4, 2.4);
+    for (let k = 0; k < 2; k++) makeCone(p.x + n.x * (off + k * 1.1), p.z + n.z * (off + k * 1.1));
+  }
+  // kutu yığınları (yol kenarı)
+  for (let i = 46; i < mainRoad.N; i += 61) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    const side = i % 2 ? 1 : -1;
+    makeBoxStack(p.x + n.x * (ROAD_W / 2 - 1.2) * side, p.z + n.z * (ROAD_W / 2 - 1.2) * side, Math.random() * TAU);
+  }
+  // su birikintileri (yol üzerinde, zararsız-kaygan)
+  for (let i = 12; i < mainRoad.N; i += 29) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    makePuddle(p.x + n.x * rnd(-3, 3), p.z + n.z * rnd(-3, 3));
+  }
+  // devrik dallar (yol kenarı)
+  for (let i = 33; i < mainRoad.N; i += 53) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i], tan = mainRoad.tans[i];
+    const side = i % 2 ? 1 : -1;
+    makeBranch(p.x + n.x * (ROAD_W / 2 - 0.6) * side, p.z + n.z * (ROAD_W / 2 - 0.6) * side, Math.atan2(tan.x, tan.z) + rnd(-0.4, 0.4));
+  }
+  // köpekler (yol kenarında gezinir, yola taşabilir)
+  for (let i = 8; i < mainRoad.N; i += 44) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    const side = Math.random() < 0.5 ? 1 : -1;
+    makeDog(p.x + n.x * (ROAD_W / 2 + 2.2) * side, p.z + n.z * (ROAD_W / 2 + 2.2) * side);
+  }
+  // yayalar (kaldırımda)
+  const shirtColors = [0xe05a4e, 0x4f9fd9, 0x6fbf6a, 0xe9c04a, 0xa87ad6];
+  for (let i = 16; i < mainRoad.N; i += 25) {
+    const p = mainRoad.pts[i], n = mainRoad.norms[i];
+    const side = Math.random() < 0.5 ? 1 : -1;
+    makePed(p.x + n.x * (ROAD_W / 2 + 2.8) * side, p.z + n.z * (ROAD_W / 2 + 2.8) * side, shirtColors[i % shirtColors.length]);
+  }
+  // arabalar (yol üzerinde yavaşça dolaşır)
+  for (let i = 0; i < 3; i++) {
+    const idx = Math.floor((i / 3) * mainRoad.N + 12);
+    const p = mainRoad.pts[idx], tan = mainRoad.tans[idx];
+    const n = mainRoad.norms[idx];
+    const lane = i % 2 ? 1 : -1;
+    makeCar(p.x + n.x * 2.1 * lane, p.z + n.z * 2.1 * lane, Math.atan2(tan.x, tan.z), CAR_COLORS[i % CAR_COLORS.length]);
+  }
+}
+buildObstacles();
+
+/* --- statik grupları tek seferde birleştir (draw call sayısını düşürür) --- */
+let mergedStaticCount = 0;
+{
+  const all = new THREE.Group();
+  for (const g of staticGroups) all.attach ? all.attach(g) : all.add(g);
+  const out = mergeStaticGroup(all);
+  if (out) mergedStaticCount = out.children.length;
+}
+
+/* ---------------- 10. Bisiklet + sürücü ---------------- */
+const bike = new THREE.Group();
+const bikeTilt = new THREE.Group();      // yatış (roll) + hafif pitch
+bike.add(bikeTilt);
+scene.add(bike);
+
+const WHEEL_R = 0.345, WHEELBASE = 1.05;
+const bikeParts = {};
+function buildBicycle() {
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xe23b4e, metalness: 0.42, roughness: 0.34 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x23272e, metalness: 0.5, roughness: 0.45 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xd6dbe2, metalness: 0.85, roughness: 0.24 });
+  const rubber = new THREE.MeshStandardMaterial({ color: 0x1b1e22, roughness: 0.92 });
+
+  /* --- tekerlekler --- */
+  function makeWheel() {
+    const g = new THREE.Group();
+    const tire = new THREE.Mesh(new THREE.TorusGeometry(WHEEL_R, 0.048, 7, 20), rubber);
+    tire.rotation.y = Math.PI / 2; tire.castShadow = true;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(WHEEL_R - 0.045, 0.022, 6, 20), chrome);
+    rim.rotation.y = Math.PI / 2;
+    // jant telleri
+    const spokes = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.006, 0.006, (WHEEL_R - 0.05) * 2, 4), chrome, 12);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1);
+    for (let i = 0; i < 12; i++) {
+      q.setFromEuler(new THREE.Euler(0, 0, (i / 12) * Math.PI));
+      m.compose(v.set(0, 0, 0), q, sc);
+      spokes.setMatrixAt(i, m);
+    }
+    spokes.rotation.y = Math.PI / 2;
+    spokes.instanceMatrix.needsUpdate = true;
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.11, 8), chrome);
+    hub.rotation.z = Math.PI / 2; hub.rotation.y = Math.PI / 2;
+    g.add(tire, rim, spokes, hub);
+    return g;
+  }
+  const wheelF = makeWheel(); wheelF.position.set(0, WHEEL_R, WHEELBASE / 2);
+  const wheelB = makeWheel(); wheelB.position.set(0, WHEEL_R, -WHEELBASE / 2);
+  bikeTilt.add(wheelF, wheelB);
+  bikeParts.wheelF = wheelF; bikeParts.wheelB = wheelB;
+
+  /* --- kadro: boru demeti --- */
+  function tube(a, b, r, mat) {
+    const dir = new THREE.Vector3().subVectors(b, a);
+    const len = dir.length();
+    const geo = new THREE.CylinderGeometry(r, r, len, 7);
+    const m = new THREE.Mesh(geo, mat);
+    m.position.copy(a).addScaledVector(dir, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    m.castShadow = true;
+    return m;
+  }
+  const P = {
+    bb: new THREE.Vector3(0, 0.30, -0.10),          // orta göbek
+    st: new THREE.Vector3(0, 0.78, -0.30),           // sele üstü
+    hb: new THREE.Vector3(0, 0.92, 0.42),            // gidon boğazı
+    ft: new THREE.Vector3(0, 0.95, 0.50),            // ön boru ucu
+    fh: new THREE.Vector3(0, WHEEL_R, WHEELBASE / 2),// ön göbek
+    bh: new THREE.Vector3(0, WHEEL_R, -WHEELBASE / 2)// arka göbek
+  };
+  bikeTilt.add(
+    tube(P.bb, P.st, 0.032, frameMat),      // sele borusu
+    tube(P.bb, P.ft, 0.034, frameMat),      // alt boru
+    tube(P.st, P.hb, 0.030, frameMat),      // üst boru
+    tube(P.hb, P.ft, 0.030, frameMat),      // ön boru
+    tube(P.bb, P.bh, 0.024, darkMat),       // arka çatal
+    tube(P.bb, P.bh.clone().add(new THREE.Vector3(0, 0.18, 0)), 0.016, darkMat),
+    tube(P.ft, P.fh, 0.026, frameMat),      // ön çatal (görünür kısım)
+    tube(P.st, P.bh, 0.020, frameMat)       // sele destek
+  );
+  // arka çatal bacakları (sağ/sol)
+  for (const s of [-1, 1]) {
+    const a = P.bb.clone().add(new THREE.Vector3(s * 0.035, 0, 0));
+    const b = P.bh.clone().add(new THREE.Vector3(s * 0.06, 0, 0));
+    bikeTilt.add(tube(a, b, 0.017, darkMat));
+  }
+  for (const s of [-1, 1]) {
+    const a = P.ft.clone().add(new THREE.Vector3(s * 0.06, 0, -0.02));
+    const b = P.fh.clone().add(new THREE.Vector3(s * 0.06, 0, 0));
+    bikeTilt.add(tube(a, b, 0.020, chrome));
+  }
+
+  /* --- gidon --- */
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.52, 8), chrome);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.set(0, 1.02, 0.44);
+  bar.castShadow = true;
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.16, 6), chrome);
+  stem.position.set(0, 0.97, 0.40); stem.rotation.x = 0.35;
+  // elcikler
+  for (const s of [-1, 1]) {
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.13, 8), darkMat);
+    grip.rotation.z = Math.PI / 2;
+    grip.position.set(s * 0.21, 1.02, 0.44);
+    bikeTilt.add(grip);
+    bikeParts['grip' + (s > 0 ? 'R' : 'L')] = grip;
+  }
+  bikeTilt.add(bar, stem);
+
+  /* --- sele --- */
+  const saddle = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.20, 4, 8), new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.6 }));
+  saddle.rotation.z = Math.PI / 2;
+  saddle.position.set(0, 0.83, -0.30);
+  saddle.scale.set(1, 1, 0.62);
+  saddle.castShadow = true;
+  bikeTilt.add(saddle);
+
+  /* --- aynakol dişlisi + zincir + pedal --- */
+  const crank = new THREE.Group();
+  crank.position.copy(P.bb);
+  const chainring = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.115, 0.014, 18), chrome);
+  chainring.rotation.z = Math.PI / 2;
+  crank.add(chainring);
+  const chainring2 = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.012, 5, 18), darkMat);
+  chainring2.rotation.y = Math.PI / 2;
+  crank.add(chainring2);
+  pedal(-1); pedal(1);
+  function pedal(side) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.30, 0.05), darkMat);
+    arm.position.set(side * 0.075, 0, 0);
+    arm.castShadow = true;
+    const pd = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.022, 0.15), new THREE.MeshStandardMaterial({ color: 0x15181c, roughness: 0.75 }));
+    pd.position.set(side * 0.085, -0.15, 0);
+    pd.castShadow = true;
+    const grp = new THREE.Group();
+    grp.add(arm, pd);
+    crank.add(grp);
+    if (side > 0) bikeParts.pedalR = grp; else bikeParts.pedalL = grp;
+    bikeParts[side > 0 ? 'pedalPtR' : 'pedalPtL'] = pd;
+  }
+  bikeTilt.add(crank);
+  bikeParts.crank = crank;
+  // zincir (arka dişli + alt/üst hat)
+  const rearCog = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 12), chrome);
+  rearCog.rotation.z = Math.PI / 2;
+  rearCog.position.copy(P.bh);
+  bikeTilt.add(rearCog);
+  const chainMat = new THREE.MeshStandardMaterial({ color: 0x3b4148, metalness: 0.6, roughness: 0.5 });
+  for (const y of [0.045, -0.045]) {
+    const chain = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, WHEELBASE * 0.92), chainMat);
+    chain.position.set(0.055, P.bb.y + y, (P.bb.z + P.bh.z) / 2);
+    bikeTilt.add(chain);
+  }
+  // çamurluklar
+  for (const [w, dir] of [[P.fh, 1], [P.bh, -1]]) {
+    const fend = new THREE.Mesh(new THREE.TorusGeometry(WHEEL_R + 0.06, 0.028, 5, 12, Math.PI * 0.7), frameMat);
+    fend.rotation.y = Math.PI / 2;
+    fend.rotation.z = dir > 0 ? -0.4 : Math.PI + 0.4;
+    fend.position.copy(w);
+    bikeTilt.add(fend);
+  }
+  // zil (detay)
+  const bell = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), new THREE.MeshStandardMaterial({ color: 0xffcf3f, metalness: 0.8, roughness: 0.3 }));
+  bell.position.set(0.13, 1.06, 0.45);
+  bikeTilt.add(bell);
+}
+
+/* --- sürücü --- */
+const rider = new THREE.Group();
+const riderParts = {};
+function buildRider() {
+  const skin = new THREE.MeshStandardMaterial({ color: 0xf0c39a, roughness: 0.7 });
+  const shirt = new THREE.MeshStandardMaterial({ color: 0x2fa8c9, roughness: 0.65 });
+  const pants = new THREE.MeshStandardMaterial({ color: 0x2f3a52, roughness: 0.7 });
+  const shoe = new THREE.MeshStandardMaterial({ color: 0xe8e8ee, roughness: 0.6 });
+  const hair = new THREE.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.8 });
+  const helmet = new THREE.MeshStandardMaterial({ color: 0xf2f4f7, roughness: 0.35, metalness: 0.05 });
+
+  const pelvis = new THREE.Group();
+  pelvis.position.set(0, 0.92, -0.26);
+  const torso = new THREE.Group();
+  torso.position.y = 0.06;
+  // gövde: hafif öne eğik
+  const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.145, 0.30, 4, 10), shirt);
+  chest.position.y = 0.24; chest.rotation.x = 0.42; chest.castShadow = true;
+  torso.add(chest);
+  const hips = new THREE.Mesh(new THREE.CapsuleGeometry(0.135, 0.10, 4, 10), pants);
+  hips.rotation.z = Math.PI / 2; hips.position.y = 0.02;
+  torso.add(hips);
+  // kafa + kask
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.125, 12, 10), skin);
+  head.position.set(0, 0.52, 0.10); head.castShadow = true;
+  torso.add(head);
+  const hl = new THREE.Mesh(new THREE.SphereGeometry(0.135, 12, 8, 0, TAU, 0, 1.6), helmet);
+  hl.position.set(0, 0.55, 0.10);
+  torso.add(hl);
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.055, 0.06), new THREE.MeshStandardMaterial({ color: 0x1e2a3a, roughness: 0.4 }));
+  visor.position.set(0, 0.53, 0.21);
+  torso.add(visor);
+  const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), hair);
+  hairBack.position.set(0, 0.45, -0.05);
+  torso.add(hairBack);
+  pelvis.add(torso);
+  riderParts.torso = torso;
+
+  // kollar: omuz → dirsek → el (gidona bağlı)
+  function arm(side) {
+    const g = new THREE.Group();
+    g.position.set(side * 0.17, 0.46, 0.08);
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.22, 3, 7), shirt);
+    upper.position.y = -0.12; upper.castShadow = true;
+    const lowerG = new THREE.Group();
+    lowerG.position.y = -0.26;
+    const lower = new THREE.Mesh(new THREE.CapsuleGeometry(0.042, 0.22, 3, 7), skin);
+    lower.position.y = -0.12; lower.castShadow = true;
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.052, 8, 6), skin);
+    hand.position.y = -0.26;
+    lowerG.add(lower, hand);
+    g.add(upper, lowerG);
+    torso.add(g);
+    if (side > 0) { riderParts.armR = g; riderParts.foreR = lowerG; } else { riderParts.armL = g; riderParts.foreL = lowerG; }
+  }
+  arm(1); arm(-1);
+
+  // bacaklar: kalça → diz → ayak (pedala bağlı)
+  function leg(side) {
+    const g = new THREE.Group();
+    g.position.set(side * 0.115, 0.0, 0.02);
+    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.26, 3, 7), pants);
+    thigh.position.y = -0.16; thigh.castShadow = true;
+    const knee = new THREE.Group();
+    knee.position.y = -0.34;
+    const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.26, 3, 7), pants);
+    shin.position.y = -0.16; shin.castShadow = true;
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.055, 0.22), shoe);
+    foot.position.set(0, -0.33, 0.03); foot.castShadow = true;
+    knee.add(shin, foot);
+    g.add(thigh, knee);
+    pelvis.add(g);
+    if (side > 0) { riderParts.legR = g; riderParts.kneeR = knee; } else { riderParts.legL = g; riderParts.kneeL = knee; }
+  }
+  leg(1); leg(-1);
+  rider.add(pelvis);
+  scene.add(rider);
+}
+buildBicycle();
+buildRider();
+
+/* --- bisiklet altı gölge lekesi --- */
+const blobShadow = (() => {
+  const size = 96;
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grd.addColorStop(0, 'rgba(0,0,0,0.5)');
+  grd.addColorStop(0.55, 'rgba(0,0,0,0.26)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.6),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  scene.add(m);
+  return m;
+})();
+
+/* --- tekerlek izleri (havada değilken) --- */
+const MAX_TRACKS = 160;
+const trackMesh = (() => {
+  const geo = new THREE.PlaneGeometry(0.14, 0.5);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x2a2f36, transparent: true, opacity: 0.24, depthWrite: false });
+  const im = new THREE.InstancedMesh(geo, mat, MAX_TRACKS);
+  im.frustumCulled = false;
+  scene.add(im);
+  return im;
+})();
+let trackIdx = 0, trackTimer = 0;
+
+/* ---------------- 11. Fizik ve kontrol ---------------- */
+const player = {
+  pos: new THREE.Vector3(),
+  vel: new THREE.Vector3(),
+  heading: 0,          // yaw (rad)
+  speed: 0,            // ileri hız (m/s)
+  lean: 0,             // görsel yatış
+  wheelSpin: 0,
+  crankAngle: 0,
+  airborne: false,
+  vy: 0,
+  airTime: 0,
+  sprint: 100,
+  sprinting: false,
+  slip: 0,             // su birikintisi kayması
+  crashCooldown: 0,
+  wheelie: 0
+};
+
+const INPUT_KEYS = {
+  forward: ['w', 'arrowup'], back: ['s', 'arrowdown'],
+  left: ['a', 'arrowleft'], right: ['d', 'arrowright'],
+  jump: [' ', 'space'], sprint: ['shift'], cam: ['c'], reset: ['r'], pause: ['p', 'escape']
+};
+const keys = new Set();
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  keys.add(k);
+  if (INPUT_KEYS.pause.includes(k)) { if (dbg.started) togglePause(); }
+  if (k === 'c' && dbg.started && !dbg.paused) cycleCamera();
+  if (k === 'r' && dbg.started) resetBike();
+  if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => keys.clear());
+const held = (list) => list.some(k => keys.has(k));
+
+/* --- yamaç yüksekliği: yol üstünde düz, dışarıda terrain --- */
+function surfaceH(x, z) {
+  const nr = nearestRoad(x, z);
+  const roadHalf = nr.sample.halfW;
+  if (nr.dist < roadHalf) return 0.0;
+  const t = clamp((nr.dist - roadHalf) / 7, 0, 1);
+  return terrainH(x, z) * t;
+}
+/* --- rampa üstü yükseklik --- */
+function rampH(x, z) {
+  let best = null, bh = 0;
+  for (const r of ramps) {
+    const dx = x - r.x, dz = z - r.z;
+    const c = Math.cos(-r.rotY), s = Math.sin(-r.rotY);
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    if (Math.abs(lx) > r.w / 2 || Math.abs(lz) > r.len / 2) continue;
+    const t = clamp((lz + r.len / 2) / r.len, 0, 1);
+    const h = r.baseY + t * r.h;
+    if (!best || h > bh) { best = r; bh = h; }
+  }
+  return best ? bh : null;
+}
+/* --- köprü güvertesi yüksekliği --- */
+function bridgeH(x, z) {
+  if (!BRIDGE) return null;
+  const dx = x - BRIDGE.x, dz = z - BRIDGE.z;
+  const c = Math.cos(-BRIDGE.rotY), s = Math.sin(-BRIDGE.rotY);
+  const lx = dx * c - dz * s, lz = dx * s + dz * c;
+  if (Math.abs(lx) > BRIDGE.len / 2 || Math.abs(lz) > BRIDGE.w / 2) return null;
+  const t = clamp((lx + BRIDGE.len / 2) / BRIDGE.len, 0, 1);
+  return BRIDGE.y + 0.62 + Math.sin(t * Math.PI) * 0.55;
+}
+function groundHeightAt(x, z) {
+  let h = surfaceH(x, z);
+  const rh = rampH(x, z); if (rh !== null && rh > h) h = rh;
+  const bhh = bridgeH(x, z); if (bhh !== null && bhh > h) h = bhh;
+  return h;
+}
+
+/* --- kamera modları --- */
+const CAM_MODES = ['Takip', 'Yakın', 'Sinematik', 'Kuş Bakışı'];
+let camMode = 0;
+const camPos = new THREE.Vector3(0, 4, -8);
+const camLook = new THREE.Vector3();
+let camShake = 0;
+function cycleCamera() {
+  camMode = (camMode + 1) % CAM_MODES.length;
+  dbg.cameraMode = camMode;
+  showPopup('📷 ' + CAM_MODES[camMode], 'good');
+}
+
+/* --- skor & oyun durumu --- */
+const game = {
+  score: 0, tokens: 0, time: 0, airScore: 0, nearMisses: 0,
+  checkpoints: 0, combo: 0, best: 0
+};
+const LS_KEY = 'sunnySideRide.best.v1';
+function loadBest() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { return null; }
+}
+function saveBest(data) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) { }
+}
+
+/* --- popup --- */
+const popupBox = $('#popups');
+function showPopup(text, kind = '') {
+  const d = document.createElement('div');
+  d.className = 'pop ' + kind;
+  d.textContent = text;
+  popupBox.appendChild(d);
+  setTimeout(() => d.remove(), 1100);
+}
+function addScore(n, label, kind = 'good') {
+  game.score += n;
+  if (label) showPopup(`${label} +${n}`, kind);
+}
+
+/* ---------------- 12. Güncelleme döngüsü ---------------- */
+const clock = new THREE.Clock();
+let fpsAcc = 0, fpsFrames = 0, fpsTimer = 0;
+
+const MAX_SPEED = 17.5;       // ~63 km/s
+const SPRINT_SPEED = 23.5;
+const ACCEL = 9.0, BRAKE = 17, REVERSE = 4.2;
+
+function updateInput(dt) {
+  const fwd = held(INPUT_KEYS.forward), bck = held(INPUT_KEYS.back);
+  const canSprint = held(INPUT_KEYS.sprint) && player.sprint > 3 && player.speed > 2;
+  player.sprinting = canSprint;
+
+  if (player.sprinting) {
+    player.sprint = clamp(player.sprint - dt * 24, 0, 100);
+  } else {
+    player.sprint = clamp(player.sprint + dt * 11, 0, 100);
+  }
+
+  // zıplama: yerde + basılı değilse
+  if (held(INPUT_KEYS.jump) && !player.airborne && player.jumpLatch !== true) {
+    player.vy = 5.6 + clamp(player.speed * 0.055, 0, 1.7);
+    player.airborne = true;
+    player.jumpLatch = true;
+    Sound.jump();
+  }
+  if (!held(INPUT_KEYS.jump)) player.jumpLatch = false;
+
+  // ileri/geri ivme
+  let accel = 0;
+  const topSpeed = player.sprinting ? SPRINT_SPEED : MAX_SPEED;
+  if (fwd) {
+    accel = player.speed < 0 ? BRAKE : ACCEL * (1 - clamp(player.speed / topSpeed, 0, 1) * 0.55);
+  } else if (bck) {
+    accel = player.speed > 0.4 ? -BRAKE : -REVERSE;
+  }
+  player.speed += accel * dt;
+
+  // Adil oynanış garantisi: gaz basılıyken hız asla sıfırda takılı kalmasın.
+  // (Çarpışma/yokuş cezaları üst üste binse bile pedal her zaman işe yarar.)
+  if (fwd && !bck && player.speed < 1.2 && !player.airborne && player.crashCooldown <= 0) {
+    player.speed = Math.max(player.speed, 1.2);
+  }
+
+  // sürtünme / hava direnci
+  const fr = player.airborne ? 0.25 : (fwd || bck ? 0.5 : 2.6);
+  const drag = player.speed * player.speed * 0.010;
+  if (Math.abs(player.speed) > 0.02) {
+    const s = Math.sign(player.speed);
+    player.speed -= s * (fr * dt + drag * dt);
+    if (Math.sign(player.speed) !== s && !fwd && !bck) player.speed = 0;
+  } else if (!fwd && !bck) player.speed = 0;
+  player.speed = clamp(player.speed, -6, SPRINT_SPEED + 2);
+
+  // direksiyon: hızla azalan etki, düşük hızda da kontrol edilebilir
+  let steerIn = 0;
+  if (held(INPUT_KEYS.left)) steerIn += 1;
+  if (held(INPUT_KEYS.right)) steerIn -= 1;
+  const steerPrev = Number.isFinite(player.steer) ? player.steer : 0;
+  player.steer = damp(steerPrev, steerIn, 9, dt);
+
+  // Yol yardımı: yoldan çıkmaya başlarsan direksiyon hafifçe yola doğru çeker.
+  // Yalnızca gerçekten yoldan çıkınca devreye girer; oyuncu girdisi baskındır.
+  let assist = 0;
+  if (!player.airborne && Math.abs(player.speed) > 3.5) {
+    const nr = nearestRoad(player.pos.x, player.pos.z);
+    const overshoot = nr.dist - nr.sample.halfW;
+    // Yolun dışına taşınca kademeli olarak güçlenen düzeltme
+    if (overshoot > 0.2) {
+      const s = nr.sample;
+      const dot = s.tan.x * Math.sin(player.heading) + s.tan.z * Math.cos(player.heading);
+      const tx = dot >= 0 ? s.tan.x : -s.tan.x;
+      const tz = dot >= 0 ? s.tan.z : -s.tan.z;
+      const curYaw = Math.atan2(Math.sin(player.heading), Math.cos(player.heading));
+      const tgtYaw = Math.atan2(tx, tz);
+      let diff = tgtYaw - curYaw;
+      while (diff > Math.PI) diff -= TAU;
+      while (diff < -Math.PI) diff += TAU;
+      const strength = clamp((overshoot - 0.2) / 3, 0, 1) * 0.95;
+      assist = clamp(diff * strength, -1, 1);
+    }
+  }
+  player.steer = clamp(player.steer + assist * 0.5, -1.3, 1.3);
+  // Hızlı düzeltme: yol yardımı aktifken yatış da yumuşasın
+  if (assist !== 0) player.lean = damp(player.lean, player.lean * 0.6, 4, dt);
+
+  const speedFactor = 1 - clamp(Math.abs(player.speed) / 26, 0, 1) * 0.62;
+  const steerRate = 1.75 * speedFactor * (player.airborne ? 0.42 : 1) * clamp(Math.abs(player.speed) / 2.4, 0, 1);
+  player.heading += player.steer * steerRate * dt * Math.sign(player.speed || 1);
+
+  // yatış: direksiyon + hız
+  const targetLean = player.steer * clamp(Math.abs(player.speed) / 13, 0, 1) * 0.30;
+  const leanPrev = Number.isFinite(player.lean) ? player.lean : 0;
+  player.lean = damp(leanPrev, targetLean, 6.5, dt);
+}
+
+function updatePhysics(dt) {
+  // konum ilerlet
+  const dir = new THREE.Vector3(Math.sin(player.heading), 0, Math.cos(player.heading));
+  const beforeX = player.pos.x, beforeZ = player.pos.z;
+  player.pos.addScaledVector(dir, player.speed * dt);
+
+  // dünya sınırı (yumuşak geri itme)
+  const dc = Math.hypot(player.pos.x, player.pos.z);
+  if (dc > WORLD_R - 12) {
+    const push = (dc - (WORLD_R - 12));
+    player.pos.x -= (player.pos.x / dc) * push;
+    player.pos.z -= (player.pos.z / dc) * push;
+    player.speed *= 0.82;
+  }
+
+  // dikey hareket
+  const gh = groundHeightAt(player.pos.x, player.pos.z);
+  const GRAV = 19.5;
+  if (player.airborne) {
+    player.vy -= GRAV * dt;
+    player.pos.y += player.vy * dt;
+    player.airTime += dt;
+    if (player.pos.y <= gh) {
+      player.pos.y = gh;
+      const impact = Math.abs(player.vy);
+      player.airborne = false;
+      // havada kalma puanı
+      if (player.airTime > 0.35) {
+        const pts = Math.round(player.airTime * 55);
+        addScore(pts, '🪂 Havada ' + player.airTime.toFixed(1) + 's');
+      }
+      player.airTime = 0;
+      player.vy = 0;
+      // İniş: hızı koru (küçük bir kayıp), asla durma
+      player.speed *= impact > 6.5 ? 0.92 : 0.98;
+      if (impact > 6.5) { Sound.land(); camShake = Math.min(0.22, impact * 0.012); }
+      else Sound.land();
+      player._lastPos = player.pos.clone();   // takılma sayacını sıfırla
+      player.stuckTime = 0;
+    }
+  } else {
+    // zemine yapış, rampa/köprü çıkışında yumuşak geçiş
+    const dy = gh - player.pos.y;
+    if (dy > 0.06) {           // yukarı çıkıntı: yokuş/rampa tırmanışı
+      // Yokuş yukarı çıkarken hız korunur ama hafif yavaşlar; asla sıfırlanmaz.
+      const climb = clamp(dy, 0, 2.5);
+      player.pos.y = lerp(player.pos.y, gh, clamp(dt * 14, 0, 1));
+      player.speed *= (1 - clamp(climb * 0.05, 0, 0.12));
+      if (climb > 0.45 && player.speed > 9) { player.vy = 2.4 + climb * 0.5; player.airborne = true; }
+    } else if (dy < -0.30) {   // zemin düştü → havada
+      player.airborne = true;
+      player.vy = Math.max(-1.5, dy * 6);
+    } else {
+      player.pos.y = gh;
+    }
+  }
+
+  // tekerlek dönüşü + pedal (hıza bağlı)
+  player.wheelSpin += (player.speed / WHEEL_R) * dt;
+  const cadence = clamp(Math.abs(player.speed) / 8, 0.15, 1.5);
+  player.crankAngle += cadence * dt * 5.2 * (player.speed >= 0 ? 1 : -1);
+
+  // su birikintisi kayması
+  if (player.slip > 0) player.slip = Math.max(0, player.slip - dt);
+
+  // Takılma tespiti: gaz basılıyken uzun süre yerinden kıpırdamıyorsa
+  // oyuncuyu en yakın yol noktasına nazikçe geri koy (adil çarpışma).
+  const before = player._lastPos || player.pos.clone();
+  const moved = Math.hypot(player.pos.x - before.x, player.pos.z - before.z);
+  player._lastPos = player.pos.clone();
+  if (held(INPUT_KEYS.forward) && !player.airborne && moved < 0.06) {
+    player.stuckTime = (player.stuckTime || 0) + dt;
+  } else {
+    player.stuckTime = 0;
+  }
+  if (player.stuckTime > 1.2) {
+    player.stuckTime = 0;
+    const nr = nearestRoad(player.pos.x, player.pos.z);
+    const s = nr.sample;
+    player.pos.set(s.p.x, 0, s.p.z);
+    player.pos.y = surfaceH(s.p.x, s.p.z);
+    player.heading = Math.atan2(s.tan.x, s.tan.z);
+    player.speed = 4.5;
+    player.vy = 0;
+    player.airborne = false;
+    player._lastPos = player.pos.clone();
+    // yeniden takılmaması için kısa dokunulmazlık
+    player.crashCooldown = Math.max(player.crashCooldown, 1.0);
+    showPopup('🛟 Yola geri döndün', 'good');
+    return;
+  }
+
+  // Yoldan çok uzakta ve yavaşsak (çimende/duvarda sıkışmış) yine yola dön
+  if (Math.abs(player.speed) < 1.2 && !player.airborne) {
+    const nr2 = nearestRoad(player.pos.x, player.pos.z);
+    if (nr2.dist > nr2.sample.halfW + 26) {
+      player.offroadTime = (player.offroadTime || 0) + dt;
+      if (player.offroadTime > 3) {
+        player.offroadTime = 0;
+        const s2 = nr2.sample;
+        player.pos.set(s2.p.x, surfaceH(s2.p.x, s2.p.z), s2.p.z);
+        player.heading = Math.atan2(s2.tan.x, s2.tan.z);
+        player.speed = 4;
+        showPopup('🛟 Yola geri döndün', 'good');
+      }
+    } else player.offroadTime = 0;
+  } else player.offroadTime = 0;
+}
+
+/* --- çarpışmalar --- */
+const bikeRadius = 0.55;
+/** Çarpışma cezası çerçeve başına bir kez uygulanır (alt adımlarda birikmesin). */
+let collisionHitFrame = false;
+function resolveCollisions(dt) {
+  let hit = false;
+
+  // dairesel engeller (ağaç, lamba, koni, kutu, hayvan, araba)
+  for (const o of obstacles) {
+    const half = o.r + bikeRadius;
+    const dx = player.pos.x - o.x, dz = player.pos.z - o.z;
+    const d2 = dx * dx + dz * dz;
+    if (!(d2 < half * half)) continue;   // NaN güvenli karşılaştırma
+    // havadaysak ve yüksekteysek üstünden geçebiliriz
+    const oy = o.mesh ? o.mesh.position.y : 0;
+    if (player.pos.y > oy + (o.type === 'car' ? 1.9 : 0.9)) continue;
+    if (o.type === 'puddle') { player.slip = 0.75; continue; }
+    if (!o.solid) continue;
+    const d = Math.sqrt(Math.max(d2, 1e-6));
+    const nx = dx / d, nz = dz / d;
+    player.pos.x += nx * (half - d);
+    player.pos.z += nz * (half - d);
+    // ceza: kare başına bir kez, engel tipine göre sabit oran
+    if (!collisionHitFrame) {
+      const sp = player.speed;
+      collisionHitFrame = true;
+      player.speed *= (o.type === 'ped' || o.type === 'dog') ? 0.65 : 0.55;
+      // Puan cezası yalnızca gerçekten hızlıyken ve seyrek uygulanır
+      if (player.crashCooldown <= 0 && Math.abs(sp) > 6) {
+        player.crashCooldown = 1.2;
+        Sound.crash();
+        camShake = 0.28;
+        const penalty = Math.min(40, Math.round(Math.abs(sp) * 2.2));
+        game.score = Math.max(0, game.score - penalty);
+        showPopup('💥 Çarpışma -' + penalty, 'warn');
+      } else if (player.crashCooldown <= 0) {
+        player.crashCooldown = 1.0;
+        Sound.crash();
+        camShake = 0.18;
+        showPopup('😬 Dikkat!', 'warn');
+      }
+    }
+    hit = true;
+    // koni/kutu: devrilme efekti
+    if (o.knock || o.type === 'cone') {
+      o.mesh.rotation.z = rnd(-0.5, 0.5);
+      o.mesh.rotation.x = rnd(-0.4, 0.4);
+    }
+  }
+
+  // ağaçlar — sadece konum düzeltmesi, hız cezası kare başına bir kez
+  for (const t of treePositions) {
+    const half = t.r + bikeRadius;
+    const dx = player.pos.x - t.x, dz = player.pos.z - t.z;
+    const d2 = dx * dx + dz * dz;
+    if (!(d2 < half * half)) continue;
+    const d = Math.sqrt(Math.max(d2, 1e-6));
+    player.pos.x += (dx / d) * (half - d);
+    player.pos.z += (dz / d) * (half - d);
+    if (!collisionHitFrame) { collisionHitFrame = true; player.speed *= 0.55; }
+    hit = true;
+  }
+
+  // evler, lambalar, piknik masaları
+  for (const c of colliders) {
+    const half = c.r + bikeRadius;
+    const dx = player.pos.x - c.x, dz = player.pos.z - c.z;
+    const d2 = dx * dx + dz * dz;
+    if (!(d2 < half * half)) continue;
+    const d = Math.sqrt(Math.max(d2, 1e-6));
+    player.pos.x += (dx / d) * (half - d);
+    player.pos.z += (dz / d) * (half - d);
+    if (!collisionHitFrame) { collisionHitFrame = true; player.speed *= 0.5; }
+    hit = true;
+  }
+
+  // köprü korkulukları (döndürülmüş kutu çarpışma)
+  for (const b of boxColliders) {
+    const c = Math.cos(-b.rot), s = Math.sin(-b.rot);
+    const dx = player.pos.x - b.x, dz = player.pos.z - b.z;
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    const hx = b.hw + bikeRadius, hz = b.hd + bikeRadius;
+    const ox = hx - Math.abs(lx), oz = hz - Math.abs(lz);
+    if (!(ox > 0 && oz > 0)) continue;
+    if (ox < oz) {
+      player.pos.x += Math.cos(b.rot) * ox * Math.sign(lx || 1);
+      player.pos.z -= Math.sin(b.rot) * ox * Math.sign(lx || 1);
+    } else {
+      player.pos.x += Math.sin(b.rot) * oz * Math.sign(lz || 1);
+      player.pos.z += Math.cos(b.rot) * oz * Math.sign(lz || 1);
+    }
+    if (!collisionHitFrame) { collisionHitFrame = true; player.speed *= 0.7; }
+    hit = true;
+  }
+  return hit;
+}
+
+function updateCollectibles(dt) {
+  const t = performance.now() * 0.001;
+  for (const c of collectibles) {
+    if (c.taken) continue;
+    c.mesh.rotation.y += dt * 2.2;
+    c.mesh.position.y = c.y + Math.sin(t * 2 + c.x * 0.3) * 0.12;
+    const dx = player.pos.x - c.x, dz = player.pos.z - c.z;
+    const dy = (player.pos.y + 0.9) - c.mesh.position.y;
+    if (dx * dx + dz * dz < 1.35 * 1.35 && Math.abs(dy) < 1.5) {
+      c.taken = true;
+      c.mesh.visible = false;
+      game.tokens++;
+      dbg.collectibles = game.tokens;
+      addScore(c.val, c.type === 'star' ? '⭐ Yıldız' : '🪙 Token');
+      Sound.coin();
+      if (game.tokens === collectibles.length) {
+        addScore(500, '🏁 TÜM TOKENLAR!');
+        Sound.hour();
+      }
+    }
+  }
+  // checkpoint halkaları
+  for (const cp of checkpoints) {
+    cp.mesh.rotation.z += dt * 0.7;
+    const s = cp.passed ? 1 : (1 + Math.sin(t * 3) * 0.04);
+    cp.mesh.scale.setScalar(s);
+    if (!cp.passed) {
+      const dx = player.pos.x - cp.x, dz = player.pos.z - cp.z;
+      if (dx * dx + dz * dz < 4.6 * 4.6) {
+        cp.passed = true;
+        cp.mesh.material.color.set(0xffd23f);
+        cp.mesh.material.emissive.set(0x8a6a00);
+        game.checkpoints++;
+        dbg.checkpoints = game.checkpoints;
+        addScore(120, `🚩 Checkpoint ${game.checkpoints}/${checkpoints.length}`);
+        Sound.checkpoint();
+        if (game.checkpoints === checkpoints.length) {
+          addScore(750, '🏆 TUR TAMAMLANDI!');
+          setTimeout(() => finishGame(true), 700);
+        }
+      }
+    }
+  }
+}
+
+/* --- engelleri güncelle (yayalar, köpekler, arabalar) --- */
+function updateObstacles(dt, t) {
+  for (const o of obstacles) {
+    if (!o.moving) continue;
+    if (o.type === 'ped') {
+      o.dir += Math.sin(t * 0.4 + o.phase) * dt * 0.8;
+      const nx = o.baseX + Math.cos(o.dir) * 2.6;
+      const nz = o.baseZ + Math.sin(o.dir) * 2.6;
+      o.x = nx; o.z = nz;
+      o.mesh.position.set(nx, terrainH(nx, nz), nz);
+      o.mesh.rotation.y = -o.dir + Math.PI / 2;
+      const sw = Math.sin(t * 4 + o.phase) * 0.42;
+      o.legs[0].rotation.x = sw; o.legs[1].rotation.x = -sw;
+      o.arms[0].rotation.x = -sw * 0.7; o.arms[1].rotation.x = sw * 0.7;
+    } else if (o.type === 'dog') {
+      o.x = o.baseX + Math.cos(t * o.speed * 0.7 + o.phase) * 3.2;
+      o.z = o.baseZ + Math.sin(t * o.speed * 0.9 + o.phase * 1.3) * 3.2;
+      const y = terrainH(o.x, o.z);
+      o.mesh.position.set(o.x, y + Math.abs(Math.sin(t * 6 + o.phase)) * 0.07, o.z);
+      o.mesh.rotation.y = Math.atan2(
+        -Math.sin(t * o.speed * 0.7 + o.phase) * 3.2 * o.speed * 0.7,
+        Math.cos(t * o.speed * 0.9 + o.phase * 1.3) * 3.2 * o.speed * 0.9
+      );
+      const sw = Math.sin(t * 9 + o.phase) * 0.5;
+      o.legs.forEach((l, i) => l.rotation.x = i % 2 ? sw : -sw);
+      // yakın geçiş
+      const dx = player.pos.x - o.x, dz = player.pos.z - o.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < 3.2 * 3.2 && d2 > 1.5 * 1.5 && Math.abs(player.speed) > 6 && o.nmCool !== true) {
+        o.nmCool = true;
+        game.nearMisses++; dbg.nearMisses = game.nearMisses;
+        addScore(35, '😮 Kıl payı!');
+        Sound.nearMiss();
+        setTimeout(() => { o.nmCool = false; }, 2500);
+      }
+    } else if (o.type === 'car') {
+      // yolu takip et: en yakın yol örneğinden ilerle
+      const nr = nearestRoad(o.x, o.z);
+      const s = nr.sample;
+      const dirX = s.tan.x * Math.cos(o.lane * 0.02) - s.tan.z * Math.sin(o.lane * 0.02);
+      const dirZ = s.tan.x * Math.sin(o.lane * 0.02) + s.tan.z * Math.cos(o.lane * 0.02);
+      o.x += dirX * o.speed * dt;
+      o.z += dirZ * o.speed * dt;
+      const rx = o.x - s.p.x - s.nor.x * o.lane;
+      const rz = o.z - s.p.z - s.nor.z * o.lane;
+      o.x -= rx * 0.06; o.z -= rz * 0.06;
+      const y = surfaceH(o.x, o.z);
+      o.mesh.position.set(o.x, y, o.z);
+      const targetYaw = Math.atan2(dirX, dirZ);
+      let d = targetYaw - o.mesh.rotation.y;
+      while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
+      o.mesh.rotation.y += clamp(d, -2 * dt, 2 * dt);
+      o.wheels.forEach(w => w.rotation.y += o.speed * dt * 2.6);
+      // çarpışma (araç yarıçapı büyük)
+      const ddx = player.pos.x - o.x, ddz = player.pos.z - o.z;
+      const dd2 = ddx * ddx + ddz * ddz;
+      const half = o.r + bikeRadius;
+      if (dd2 < half * half && !player.airborne) {
+        const dd = Math.sqrt(Math.max(dd2, 1e-6));
+        player.pos.x += (ddx / dd) * (half - dd);
+        player.pos.z += (ddz / dd) * (half - dd);
+        player.speed *= 0.45;
+        if (player.crashCooldown <= 0) {
+          player.crashCooldown = 1.3; Sound.crash(); camShake = 0.3;
+          const pen = Math.min(50, Math.round(Math.abs(player.speed) * 2.5 + 10));
+          game.score = Math.max(0, game.score - pen);
+          showPopup('🚗 Araba! -' + pen, 'warn');
+        }
+      }
+    }
+  }
+}
+
+/* --- kamera --- */
+function updateCamera(dt) {
+  const speed01 = clamp(Math.abs(player.speed) / SPRINT_SPEED, 0, 1);
+  const back = new THREE.Vector3(Math.sin(player.heading), 0, Math.cos(player.heading));
+  const right = new THREE.Vector3(back.z, 0, -back.x);
+  const yawOnly = player.lean * 0.25;
+
+  let desired, lookAt;
+  if (camMode === 0) {            // takip
+    const dist = 5.2 + speed01 * 2.4, height = 2.35 + speed01 * 0.42;
+    desired = player.pos.clone()
+      .addScaledVector(back, -dist)
+      .addScaledVector(right, -yawOnly * 2.4)
+      .add(new THREE.Vector3(0, height, 0));
+    lookAt = player.pos.clone().addScaledVector(back, 5.5 + speed01 * 5).add(new THREE.Vector3(0, 1.15, 0));
+  } else if (camMode === 1) {     // yakın
+    desired = player.pos.clone().addScaledVector(back, -3.1).add(new THREE.Vector3(0, 1.62, 0));
+    lookAt = player.pos.clone().addScaledVector(back, 4).add(new THREE.Vector3(0, 1.0, 0));
+  } else if (camMode === 2) {     // sinematik (yandan, gecikmeli)
+    desired = player.pos.clone().addScaledVector(right, -6.4).addScaledVector(back, -2.0).add(new THREE.Vector3(0, 2.5, 0));
+    lookAt = player.pos.clone().add(new THREE.Vector3(0, 1.2, 0));
+  } else {                        // kuş bakışı
+    desired = player.pos.clone().addScaledVector(back, -8.5).add(new THREE.Vector3(0, 9.5, 0));
+    lookAt = player.pos.clone().addScaledVector(back, 2).add(new THREE.Vector3(0, 0.4, 0));
+  }
+
+  const lam = camMode === 2 ? 3.4 : 5.6;
+  camPos.lerp(desired, 1 - Math.exp(-lam * dt));
+  // zeminin altına inmesin
+  const minY = groundHeightAt(camPos.x, camPos.z) + 1.15;
+  if (camPos.y < minY) camPos.y = minY;
+  camLook.lerp(lookAt, 1 - Math.exp(-(lam + 2.2) * dt));
+
+  camera.position.copy(camPos);
+  if (camShake > 0.001) {
+    camera.position.x += (Math.random() - 0.5) * camShake;
+    camera.position.y += (Math.random() - 0.5) * camShake;
+    camShake = damp(camShake, 0, 6, dt);
+  }
+  camera.lookAt(camLook);
+  // FOV: hız hissi
+  const targetFov = 62 + speed01 * 8;
+  camera.fov = damp(camera.fov, targetFov, 3.2, dt);
+  camera.updateProjectionMatrix();
+}
+
+/* --- görsel senkronizasyon --- */
+function syncVisuals(dt) {
+  bike.position.copy(player.pos);
+  bike.rotation.y = player.heading;
+  bikeTilt.rotation.z = -player.lean;                 // yatış
+  bikeTilt.rotation.x = player.airborne ? clamp(-player.vy * 0.02, -0.2, 0.3) : -clamp(player.speed, 0, 18) * 0.004;
+
+  // tekerlek dönüşü
+  bikeParts.wheelF.rotation.x = player.wheelSpin;
+  bikeParts.wheelB.rotation.x = player.wheelSpin;
+  // pedal: krank döner, pedal yatay kalır
+  bikeParts.crank.rotation.x = player.crankAngle;
+  bikeParts.pedalL.rotation.x = -player.crankAngle;
+  bikeParts.pedalR.rotation.x = -player.crankAngle;
+
+  // sürücü: gövde eğimi, kollar gidona, ayaklar pedala
+  const pedalPhase = player.crankAngle;
+  const worldPedal = (pd) => pd.getWorldPosition(new THREE.Vector3());
+  const pl = worldPedal(bikeParts.pedalPtL), pr = worldPedal(bikeParts.pedalPtR);
+
+  function aimLeg(legG, kneeG, target) {
+    const hipWorld = legG.getWorldPosition(new THREE.Vector3());
+    const to = target.clone().sub(hipWorld);
+    const dist = Math.min(to.length(), 0.62);
+    // uyluk açısı: hedefe doğru
+    legG.rotation.x = Math.atan2(-to.y, Math.hypot(to.x, to.z)) * 0.55 - 0.35;
+    const bend = clamp(1.15 - dist * 0.75, 0.12, 1.0);
+    kneeG.rotation.x = bend;
+  }
+  aimLeg(riderParts.legR, riderParts.kneeR, pr);
+  aimLeg(riderParts.legL, riderParts.kneeL, pl);
+
+  // kollar gidona uzanır (gidon bisiklet uzayında sabit)
+  const gripWorldR = bikeParts.gripR.getWorldPosition(new THREE.Vector3());
+  const gripWorldL = bikeParts.gripL.getWorldPosition(new THREE.Vector3());
+  function aimArm(armG, foreG, target) {
+    const shoulder = armG.getWorldPosition(new THREE.Vector3());
+    const to = target.clone().sub(shoulder);
+    const horiz = Math.hypot(to.x, to.z);
+    armG.rotation.x = -0.55 + Math.atan2(-to.y, horiz) * 0.8;
+    armG.rotation.z = Math.atan2(to.x * Math.cos(-player.heading) - to.z * Math.sin(-player.heading), horiz) * 0.35;
+    foreG.rotation.x = -0.42;
+  }
+  aimArm(riderParts.armR, riderParts.foreR, gripWorldR);
+  aimArm(riderParts.armL, riderParts.foreL, gripWorldL);
+
+  // gövde: hıza göre öne eğilme + pedal ritmi
+  const bob = Math.sin(pedalPhase * 2) * clamp(Math.abs(player.speed) / 12, 0, 1) * 0.035;
+  riderParts.torso.rotation.x = 0.10 + clamp(Math.abs(player.speed) / 20, 0, 1) * 0.30 + bob;
+  riderParts.torso.rotation.z = player.steer * 0.10;
+  rider.position.copy(player.pos);
+  rider.rotation.y = player.heading;
+  rider.rotation.z = -player.lean * 0.5;
+
+  // gölge lekesi
+  const gh = groundHeightAt(player.pos.x, player.pos.z);
+  blobShadow.position.set(player.pos.x, gh + 0.055, player.pos.z);
+  const air = clamp(1 - (player.pos.y - gh) / 2.6, 0.35, 1);
+  blobShadow.scale.setScalar(air);
+  blobShadow.material.opacity = 0.75 * air;
+  blobShadow.rotation.z = -player.heading;
+
+  // güneş gölgesi takibi (kaliteli gölge için kameraya göre kaydır)
+  sun.position.set(player.pos.x + 62, 96, player.pos.z + 48);
+  sun.target.position.set(player.pos.x, 0, player.pos.z);
+  sun.target.updateMatrixWorld();
+
+  // tekerlek izleri
+  if (!player.airborne && Math.abs(player.speed) > 3) {
+    trackTimer += dt;
+    if (trackTimer > 0.045) {
+      trackTimer = 0;
+      const back = new THREE.Vector3(Math.sin(player.heading), 0, Math.cos(player.heading));
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3();
+      q.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, -player.heading));
+      v.set(player.pos.x - back.x * WHEELBASE / 2, gh + 0.045, player.pos.z - back.z * WHEELBASE / 2);
+      m.compose(v, q, new THREE.Vector3(1, 1, 1));
+      trackMesh.setMatrixAt(trackIdx % MAX_TRACKS, m);
+      trackIdx++;
+      trackMesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+}
+
+/* --- yapraklar, bulutlar, saat --- */
+function updateAmbient(dt, t) {
+  // bulutlar
+  for (const c of clouds) {
+    c.position.x += dt * 0.65;
+    if (c.position.x > 300) c.position.x = -300;
+  }
+  // yapraklar
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1);
+  for (let i = 0; i < leafData.length; i++) {
+    const L = leafData[i];
+    L.y += L.vy * dt;
+    L.ph += dt * L.spin;
+    if (L.y < -0.5) { L.y = rnd(9, 17); L.x = player.pos.x + rnd(-40, 40); L.z = player.pos.z + rnd(-40, 40); }
+    // oyuncu etrafında tut (sonsuz hissi)
+    const dx = L.x - player.pos.x, dz = L.z - player.pos.z;
+    if (Math.abs(dx) > 55) L.x = player.pos.x - Math.sign(dx) * 55;
+    if (Math.abs(dz) > 55) L.z = player.pos.z - Math.sign(dz) * 55;
+    v.set(L.x + Math.sin(L.ph) * L.drift, L.y + Math.sin(L.ph * 0.7) * 0.3, L.z + Math.cos(L.ph * 0.8) * L.drift);
+    q.setFromEuler(new THREE.Euler(L.ph * 0.9, L.ph * 0.6, L.ph));
+    m.compose(v, q, sc);
+    leafMesh.setMatrixAt(i, m);
+  }
+  leafMesh.instanceMatrix.needsUpdate = true;
+}
+
+/* ---------------- 13. HUD ---------------- */
+const hudEls = {
+  speed: $('#hSpeed'), score: $('#hScore'), tokens: $('#hTokens'), time: $('#hTime'),
+  obj: $('#hObj'), sprintFill: $('#sprintFill'), sprintPct: $('#sprintPct')
+};
+let lastHud = 0;
+function updateHUD(dt) {
+  lastHud += dt;
+  if (lastHud < 0.08) return;
+  lastHud = 0;
+  const kmh = Math.abs(player.speed) * 3.6;
+  hudEls.speed.textContent = Math.round(kmh);
+  hudEls.score.textContent = game.score;
+  hudEls.tokens.textContent = `${game.tokens}/${collectibles.length}`;
+  const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
+  hudEls.time.textContent = `${m}:${String(s).padStart(2, '0')}`;
+  hudEls.sprintFill.style.width = player.sprint + '%';
+  hudEls.sprintPct.textContent = Math.round(player.sprint) + '%';
+  hudEls.sprintFill.classList.toggle('low', player.sprint < 25);
+  // görev
+  let obj;
+  if (game.checkpoints >= checkpoints.length) obj = '🏆 Tur tamamlandı! Serbest sürüş.';
+  else if (game.tokens < collectibles.length && game.checkpoints < checkpoints.length)
+    obj = `🚩 Checkpoint ${game.checkpoints}/${checkpoints.length} · 🪙 ${game.tokens}/${collectibles.length} token`;
+  else obj = `🚩 Checkpoint ${game.checkpoints}/${checkpoints.length} · tüm tokenlar alındı!`;
+  hudEls.obj.textContent = obj;
+  // debug
+  dbg.speed = Math.abs(player.speed);
+  dbg.score = game.score;
+  dbg.time = game.time;
+  dbg.playerPosition = { x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2) };
+  dbg.sprint = player.sprint;
+  dbg.airtime = player.airTime;
+}
+
+/* ---------------- 14. Oyun akışı ---------------- */
+/** Oyuncunun başlangıç açısı (yol halkası üzerinde) — reset ve spawn aynı olmalı. */
+const START_ANG = 0.35;
+
+function resetBike() {
+  player.pos.set(Math.cos(START_ANG) * RING_R, 0, Math.sin(START_ANG) * RING_R);
+  player.pos.y = surfaceH(player.pos.x, player.pos.z);
+  player.heading = START_ANG + Math.PI / 2;
+  player.speed = 0; player.vel.set(0, 0, 0);
+  player.vy = 0; player.airborne = false; player.lean = 0; player.steer = 0;
+  player.slip = 0; player.crashCooldown = 0; player.sprint = 100;
+  camPos.copy(player.pos).add(new THREE.Vector3(0, 3, -6));
+  showPopup('↻ Sıfırlandı', 'good');
+}
+
+function startGame() {
+  Sound.start();
+  $('#overlay').classList.add('hidden');
+  $('#hud').classList.remove('hidden');
+  dbg.started = true; dbg.paused = false;
+  clock.getDelta();
+}
+
+function togglePause() {
+  if (!dbg.started || dbg.over) return;
+  dbg.paused = !dbg.paused;
+  $('#overlay').classList.toggle('hidden', !dbg.paused);
+  $('#startCard').classList.add('hidden');
+  $('#endCard').classList.add('hidden');
+  $('#pauseCard').classList.toggle('hidden', !dbg.paused);
+  if (!dbg.paused) clock.getDelta();
+}
+
+function finishGame(completed) {
+  if (dbg.over) return;
+  dbg.over = true;
+  Sound.finish();
+  // bonus: kalan süre yerine tamamlama bonusu + canlılık
+  dbg.paused = false;
+  const bonus = completed ? 900 : 0;
+  if (bonus) addScore(bonus, '🎉 Bitirme bonusu');
+  const total = game.score;
+  const prev = loadBest();
+  const isBest = !prev || total > prev.score;
+  if (isBest) saveBest({ score: total, tokens: game.tokens, time: game.time, date: Date.now() });
+  $('#endTitle').textContent = completed ? 'Tur Tamamlandı!' : 'Tur Bitti';
+  $('#endSub').textContent = completed
+    ? 'Tüm checkpointleri geçtin — mahalleyi istediğin gibi keşfetmeye devam edebilirsin.'
+    : 'İyi bir sürüştü. Tekrar dene ve daha yüksek puan topla.';
+  $('#eScore').textContent = total;
+  $('#eTokens').textContent = `${game.tokens}/${collectibles.length}`;
+  const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
+  $('#eTime').textContent = `${m}:${String(s).padStart(2, '0')}`;
+  $('#eAir').textContent = game.airScore.toFixed(1) + 's';
+  $('#endBest').textContent = isBest ? '🏅 Yeni rekor!' : `En iyi: ${prev.score} puan`;
+  $('#overlay').classList.remove('hidden');
+  $('#startCard').classList.add('hidden');
+  $('#pauseCard').classList.add('hidden');
+  $('#endCard').classList.remove('hidden');
+}
+
+function restartGame() {
+  game.score = 0; game.tokens = 0; game.time = 0; game.airScore = 0;
+  game.checkpoints = 0; game.nearMisses = 0;
+  dbg.score = 0; dbg.collectibles = 0; dbg.checkpoints = 0; dbg.over = false;
+  collectibles.forEach(c => { c.taken = false; c.mesh.visible = true; });
+  checkpoints.forEach(cp => {
+    cp.passed = false;
+    cp.mesh.material.color.set(0x37b5a4);
+    cp.mesh.material.emissive.set(0x0d6b60);
+  });
+  // engelleri başlangıç konumuna al
+  obstacles.forEach(o => {
+    if (o.baseX !== undefined) { o.x = o.baseX; o.z = o.baseZ; }
+    if (o.type === 'cone' || o.type === 'boxes') { o.mesh.rotation.set(0, o.mesh.rotation.y, 0); }
+  });
+  resetBike();
+  $('#overlay').classList.add('hidden');
+  $('#hud').classList.remove('hidden');
+  dbg.started = true; dbg.paused = false;
+  clock.getDelta();
+  Sound.start();
+  showPopup('🚴 Yeni tur!', 'good');
+}
+
+/* --- butonlar --- */
+$('#startBtn').addEventListener('click', () => { Sound.init(); startGame(); });
+$('#resumeBtn').addEventListener('click', () => togglePause());
+$('#restartBtn1').addEventListener('click', restartGame);
+$('#restartBtn2').addEventListener('click', restartGame);
+$('#muteBtn').addEventListener('click', (e) => {
+  const m = Sound.toggleMute();
+  e.target.textContent = m ? '🔇 Ses kapalı' : '🔊 Ses açık';
+});
+const controlsEl = $('#controls'), ctlToggle = $('#ctlToggle');
+let controlsTimer = null;
+function startControlsTimer() {
+  clearTimeout(controlsTimer);
+  controlsTimer = setTimeout(() => {
+    controlsEl.classList.add('min');
+    ctlToggle.classList.add('show');
+  }, 4000);
+}
+ctlToggle.addEventListener('click', () => {
+  controlsEl.classList.remove('min');
+  ctlToggle.classList.remove('show');
+  startControlsTimer();
+});
+
+/* resize */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+});
+
+/* ---------------- 15. Ana döngü ---------------- */
+/* Uyarlanabilir kalite: FPS düşerse görüş/gölge/çözünürlüğü kıs (loop'tan önce tanımlı). */
+const quality = { level: IS_SWIFT ? 0 : 2, lastCheck: 0 };
+function setQuality(level) {
+  quality.level = level;
+  if (level === 2) {
+    renderer.shadowMap.enabled = true;
+    scene.fog.far = 340;
+    sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
+    sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
+    camera.far = 900;
+  } else if (level === 1) {
+    renderer.shadowMap.enabled = true;
+    scene.fog.far = 250;
+    const e = SHADOW_EXTENT * 0.72;
+    sun.shadow.camera.left = -e; sun.shadow.camera.right = e;
+    sun.shadow.camera.top = e; sun.shadow.camera.bottom = -e;
+    camera.far = 700;
+  } else {
+    renderer.shadowMap.enabled = false;   // gölge yok → en ucuz
+    scene.fog.far = 200;
+    camera.far = 560;
+  }
+  sun.shadow.camera.updateProjectionMatrix();
+  camera.updateProjectionMatrix();
+  const cap = level === 2 ? DPR_CAP : (level === 1 ? Math.min(DPR_CAP, 0.85) : 0.55);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, cap));
+  renderer.setSize(innerWidth, innerHeight);
+}
+function autoQuality(dt) {
+  quality.lastCheck += dt;
+  if (quality.lastCheck < 2.2) return;
+  quality.lastCheck = 0;
+  const f = dbg.fps;
+  if (!f) return;
+  if (f < 24 && quality.level > 0) setQuality(quality.level - 1);
+  else if (f > 56 && quality.level < 2) setQuality(quality.level + 1);
+}
+setQuality(quality.level);
+/* Yazılım rasterleştirici (SwiftShader/llvmpipe) dolgu hızıyla sınırlıdır:
+   gerçek GPU'da bu düşüş yaşanmaz. Test/geliştirme için ?lowres=1 ile
+   iç çözünürlüğü düşürebiliriz — kullanıcı deneyimini etkilemez. */
+if (/[?&]lowres=1/.test(location.search)) {
+  renderer.setPixelRatio(0.5);
+  renderer.setSize(innerWidth, innerHeight);
+}
+
+const startPos = { ang: 0.35 };
+resetBike();
+// başlangıç kartında güzel bir vitrin görüntüsü için kamera
+camera.position.copy(player.pos).add(new THREE.Vector3(-3.5, 2.6, -4.5));
+camera.lookAt(player.pos.x, player.pos.y + 1.1, player.pos.z);
+
+let started_once = false;
+/** Bir alt sistem hata verirse oyunu kilitlemesin: hatayı kaydet, döngüye devam et. */
+function safe(label, fn) {
+  try { fn(); } catch (e) {
+    const msg = label + ': ' + (e && e.message ? e.message : String(e));
+    dbg.errors.push(msg);
+    if (dbg.errors.length > 40) dbg.errors.shift();
+    if (!dbg._loggedFirst) {           // ilk hatayı konsola da yaz (teşhis)
+      dbg._loggedFirst = true;
+      console.error('[game] ' + msg, e && e.stack);
+    }
+  }
+}
+function loop() {
+  requestAnimationFrame(loop);
+  // Kare süresi üst sınırı: takılma sonrası fizik patlamasın ama yavaşlamasın da.
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 0.1);
+  const t = performance.now() * 0.001;
+
+  fpsAcc += dt; fpsFrames++; fpsTimer += dt;
+  if (fpsTimer > 0.5) { dbg.fps = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; fpsTimer = 0; }
+  autoQuality(dt);
+
+  if (dbg.started && !dbg.paused && !dbg.over) {
+    game.time += dt;
+    // Düşük FPS'te bile doğru ilerleme: fiziği sabit adımlarla alt bölümlere ayır.
+    // Böylece hız/çarpışma kare hızından bağımsız olur.
+    const MAX_STEP = 1 / 60;
+    let remaining = dt;
+    let guard = 0;
+    collisionHitFrame = false;          // çarpışma cezası kare başına bir kez
+    while (remaining > 1e-4 && guard < 8) {
+      const step = Math.min(remaining, MAX_STEP);
+      safe('input', () => updateInput(step));
+      safe('physics', () => updatePhysics(step));
+      safe('collisions', () => resolveCollisions(step));
+      safe('collectibles', () => updateCollectibles(step));
+      remaining -= step;
+      guard++;
+    }
+    game.airScore = Math.max(game.airScore, player.airTime);
+    // NaN güvenlik ağı: herhangi bir sayısal bozulma oyunu kilitlemesin
+    if (!Number.isFinite(player.pos.x) || !Number.isFinite(player.pos.y) || !Number.isFinite(player.pos.z)) {
+      dbg.errors.push('NaN guard: konum bozuldu, sıfırlandı');
+      resetBike();
+    }
+    if (!Number.isFinite(player.speed)) player.speed = 0;
+    if (!Number.isFinite(player.heading)) player.heading = 0;
+    if (!Number.isFinite(player.lean)) player.lean = 0;
+    if (!Number.isFinite(player.steer)) player.steer = 0;
+    if (!Number.isFinite(player.vy)) player.vy = 0;
+    if (!Number.isFinite(player.sprint)) player.sprint = 100;
+    // kontrolleri gizle (oyuncu hareket etmeye başlayınca)
+    if (!started_once && Math.abs(player.speed) > 1.2) {
+      started_once = true;
+      controlsEl.classList.add('min');
+      ctlToggle.classList.add('show');
+    }
+  }
+  if (dbg.started && !dbg.paused) {
+    safe('obstacles', () => updateObstacles(dt, t));
+    safe('ambient', () => updateAmbient(dt, t));
+    safe('visuals', () => syncVisuals(dt));
+    safe('camera', () => updateCamera(dt));
+    safe('hud', () => updateHUD(dt));
+    safe('audio', () => Sound.roll(clamp(Math.abs(player.speed) / SPRINT_SPEED, 0, 1)));
+  } else if (!dbg.started) {
+    // Menüde: bisikletin etrafında yavaş sinematik tur — mahalleyi göster
+    const a = t * 0.13;
+    const camDist = 9.5, camH = 4.2;
+    camera.position.set(
+      player.pos.x + Math.cos(a) * camDist,
+      player.pos.y + camH + Math.sin(a * 0.7) * 0.8,
+      player.pos.z + Math.sin(a) * camDist);
+    camera.lookAt(player.pos.x, player.pos.y + 1.4, player.pos.z);
+    safe('obstacles', () => updateObstacles(dt, t));
+    safe('ambient', () => updateAmbient(dt, t));
+    safe('visuals', () => {
+      // menüde de bisiklet canlı görünsün: tekerlek ve pedal hafifçe dönsün
+      player.wheelSpin += dt * 0.6;
+      player.crankAngle += dt * 0.5;
+      syncVisuals(dt);
+    });
+  } else {
+    safe('ambient', () => updateAmbient(dt, t));
+  }
+  // debug konumunu her durumda güncelle (test edilebilirlik)
+  dbg.playerPosition = { x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2) };
+  if (player.crashCooldown > 0) player.crashCooldown -= dt;
+  renderer.render(scene, camera);
+}
+
+/* ---------------- 16. Hazır ---------------- */
+const best = loadBest();
+if (best) {
+  $('#bestLine').textContent = `🏅 En iyi: ${best.score} puan · ${best.tokens} token`;
+}
+$('#loadNote').classList.add('hidden');
+
+/* Test edilebilirlik: salt okunur dünya sorguları (oyunu etkilemez) */
+dbg.sample = {
+  terrainH, surfaceH, groundHeightAt, rampH, bridgeH,
+  isFiniteAt: (x, z) => {
+    const v = groundHeightAt(x, z);
+    return { ground: v, ok: Number.isFinite(v), dist: nearestRoad(x, z).dist, halfW: nearestRoad(x, z).sample.halfW };
+  }
+};
+dbg.renderInfo = () => ({
+  calls: renderer.info.render.calls,
+  triangles: renderer.info.render.triangles,
+  geometries: renderer.info.memory.geometries,
+  textures: renderer.info.memory.textures,
+  swiftShader: IS_SWIFT, dpr: renderer.getPixelRatio(),
+  quality: quality.level, shadows: renderer.shadowMap.enabled, fogFar: scene.fog.far,
+  mergedStatic: mergedStaticCount
+});
+/* Teşhis: bir noktanın çevresindeki çarpışma nesneleri (oyunu etkilemez) */
+dbg.nearbyColliders = (x, z, rad = 6) => {
+  const out = [];
+  for (const o of obstacles) {
+    const d = Math.hypot(o.x - x, o.z - z);
+    if (d < rad + o.r) out.push({ kind: o.type, x: +o.x.toFixed(1), z: +o.z.toFixed(1), r: o.r, d: +d.toFixed(2), solid: !!o.solid });
+  }
+  for (const t of treePositions) {
+    const d = Math.hypot(t.x - x, t.z - z);
+    if (d < rad + t.r) out.push({ kind: 'tree', x: +t.x.toFixed(1), z: +t.z.toFixed(1), r: +t.r.toFixed(2), d: +d.toFixed(2), solid: true });
+  }
+  for (const c of colliders) {
+    const d = Math.hypot(c.x - x, c.z - z);
+    if (d < rad + c.r) out.push({ kind: 'house/lamp', x: +c.x.toFixed(1), z: +c.z.toFixed(1), r: +c.r.toFixed(2), d: +d.toFixed(2), solid: true });
+  }
+  for (const b of boxColliders) {
+    const d = Math.hypot(b.x - x, b.z - z);
+    if (d < rad + Math.max(b.hw, b.hd)) out.push({ kind: 'box', x: +b.x.toFixed(1), z: +b.z.toFixed(1), hw: b.hw, hd: b.hd, d: +d.toFixed(2), solid: true });
+  }
+  return out.sort((a, b) => a.d - b.d).slice(0, 12);
+};
+
+dbg.input = () => ({ keys: [...keys], forward: held(INPUT_KEYS.forward), back: held(INPUT_KEYS.back), sprint: held(INPUT_KEYS.sprint), steer: player.steer, heading: player.heading, airborne: player.airborne, vy: player.vy, speed: player.speed });
+
+/* Derin doğrulama yardımcıları (salt okunur) */
+dbg.sceneStats = () => {
+  let totalMeshes = 0;
+  scene.traverse(o => { if (o.isMesh || o.isInstancedMesh) totalMeshes++; });
+  let bikeMeshCount = 0, riderMeshCount = 0;
+  bikeTilt.traverse(o => { if (o.isMesh || o.isInstancedMesh) bikeMeshCount++; });
+  rider.traverse(o => { if (o.isMesh || o.isInstancedMesh) riderMeshCount++; });
+  return {
+    totalMeshes, bikeParts: bikeMeshCount, riderParts: riderMeshCount,
+    wheels: [bikeParts.wheelF, bikeParts.wheelB].filter(Boolean).length,
+    pedals: [bikeParts.pedalL, bikeParts.pedalR].filter(Boolean).length,
+    grips: [bikeParts.gripL, bikeParts.gripR].filter(Boolean).length,
+    trees: treePositions.length, collectibles: collectibles.length,
+    checkpoints: checkpoints.length, obstacles: obstacles.length,
+    ramps: ramps.length, houses: HOUSES.length, clouds: clouds.length
+  };
+};
+dbg.animState = () => {
+  // ayakların pedala, ellerin gidona gerçekten yakın olduğunu ölç
+  const footR = riderParts.kneeR ? riderParts.kneeR.getWorldPosition(new THREE.Vector3()) : null;
+  const pedalR = bikeParts.pedalPtR ? bikeParts.pedalPtR.getWorldPosition(new THREE.Vector3()) : null;
+  const handR = riderParts.foreR ? riderParts.foreR.getWorldPosition(new THREE.Vector3()) : null;
+  const gripR = bikeParts.gripR ? bikeParts.gripR.getWorldPosition(new THREE.Vector3()) : null;
+  return {
+    wheelSpin: player.wheelSpin, crankAngle: player.crankAngle,
+    legFollowsPedal: !!(footR && pedalR && footR.distanceTo(pedalR) < 1.2),
+    handsOnGrips: !!(handR && gripR && handR.distanceTo(gripR) < 1.2),
+    footToPedal: footR && pedalR ? +footR.distanceTo(pedalR).toFixed(2) : null,
+    handToGrip: handR && gripR ? +handR.distanceTo(gripR).toFixed(2) : null
+  };
+};
+dbg.cameraTrack = () => ({
+  distance: camera.position.distanceTo(player.pos),
+  mode: camMode, modeName: CAM_MODES[camMode],
+  height: +(camera.position.y - player.pos.y).toFixed(2),
+  fov: +camera.fov.toFixed(1)
+});
+dbg.audioState = () => ({ muted: Sound.muted, hasContext: !!(window.AudioContext || window.webkitAudioContext) });
+dbg.spawnPoint = () => ({ x: Math.cos(START_ANG) * RING_R, z: Math.sin(START_ANG) * RING_R });
+
+dbg.ready = true;
+renderer.compile(scene, camera);
+loop();
+</script>
+</body>
+</html>

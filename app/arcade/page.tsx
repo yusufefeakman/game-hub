@@ -35,6 +35,13 @@ interface ArcadeGame {
 
 const GAMES: ArcadeGame[] = [
   {
+    id: "sunny-side-ride", title: "Sunny Side Ride", emoji: "🚲", category: "Yarış",
+    tags: ["3D", "Bisiklet", "Keşif"], route: "/games/sunny-side-ride", pop: 92, isNew: true, featured: true,
+    standalone: "/sunny-side-ride.html",
+    description: "Açık dünya 3D bisiklet macerası! Ağaç tünelleriyle kaplı kıvrımlı sokaklarda pedal çevir, rampalardan zıpla, tokenları topla ve checkpointleri geç. Prosedürel mahalle: tepeler, ahşap köprü, parklar, yayalar ve trafik.",
+    art: "linear-gradient(135deg,#7dd3fc 0%,#22c55e 100%)",
+  },
+  {
     id: "akil-kupu", title: "Akıl Küpü", emoji: "🧠", category: "Bulmaca",
     tags: ["SOMA", "3D", "Dokunmatik"], route: "/games/akil-kupu", pop: 86, isNew: true, featured: true,
     standalone: "/akil-kupu.html",
