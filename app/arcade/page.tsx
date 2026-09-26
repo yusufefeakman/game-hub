@@ -152,6 +152,17 @@ function formatPlays(n: number): string {
   return String(n);
 }
 
+/* Türkçe arama normalizasyonu:
+   - I / İ / ı hepsi "i"ye katlanır (İngilizce layout'ta "I" yazan da bulsun)
+   - ü/ö/ş/ç/ğ/ı işaretleri düşürülür: "kupu" → "Akıl Küpü", "dovus" → "Dövüş"
+   Arama kutusuna işaretli veya işaretli girilip girilmediği fark etmez. */
+const TR_LETTERS: Record<string, string> = { "ı": "i", "ç": "c", "ğ": "g", "ö": "o", "ş": "s", "ü": "u" };
+function normalizeTr(s: string): string {
+  let out = "";
+  for (const ch of s.toLowerCase()) out += TR_LETTERS[ch] ?? ch;
+  return out;
+}
+
 export default function ArcadePage() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<string>("Tümü");
@@ -226,7 +237,7 @@ export default function ArcadePage() {
   );
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLocaleLowerCase("tr");
+    const needle = normalizeTr(q.trim());
     let list = GAMES.filter((g) => {
       if (tab === FAV_TAB) return favs.includes(g.id);
       if (tab !== "Tümü" && g.category !== tab) return false;
@@ -234,8 +245,7 @@ export default function ArcadePage() {
     });
     if (needle) {
       list = list.filter((g) =>
-        (g.title + " " + g.category + " " + g.tags.join(" ") + " " + g.description)
-          .toLocaleLowerCase("tr")
+        normalizeTr(g.title + " " + g.category + " " + g.tags.join(" ") + " " + g.description)
           .includes(needle)
       );
     }
@@ -245,6 +255,11 @@ export default function ArcadePage() {
     else list.sort((a, b) => score(b) - score(a));
     return list;
   }, [q, tab, sort, favs, score]);
+
+  /* Filtre/arama aktifken vitrin satırları (Son Oynadıkların/Trend/Yeni)
+     gizlenir — portal yalnızca sonuç listesini gösterir, böylece pillin
+     etkisi anında ve açıkça görünür. */
+  const isFiltering = tab !== "Tümü" || q.trim() !== "";
 
   const open = openId ? GAMES.find((g) => g.id === openId) ?? null : null;
   const related = useMemo(
@@ -312,7 +327,7 @@ export default function ArcadePage() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Oyun ara: rubik, dövüş, yarış…"
+            placeholder="Oyun ara: kupu, dovus, bisiklet…"
             aria-label="Oyun ara"
           />
         </div>
@@ -353,7 +368,9 @@ export default function ArcadePage() {
               <button type="button" className="arc-btn primary big" onClick={() => openGame(featured[slide % featured.length])}>
                 ▶ Hemen Oyna
               </button>
-              <Link href={playUrl(featured[slide % featured.length])} className="arc-btn big">
+              {/* next/link basePath'i otomatik ekler; href'e elle eklemeyiz
+                  (eklersek /game-hub/game-hub/... olur ve 404 verir). */}
+              <Link href={featured[slide % featured.length].route + "/"} className="arc-btn big">
                 ↗ Tam Sayfa
               </Link>
             </div>
@@ -371,36 +388,40 @@ export default function ArcadePage() {
           </div>
         </section>
 
-        {/* ---------------- son oynadıkların ---------------- */}
-        {recentGames.length > 0 && (
+        {isFiltering ? null : (
           <>
+            {/* ---------------- son oynadıkların ---------------- */}
+            {recentGames.length > 0 && (
+              <>
+                <div className="arc-row-head">
+                  <h2>🕹️ Son Oynadıkların</h2>
+                  <span className="arc-sub">{recentGames.length} oyun</span>
+                </div>
+                <div className="arc-row">
+                  {recentGames.map((g) => <Card key={g.id} g={g} />)}
+                </div>
+              </>
+            )}
+
+            {/* ---------------- trend ---------------- */}
             <div className="arc-row-head">
-              <h2>🕹️ Son Oynadıkların</h2>
-              <span className="arc-sub">{recentGames.length} oyun</span>
+              <h2>🔥 Trend Olanlar</h2>
+              <span className="arc-sub">şu an en çok oynananlar</span>
             </div>
             <div className="arc-row">
-              {recentGames.map((g) => <Card key={g.id} g={g} />)}
+              {trending.map((g) => <Card key={g.id} g={g} />)}
+            </div>
+
+            {/* ---------------- yeni ---------------- */}
+            <div className="arc-row-head">
+              <h2>🆕 Yeni Eklenenler</h2>
+              <span className="arc-sub">taze oyunlar</span>
+            </div>
+            <div className="arc-row">
+              {newest.map((g) => <Card key={g.id} g={g} />)}
             </div>
           </>
         )}
-
-        {/* ---------------- trend ---------------- */}
-        <div className="arc-row-head">
-          <h2>🔥 Trend Olanlar</h2>
-          <span className="arc-sub">şu an en çok oynananlar</span>
-        </div>
-        <div className="arc-row">
-          {trending.map((g) => <Card key={g.id} g={g} />)}
-        </div>
-
-        {/* ---------------- yeni ---------------- */}
-        <div className="arc-row-head">
-          <h2>🆕 Yeni Eklenenler</h2>
-          <span className="arc-sub">taze oyunlar</span>
-        </div>
-        <div className="arc-row">
-          {newest.map((g) => <Card key={g.id} g={g} />)}
-        </div>
 
         {/* ---------------- tüm oyunlar ---------------- */}
         <div className="arc-row-head">
