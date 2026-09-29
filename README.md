@@ -8,7 +8,6 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 
 | Oyun | Açıklama | Route |
 |---|---|---|
-| **VoxelCraft** ⛏️ | Seed'li voxel survival: çöl/kar biyomları, mağara/cevher, meşe-huş-çam ormanları, gündüz/gece + yağmur/kar, fırınla pişirme, demir/elmas aletler, envanter+üretim, canlılar, otomatik kayıt, mobil dokunmatik | `/game-hub/games/voxelcraft` |
 | **Doping Runner** ⚡ | Neon şehirde sonsuz koşu: doping topla, hızlan, engellerden kaç — mobil uyumlu | `/game-hub/games/doping-runner` |
 | **Akıl Küpü** 🧩 | SOMA tarzı 3D parça yerleştirme: 7 renkli parçayı 3×3×3 küpe yerleştir — dokunmatik, 3D önizleme, animasyonlu çözücü, rekor takibi | `/game-hub/games/akil-kupu` |
 | **Yılan Arena** 🐍 | Neon yılan arenasında klasik yılan: elmalar, altın elma + hayalet modu, hızlanma, rekor takibi, kaydırma/ekran butonları | `/game-hub/games/yilan-arena` |

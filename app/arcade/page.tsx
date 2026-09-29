@@ -49,12 +49,6 @@ const GAMES: ArcadeGame[] = [
     art: "linear-gradient(135deg,#22d3ee 0%,#a855f7 100%)",
   },
   {
-    id: "voxelcraft", title: "VoxelCraft", emoji: "⛏️", category: "Macera",
-    tags: ["Sandbox", "Hayatta Kalma", "Üretim", "Biyomlar"], route: "/games/voxelcraft", pop: 95, featured: true,
-    description: "Minecraft benzeri hayatta kalma: seed'li dünya, çöl/kar biyomları, mağaralar ve cevherler, fırınla pişirme, yağmur/kar, gündüz/gece, envanter, üretim, aletler ve canlılar. Mobilde dokunmatik.",
-    art: "linear-gradient(135deg,#66bb6a 0%,#33691e 100%)",
-  },
-  {
     id: "anime-legends", title: "Anime Legends", emoji: "🥷", category: "Dövüş",
     tags: ["Turnuva", "Combo", "1P"], route: "/games/anime-legends", pop: 93,
     standalone: "/anime-legends.html",

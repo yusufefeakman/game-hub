@@ -39,17 +39,6 @@ const GAMES = [
     status: "playable" as const,
   },
   {
-    id: "voxelcraft",
-    title: "VoxelCraft",
-    subtitle: "Survival Blok Dünyası",
-    emoji: "⛏️",
-    artClass: "art-5",
-    description:
-      "Minecraft benzeri hayatta kalma! Seed'li prosedürel arazi: çöl ve kar biyomları, mağara/cevher, meşe-huş-çam ormanları, gündüz/gece + yağmur/kar, can/açlık, envanter (E), 2×2/3×3 üretim, fırınla pişirme, demir/elmas aletler, canlılar ve otomatik kayıt. Mobilde dokunmatik kontroller.",
-    route: "/games/voxelcraft",
-    status: "playable" as const,
-  },
-  {
     id: "spaceship",
     title: "Yıldız Vurucu",
     subtitle: "Asteroid Saldırısı",

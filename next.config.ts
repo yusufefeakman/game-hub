@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   basePath,
   // GitHub Pages statik dosya sunucusu uzantısız yolları ".html"e çevirmez.
   // trailingSlash ile her rota <rota>/index.html olarak export edilir; böylece
-  // /game-hub/games/voxelcraft gibi derin linkler doğrudan (yenileme/sayfa
+  // /game-hub/games/chess gibi derin linkler doğrudan (yenileme/sayfa
   // açılışı) çalışır — aksi hâlde 404 döner.
   trailingSlash: true,
   images: { unoptimized: true },

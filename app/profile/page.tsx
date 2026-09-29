@@ -19,7 +19,6 @@ const GAME_TITLES: Record<string, string> = {
   chess: "Royal Chess",
   "world-war-z": "World War Z",
   powerboat: "Sürat Teknesi",
-  voxelcraft: "VoxelCraft",
   spaceship: "Yıldız Vurucu",
   "doping-runner": "Doping Runner",
   "sunny-side-ride": "Sunny Side Ride",
