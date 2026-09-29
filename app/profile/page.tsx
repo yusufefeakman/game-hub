@@ -29,6 +29,7 @@ const GAME_TITLES: Record<string, string> = {
   fighting: "Neon Rivals",
   "lets-world": "Let's World",
   "yilan-arena": "Yılan Arena",
+  "mayin-tarlasi": "Mayın Tarlası",
 };
 
 function ProfileContent() {

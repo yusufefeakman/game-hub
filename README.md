@@ -12,6 +12,7 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 | **Doping Runner** ⚡ | Neon şehirde sonsuz koşu: doping topla, hızlan, engellerden kaç — mobil uyumlu | `/game-hub/games/doping-runner` |
 | **Akıl Küpü** 🧩 | SOMA tarzı 3D parça yerleştirme: 7 renkli parçayı 3×3×3 küpe yerleştir — dokunmatik, 3D önizleme, animasyonlu çözücü, rekor takibi | `/game-hub/games/akil-kupu` |
 | **Yılan Arena** 🐍 | Neon yılan arenasında klasik yılan: elmalar, altın elma + hayalet modu, hızlanma, rekor takibi, kaydırma/ekran butonları | `/game-hub/games/yilan-arena` |
+| **Mayın Tarlası** 💣 | Neon mayın tarlası: ilk tık güvenli, bayrak modu, sıfır komşu otomatik açılım, 3 zorluk + süre rekorları | `/game-hub/games/mayin-tarlasi` |
 | **Sunny Side Ride** 🚲 | Açık dünya 3D bisiklet macerası: ağaç tünelli sokaklar, rampalar, ahşap köprü, tepeler, parklar, yayalar ve trafik — pedal/fren, zıplama, sprint, token ve checkpoint'ler | `/game-hub/games/sunny-side-ride` |
 | **Anime Legends** 🥷 | 24 ikonik anime karakteriyle dövüş turnuvası: Naruto, Goku, Luffy, Gojo, Saitama... 8 rakibi yen, şampiyon ol | `/game-hub/games/anime-legends` |
 | **Astro Blaster** 🛸 | Uzay temalı blok kırma (Breakout): 5 seviye, 4 blok tipi, güçlendirmeler | `/game-hub/games/astro-blaster` |

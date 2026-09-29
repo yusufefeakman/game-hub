@@ -134,6 +134,12 @@ const GAMES: ArcadeGame[] = [
     description: "Neon yılan arenasında klasik yılan: elmalar, altın elma + hayalet modu, hızlanma ve rekor takibi. Oklar/WASD veya kaydırma; mobilde ekran butonları.",
     art: "linear-gradient(135deg,#34d399 0%,#0891b2 100%)",
   },
+  {
+    id: "mayin-tarlasi", title: "Mayın Tarlası", emoji: "💣", category: "Strateji",
+    tags: ["Klasik", "Bayrak", "3 Zorluk"], route: "/games/mayin-tarlasi", pop: 85, isNew: true,
+    description: "Klasik mayın oyunu: ilk tık güvenli, komşu sayılarını oku, bayraklarla mayınları işaretle ve tarlayı temizle. Kolay/Orta/Zor + en iyi süre takibi; sağ tık veya 🚩 bayrak modu.",
+    art: "linear-gradient(135deg,#fb7185 0%,#312e81 100%)",
+  },
 ];
 
 const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade"];

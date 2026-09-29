@@ -181,6 +181,17 @@ const GAMES = [
     route: "/games/yilan-arena",
     status: "playable" as const,
   },
+  {
+    id: "mayin-tarlasi",
+    title: "Mayın Tarlası",
+    subtitle: "Neon Mayın Oyunu",
+    emoji: "💣",
+    artClass: "art-19",
+    description:
+      "Klasik mayın oyunu neon arena'da! İlk tık her zaman güvenli; komşu sayılarını oku, bayraklarla mayınları işaretle, tarlayı temizle. Kolay/Orta/Zor zorluklar ve zorluk başına en iyi süre takibi. Sağ tık veya 🚩 bayrak modu ile mobil dokunmatik.",
+    route: "/games/mayin-tarlasi",
+    status: "playable" as const,
+  },
 ];
 
 export default function Home() {
