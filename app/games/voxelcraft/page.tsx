@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * VoxelCraft — Minecraft-benzeri blok dünyası (Three.js)
+ * Biyomlar (çöl/kar), mağaralar, fırın, hava durumu, üretim ve canlılar.
  * The full engine lives in ./engine.ts and is started on mount.
  */
 export default function VoxelcraftPage() {

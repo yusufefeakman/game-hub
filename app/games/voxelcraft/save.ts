@@ -39,6 +39,7 @@ export interface SaveDataV2 {
   inv: SaveInv;
   slot: number;
   renderRadius?: number;
+  furnaces?: unknown[]; // fırın durumları (furnace.ts serializeFurnaces)
 }
 
 export type SaveFile = SaveDataV1 | SaveDataV2;
@@ -68,6 +69,7 @@ export function makeSaveV2(
   inv: ({ id: number; count: number; dmg?: number } | null)[],
   slot: number,
   renderRadius: number,
+  furnaces?: unknown[],
 ): SaveDataV2 {
   return {
     v: 2,
@@ -78,6 +80,7 @@ export function makeSaveV2(
     inv: inv.map((s) => (s ? [s.id, s.count, s.dmg] : null)),
     slot,
     renderRadius,
+    furnaces,
   };
 }
 

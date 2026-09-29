@@ -45,7 +45,7 @@ const GAMES = [
     emoji: "⛏️",
     artClass: "art-5",
     description:
-      "Minecraft benzeri hayatta kalma! Seed'li prosedürel arazi (ova/tepe/mağara/cevher), huş-çam-meşe ormanları, gündüz/gece + yıldızlar, can/açlık, envanter (E), 2×2/3×3 üretim, aletler+dayanıklılık, canlılar ve seed+blok kaydı. Mobilde dokunmatik kontroller.",
+      "Minecraft benzeri hayatta kalma! Seed'li prosedürel arazi: çöl ve kar biyomları, mağara/cevher, meşe-huş-çam ormanları, gündüz/gece + yağmur/kar, can/açlık, envanter (E), 2×2/3×3 üretim, fırınla pişirme, demir/elmas aletler, canlılar ve otomatik kayıt. Mobilde dokunmatik kontroller.",
     route: "/games/voxelcraft",
     status: "playable" as const,
   },

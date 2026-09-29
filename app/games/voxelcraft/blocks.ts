@@ -40,10 +40,19 @@ export const B = {
   BIRCH_LEAVES: 30,
   PINE_WOOD: 31,
   PINE_LEAVES: 32,
+  CACTUS: 33,
+  DEAD_BUSH: 34,
+  FURNACE: 35,
+  IRON_BLOCK: 36,
+  GOLD_BLOCK: 37,
+  DIAMOND_BLOCK: 38,
 } as const;
 export type BlockId = (typeof B)[keyof typeof B];
 
-export const COUNT = 33;
+export const COUNT = 39;
+
+/* Çapraz (X) quad olarak çizilen bitkiler — alfalı doku, katı değil */
+export const PLANT_IDS = new Set<number>([B.FLOWER_RED, B.FLOWER_YELLOW, B.TALL_GRASS, B.DEAD_BUSH]);
 
 /* ------------------- doku yardımcıları ------------------- */
 // Deterministik 0..1
@@ -101,7 +110,7 @@ function regTile(name: string, draw: (c: CanvasRenderingContext2D) => void) {
   ATLAS_TILES.push(cv);
   tileNames.push(name);
 }
-function tileIndex(name: string): number {
+export function tileIndex(name: string): number {
   const i = tileNames.indexOf(name);
   return i >= 0 ? i : 0;
 }
@@ -142,11 +151,11 @@ export function buildAtlas() {
   });
   regTile("grass_side", (c) => {
     base(c, [134, 96, 67]);
+    noise16(c, 0.4, 0.92, 1.1, 77, [134, 96, 67]); // gürültü önce: çimen şeridini boymasın
     c.fillStyle = "rgb(104,178,72)"; c.fillRect(0, 0, 16, 3);
     c.fillStyle = "rgb(92,164,64)";
     for (let x = 0; x < 16; x++) { if (h2(x + 40) > 0.35) c.fillRect(x, 3, 1, 1); if (h2(x + 70) > 0.72) c.fillRect(x, 4, 1, 1); }
     c.fillStyle = "rgb(66,112,46)"; c.fillRect(0, 5, 16, 1);
-    noise16(c, 0.4, 0.92, 1.1, 77, [134, 96, 67]);
   });
   regTile("grass_bottom", (c) => { base(c, [134, 96, 67]); noise16(c, 0.5, 0.9, 1.12, 5, [134, 96, 67]); });
 
@@ -237,7 +246,7 @@ export function buildAtlas() {
   regTile("craft_top", (c) => { base(c, [176, 136, 90]); c.fillStyle = "rgb(120,88,55)"; for (let y = 0; y < 16; y += 4) c.fillRect(0, y, 16, 1); c.fillStyle = "rgb(200,160,110)"; for (let x = 0; x < 16; x += 4) { c.fillRect(x, 2, 1, 2); c.fillRect(x + 2, 6, 1, 2); c.fillRect(x, 10, 1, 2); c.fillRect(x + 2, 14, 1, 2); } c.fillStyle = "rgba(96,66,38,.8)"; c.fillRect(1, 1, 14, 1); c.fillRect(1, 14, 14, 1); c.fillRect(1, 1, 1, 14); c.fillRect(14, 1, 1, 14); c.fillRect(6, 6, 4, 1); c.fillRect(6, 9, 4, 1); });
   regTile("craft_side", (c) => { base(c, [156, 116, 72]); c.fillStyle = "rgb(110,80,50)"; for (let y = 0; y < 16; y += 4) c.fillRect(0, y, 16, 1); c.fillStyle = "rgb(96,66,38)"; c.fillRect(0, 0, 16, 2); c.fillStyle = "rgb(196,160,112)"; c.fillRect(2, 6, 12, 4); c.fillStyle = "rgb(120,88,55)"; c.fillRect(6, 10, 4, 6); c.fillStyle = "rgb(90,62,38)"; c.fillRect(7, 11, 2, 4); });
 
-  regTile("glass", (c) => { base(c, [210, 240, 245]); c.fillStyle = "rgba(255,255,255,0.5)"; c.fillRect(0, 0, 16, 2); c.fillRect(0, 0, 2, 16); c.strokeStyle = "rgb(170,215,225)"; c.strokeRect(0.5, 0.5, 15, 15); });
+  regTile("glass", (c) => { c.fillStyle = "rgba(200,235,245,0.3)"; c.fillRect(0, 0, 16, 16); c.fillStyle = "rgba(255,255,255,0.62)"; c.fillRect(0, 0, 16, 2); c.fillRect(0, 0, 2, 16); c.strokeStyle = "rgba(170,215,225,0.9)"; c.strokeRect(0.5, 0.5, 15, 15); });
 
   regTile("cobble", (c) => { base(c, [120, 120, 120]); const blobs = [[0, 0], [8, 0], [2, 8], [9, 8], [4, 4], [12, 4], [0, 12], [9, 12]]; for (const [bx, by] of blobs) { c.fillStyle = h2(bx + by * 3) > 0.5 ? "rgb(138,138,138)" : "rgb(104,104,104)"; for (let yy = 0; yy < 6; yy++) for (let xx = 0; xx < 7; xx++) if ((xx === 0 || yy === 0 || xx === 6 || yy === 5) || h2(xx * 9 + yy * 5 + bx) > 0.4) c.fillRect((bx + xx) % 16, (by + yy) % 16, 1, 1); } });
   regTile("brick", (c) => { base(c, [155, 84, 72]); c.fillStyle = "rgb(188,112,96)"; for (let row = 0; row < 8; row++) { const y = row * 2; const off = row % 2 === 0 ? 0 : 4; for (let x = -off; x < 16; x += 8) c.fillRect(x, y, 7, 1); } c.fillStyle = "rgb(120,58,50)"; for (let row = 0; row < 8; row++) { const y = row * 2; c.fillRect(0, y + 1, 16, 1); } });
@@ -260,9 +269,22 @@ export function buildAtlas() {
 
   regTile("water", (c) => { base(c, [52, 110, 200]); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 8.1 + y * 4.9 + 70); if (n > 0.6) { c.fillStyle = n > 0.85 ? "rgb(70,140,220)" : "rgb(34,88,170)"; c.fillRect(x, y, 1, 1); } } });
 
-  regTile("flower_red", (c) => { base(c, [52, 120, 60]); c.fillStyle = "rgb(40,96,44)"; c.fillRect(7, 6, 2, 9); c.fillStyle = "rgb(220,60,60)"; for (const [x, y] of [[6, 6], [10, 6], [8, 4], [8, 8]]) { c.fillRect(x, y, 2, 2); c.fillRect(x + 1, y - 1, 1, 1); } });
-  regTile("flower_yellow", (c) => { base(c, [52, 120, 60]); c.fillStyle = "rgb(40,96,44)"; c.fillRect(7, 6, 2, 9); c.fillStyle = "rgb(245,220,80)"; for (const [x, y] of [[5, 5], [8, 3], [10, 7], [7, 7]]) c.fillRect(x, y, 3, 2); });
-  regTile("tall_grass", (c) => { base(c, [52, 120, 60]); c.fillStyle = "rgb(70,150,70)"; for (let x = 3; x < 14; x += 3) { c.fillRect(x, 4, 1, 11); c.fillStyle = "rgb(96,180,90)"; c.fillRect(x + 1, 4, 1, 6); c.fillRect(x - 1, 6, 1, 8); c.fillStyle = "rgb(70,150,70)"; } });
+  // --- bitkiler: şeffaf zemin (motor tarafından çapraz quad olarak çizilir) ---
+  regTile("flower_red", (c) => { c.fillStyle = "rgb(40,96,44)"; c.fillRect(7, 5, 2, 11); c.fillStyle = "rgb(58,120,60)"; c.fillRect(5, 9, 2, 1); c.fillRect(9, 11, 2, 1); c.fillStyle = "rgb(220,60,60)"; for (const [x, y] of [[6, 3], [10, 3], [8, 1], [8, 5], [6, 5], [10, 5]] as const) c.fillRect(x, y, 2, 2); c.fillStyle = "rgb(245,220,80)"; c.fillRect(8, 4, 2, 2); });
+  regTile("flower_yellow", (c) => { c.fillStyle = "rgb(40,96,44)"; c.fillRect(7, 5, 2, 11); c.fillStyle = "rgb(58,120,60)"; c.fillRect(5, 10, 2, 1); c.fillRect(9, 8, 2, 1); c.fillStyle = "rgb(245,220,80)"; for (const [x, y] of [[5, 2], [9, 2], [7, 0], [7, 4], [5, 4], [9, 4]] as const) c.fillRect(x, y, 3, 2); c.fillStyle = "rgb(180,150,40)"; c.fillRect(8, 3, 2, 2); });
+  regTile("tall_grass", (c) => { for (let x = 2; x < 15; x += 3) { c.fillStyle = "rgb(70,150,70)"; c.fillRect(x, 5, 1, 11); c.fillStyle = "rgb(96,180,90)"; c.fillRect(x + 1, 3, 1, 13); c.fillStyle = "rgb(56,128,56)"; c.fillRect(x - 1, 8, 1, 8); } });
+  regTile("dead_bush", (c) => { c.fillStyle = "rgb(110,80,40)"; c.fillRect(7, 6, 2, 10); c.fillStyle = "rgb(128,94,50)"; c.fillRect(4, 8, 3, 1); c.fillRect(9, 10, 3, 1); c.fillRect(5, 6, 1, 3); c.fillRect(10, 5, 1, 4); c.fillRect(3, 12, 2, 1); c.fillRect(11, 13, 2, 1); });
+  // --- kaktüs ---
+  regTile("cactus_side", (c) => { base(c, [58, 142, 60]); c.fillStyle = "rgb(44,110,46)"; for (let x = 0; x < 16; x += 4) c.fillRect(x, 0, 1, 16); c.fillStyle = "rgb(210,220,180)"; for (let y = 2; y < 16; y += 5) { c.fillRect(2, y, 1, 2); c.fillRect(7, y + 2, 1, 2); c.fillRect(12, y, 1, 2); } });
+  regTile("cactus_top", (c) => { base(c, [64, 150, 66]); c.fillStyle = "rgb(84,168,84)"; c.fillRect(4, 4, 8, 8); c.fillStyle = "rgb(48,116,50)"; c.fillRect(2, 2, 1, 1); c.fillRect(13, 2, 1, 1); c.fillRect(2, 13, 1, 1); c.fillRect(13, 13, 1, 1); });
+  // --- fırın ---
+  regTile("furnace_top", (c) => { base(c, [120, 120, 120]); noise16(c, 0.45, 0.88, 1.12, 55, [120, 120, 120]); c.fillStyle = "rgb(96,96,96)"; c.fillRect(4, 4, 8, 8); c.fillStyle = "rgb(70,70,70)"; c.fillRect(6, 6, 4, 4); });
+  regTile("furnace_side", (c) => { base(c, [122, 122, 122]); noise16(c, 0.45, 0.88, 1.12, 56, [122, 122, 122]); c.fillStyle = "rgb(92,92,92)"; c.fillRect(0, 0, 16, 2); c.fillRect(0, 14, 16, 2); });
+  regTile("furnace_front", (c) => { base(c, [122, 122, 122]); noise16(c, 0.45, 0.88, 1.12, 57, [122, 122, 122]); c.fillStyle = "rgb(60,60,62)"; c.fillRect(3, 7, 10, 7); c.fillStyle = "rgb(40,40,42)"; c.fillRect(4, 8, 8, 5); c.fillStyle = "rgb(255,140,40)"; c.fillRect(5, 11, 6, 2); c.fillStyle = "rgb(255,200,80)"; c.fillRect(6, 12, 4, 1); c.fillStyle = "rgb(92,92,92)"; c.fillRect(0, 0, 16, 2); c.fillRect(0, 3, 16, 1); });
+  // --- metal bloklar ---
+  regTile("iron_block", (c) => { base(c, [216, 216, 216]); noise16(c, 0.4, 0.9, 1.08, 66, [216, 216, 216]); c.fillStyle = "rgb(184,184,184)"; c.fillRect(0, 0, 16, 1); c.fillRect(0, 8, 16, 1); c.fillRect(0, 0, 1, 16); c.fillRect(8, 0, 1, 16); });
+  regTile("gold_block", (c) => { base(c, [248, 212, 68]); noise16(c, 0.4, 0.9, 1.1, 67, [248, 212, 68]); c.fillStyle = "rgb(212,178,52)"; c.fillRect(0, 0, 16, 1); c.fillRect(0, 8, 16, 1); c.fillRect(0, 0, 1, 16); c.fillRect(8, 0, 1, 16); });
+  regTile("diamond_block", (c) => { base(c, [98, 228, 224]); noise16(c, 0.4, 0.88, 1.1, 68, [98, 228, 224]); c.fillStyle = "rgb(62,196,196)"; c.fillRect(0, 0, 16, 1); c.fillRect(0, 8, 16, 1); c.fillRect(0, 0, 1, 16); c.fillRect(8, 0, 1, 16); c.fillStyle = "rgb(210,255,255)"; c.fillRect(3, 3, 2, 2); c.fillRect(11, 11, 2, 2); });
   regTile("mossy_cobble", (c) => { const cv2 = document.createElement("canvas"); cv2.width = 16; cv2.height = 16; const cc = cv2.getContext("2d")!; speck([120, 120, 120], [138, 138, 138], [104, 104, 104], 48)(cc); // moss patches
     for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = h2(x * 3.7 + y * 6.1 + 200); if (n > 0.72) { cc.fillStyle = "rgb(80,140,80)"; cc.fillRect(x, y, 1, 1); } } c.drawImage(cv2, 0, 0); });
 
@@ -336,6 +358,13 @@ export function initBlocks() {
   def(B.BIRCH_LEAVES, "Huş Yaprağı", [ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves"), ti("birch_leaves")], true, 0.2, { transparent: true });
   def(B.PINE_WOOD, "Çam Odun", [ti("pine_log_top"), ti("pine_log_top"), ti("pine_log_side"), ti("pine_log_side"), ti("pine_log_side"), ti("pine_log_side")], true, 1.8);
   def(B.PINE_LEAVES, "Çam Yaprağı", [ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves"), ti("pine_leaves")], true, 0.2, { transparent: true });
+  // --- çöl / kar / fırın / metal bloklar ---
+  def(B.CACTUS, "Kaktüs", [ti("cactus_top"), ti("cactus_top"), ti("cactus_side"), ti("cactus_side"), ti("cactus_side"), ti("cactus_side")], true, 0.4);
+  def(B.DEAD_BUSH, "Ölü Çalı", [ti("dead_bush"), ti("dead_bush"), ti("dead_bush"), ti("dead_bush"), ti("dead_bush"), ti("dead_bush")], false, 0, { transparent: true });
+  def(B.FURNACE, "Fırın", [ti("furnace_top"), ti("furnace_top"), ti("furnace_front"), ti("furnace_front"), ti("furnace_front"), ti("furnace_front")], true, 3.5);
+  def(B.IRON_BLOCK, "Demir Blok", [ti("iron_block"), ti("iron_block"), ti("iron_block"), ti("iron_block"), ti("iron_block"), ti("iron_block")], true, 3.0);
+  def(B.GOLD_BLOCK, "Altın Blok", [ti("gold_block"), ti("gold_block"), ti("gold_block"), ti("gold_block"), ti("gold_block"), ti("gold_block")], true, 3.0);
+  def(B.DIAMOND_BLOCK, "Elmas Blok", [ti("diamond_block"), ti("diamond_block"), ti("diamond_block"), ti("diamond_block"), ti("diamond_block"), ti("diamond_block")], true, 4.0);
 }
 
 export function blockName(id: number): string {

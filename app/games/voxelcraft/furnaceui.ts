@@ -1,44 +1,40 @@
 /* =====================================================================
-   VOXELCRAFT — invui.ts
-   Tam envanter + üretim ekranı. engine.ts'ye bağımlı DEĞİLDİR; tüm
-   yan etkiler InvHost arayüzü üzerinden iletilir (böylece döngüsel
-   import olmaz). Aletler `dmg` (dayanıklılık) ile taşınır ve slotta
-   dayanıklılık çubuğu olarak gösterilir.
+   VOXELCRAFT — furnaceui.ts
+   Fırın ekranı: girdi + yakıt slotları, çıktı slotu, yanma/pişirme
+   çubukları ve envanter. engine.ts'ye bağımlı değildir (InvHost benzeri
+   FurnaceHost). Fırın gerçek zamanlı çalışır; çubuklar her karede
+   furnace.ts durumundan güncellenir.
 
-   Etkileşim (Minecraft tarzı):
-     Sol tık slot        → stack'i kaldır / bırak / istifle / değiştir
-     Sağ tık slot        → yarım al / birer birer koy
-     Sonuç slotuna tık   → grid'deki kalıbı bir kez üret (imlece ekle)
-     E / Esc / ✕         → kapat (grid + imleç envantere geri döner)
+   Etkileşim:
+     Sol tık slot     → kaldır / bırak / istifle / değiştir
+     Sağ tık slot     → yarım al / 1'er koy
+     Çıktı slotu      → yalnızca al (koyulamaz)
+     ✕               → kapat (slotlar + imleç envantere döner)
    ===================================================================== */
 import { Inventory, stackLimitOf, toolMetaOf } from "./inventory";
-import { matchRecipe, itemNameOf, iconDataUrl, type Recipe } from "./crafting";
+import { itemNameOf, iconDataUrl } from "./crafting";
+import { COOK_TIME, smeltResult, type FurnaceState } from "./furnace";
 
-export interface InvHost {
+export interface FurnaceHost {
   inventory: Inventory;
-  /** Envanter değişince HUD hotbar vb. tazele */
+  furnace: FurnaceState;
   onChanged(): void;
   toast(msg: string): void;
   click(): void;
-  /** Ekran kapatıldıktan sonra çağrılır (pointer lock geri istenebilir) */
   closed(): void;
 }
 
 interface Cell { id: number | null; count: number; dmg?: number; }
-type Ref = { kind: "inv"; i: number } | { kind: "grid"; i: number };
+type FSlot = "in" | "fuel" | "out";
+type Ref = { kind: "inv"; i: number } | { kind: "f"; slot: FSlot };
+/** FSlot → FurnaceState alan adı eşlemesi (DOM 'in/out', state 'input/output'). */
+const fKey: Record<FSlot, "input" | "fuel" | "output"> = { in: "input", fuel: "fuel", out: "output" };
 
 function cellOf(id: number | null, count: number, dmg?: number): Cell { return { id, count, dmg }; }
 
-/**
- * wrap içinde envanter/üretim ekranını açar.
- * mode=2 → kişisel 2×2 üretim · mode=3 → üretim masası 3×3
- * Kapatma fonksiyonu döner.
- */
-export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 3): () => void {
+export function openFurnaceScreen(wrap: HTMLElement, host: FurnaceHost): () => void {
   const inv = host.inventory;
-  const dims = mode;
-  const nCells = dims * dims;
-  const grid: Cell[] = Array.from({ length: nCells }, () => cellOf(null, 0));
+  const f = host.furnace;
   let cursor: Cell | null = null;
 
   /* ---------- DOM ---------- */
@@ -47,16 +43,25 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
   ov.innerHTML = `
   <div class="vcx-iwindow">
     <div class="vcx-ihead">
-      <span>${mode === 3 ? "🪵 Üretim Masası — 3×3" : "🎒 Envanter — Üretim 2×2"}</span>
+      <span>🔥 Fırın</span>
       <button class="vcx-iclose" title="Kapat (E/Esc)">✕</button>
     </div>
     <div class="vcx-imain">
       <div class="vcx-icol">
-        <div class="vcx-ilabel">Üretim (${dims}×${dims})</div>
-        <div class="vcx-icraftrow">
-          <div class="vcx-igrid" data-dim="${dims}"></div>
-          <div class="vcx-arrow">➜</div>
-          <div class="vcx-islot vcx-result" data-sl="r" title="Üret!"></div>
+        <div class="vcx-ilabel">Pişir / Yak</div>
+        <div class="vcx-frow">
+          <div class="vcx-fcol">
+            <div class="vcx-islot" data-sl="in" title="Pişirilecek"></div>
+            <div class="vcx-flame"><i class="vcx-flame-fill"></i></div>
+          </div>
+          <div class="vcx-fcol">
+            <div class="vcx-islot" data-sl="fuel" title="Yakıt (kömür / odun)"></div>
+            <div class="vcx-arrow">➜</div>
+          </div>
+          <div class="vcx-fcol">
+            <div class="vcx-islot vcx-result" data-sl="out" title="Çıktı — al"></div>
+            <div class="vcx-cook"><i class="vcx-cook-fill"></i></div>
+          </div>
         </div>
       </div>
       <div class="vcx-icol">
@@ -66,7 +71,7 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
         <div class="vcx-igrid9" data-kind="hot"></div>
       </div>
     </div>
-    <div class="vcx-ifoot">Sol tık: taşı/istifle · Sağ tık: yarım veya 1'er · E/Esc: kapat</div>
+    <div class="vcx-ifoot">Sol tık: taşı/istifle · Sağ tık: yarım veya 1'er · Çıktı: yalnızca al · E/Esc: kapat</div>
   </div>`;
   wrap.appendChild(ov);
 
@@ -84,11 +89,9 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
 .vcx-imain{display:flex;gap:24px;flex-wrap:wrap;justify-content:center;overflow:auto}
 .vcx-icol{display:flex;flex-direction:column;gap:6px;align-items:center}
 .vcx-ilabel{font-size:12px;color:#9fb6cc;font-weight:700;letter-spacing:.5px}
-.vcx-icraftrow{display:flex;align-items:center;gap:12px}
+.vcx-frow{display:flex;align-items:center;gap:10px;padding:8px;background:rgba(0,0,0,.42);border-radius:10px;border:1px solid rgba(255,255,255,.14)}
+.vcx-fcol{display:flex;flex-direction:column;align-items:center;gap:4px}
 .vcx-arrow{font-size:26px;color:#cfd8e3}
-.vcx-igrid{display:grid;gap:4px;padding:6px;background:rgba(0,0,0,.42);border-radius:10px;border:1px solid rgba(255,255,255,.14)}
-.vcx-igrid[data-dim="2"]{grid-template-columns:repeat(2,44px)}
-.vcx-igrid[data-dim="3"]{grid-template-columns:repeat(3,44px)}
 .vcx-igrid9{display:grid;grid-template-columns:repeat(9,38px);gap:3px;padding:5px;
   background:rgba(0,0,0,.42);border-radius:10px;border:1px solid rgba(255,255,255,.14)}
 .vcx-islot{width:44px;height:44px;border-radius:7px;border:2px solid rgba(255,255,255,.22);position:relative;
@@ -99,10 +102,9 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
 .vcx-islot b{position:absolute;right:3px;bottom:1px;font-size:11px;color:#fff;text-shadow:0 1px 2px #000;font-weight:800}
 .vcx-islot.hl{border-color:#ffd23f;box-shadow:0 0 10px rgba(255,210,63,.75)}
 .vcx-result.hl{border-color:#7ee081;box-shadow:0 0 10px rgba(126,224,129,.8)}
-.vcx-result:active{transform:scale(.94)}
-.dbar{position:absolute;left:2px;right:2px;bottom:2px;height:3px;border-radius:2px;background:rgba(0,0,0,.55);
-  overflow:hidden;pointer-events:none}
-.dbar i{display:block;height:100%;border-radius:2px;background:#7ee081}
+.vcx-flame,.vcx-cook{width:44px;height:6px;border-radius:3px;background:rgba(0,0,0,.55);overflow:hidden}
+.vcx-flame-fill{display:block;height:100%;width:0%;background:linear-gradient(90deg,#ff8a2a,#ffd23f);border-radius:3px}
+.vcx-cook-fill{display:block;height:100%;width:0%;background:linear-gradient(90deg,#7ee081,#d8f5a0);border-radius:3px}
 .vcx-ifoot{font-size:11px;color:#8fa3b8;text-align:center}
 .vcx-ighost{position:absolute;z-index:14;width:42px;height:42px;border-radius:7px;border:2px solid #ffd23f;
   background-color:rgba(0,0,0,.55);background-size:cover;background-repeat:no-repeat;image-rendering:pixelated;
@@ -111,23 +113,21 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
 `;
   wrap.appendChild(style);
 
-  const gridEl = ov.querySelector<HTMLElement>(".vcx-igrid")!;
-  const resultEl = ov.querySelector<HTMLElement>(".vcx-result")!;
   const ghost = document.createElement("div");
   ghost.className = "vcx-ighost";
   ghost.style.display = "none";
   wrap.appendChild(ghost);
 
-  for (let i = 0; i < nCells; i++) {
-    const s = document.createElement("div");
-    s.className = "vcx-islot";
-    s.dataset.sl = "g"; s.dataset.i = String(i);
-    gridEl.appendChild(s);
-  }
+  const flameFill = ov.querySelector<HTMLElement>(".vcx-flame-fill")!;
+  const cookFill = ov.querySelector<HTMLElement>(".vcx-cook-fill")!;
+  const inEl = ov.querySelector<HTMLElement>("[data-sl='in']")!;
+  const fuelEl = ov.querySelector<HTMLElement>("[data-sl='fuel']")!;
+  const outEl = ov.querySelector<HTMLElement>("[data-sl='out']")!;
+
   const mkInvSlots = (kind: "main" | "hot") => {
     const c = ov.querySelector<HTMLElement>(`.vcx-igrid9[data-kind="${kind}"]`)!;
     const start = kind === "hot" ? 0 : 9;
-    const end = kind === "hot" ? 9 : 36; // ana alan: 27 slot (9..35)
+    const end = kind === "hot" ? 9 : 36;
     for (let i = start; i < end; i++) {
       const s = document.createElement("div");
       s.className = "vcx-islot";
@@ -144,25 +144,16 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
       const s = inv.slots[r.i];
       return s ? cellOf(s.id, s.count, s.dmg) : cellOf(null, 0);
     }
-    return grid[r.i];
+    const s = f[fKey[r.slot]];
+    return s ? cellOf(s.id, s.count, s.dmg) : cellOf(null, 0);
   }
   function setRef(r: Ref, id: number | null, count: number, dmg?: number) {
     if (id === null || count <= 0) {
       if (r.kind === "inv") inv.slots[r.i] = null;
-      else grid[r.i] = cellOf(null, 0);
+      else f[fKey[r.slot]] = null;
     } else if (r.kind === "inv") inv.slots[r.i] = { id, count, dmg };
-    else grid[r.i] = cellOf(id, count, dmg);
+    else f[fKey[r.slot]] = { id, count, dmg };
   }
-  function rows2d(): (number | null)[][] {
-    const rows: (number | null)[][] = [];
-    for (let y = 0; y < dims; y++) {
-      const row: (number | null)[] = [];
-      for (let x = 0; x < dims; x++) row.push(grid[y * dims + x].id);
-      rows.push(row);
-    }
-    return rows;
-  }
-  const recipe = (): Recipe | null => matchRecipe(rows2d());
 
   /* ---------- slot boyama ---------- */
   function paint(el: HTMLElement, c: Cell, result = false) {
@@ -188,36 +179,23 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     } else if (c.count > 1) tip += ` ×${c.count}`;
     el.innerHTML = html;
     el.title = tip;
-    if (result) el.classList.add("hl"); else el.classList.remove("hl"); // yalnızca sonuç slotu vurgulanır
+    if (result) el.classList.add("hl"); else el.classList.remove("hl");
   }
 
   const invEls: HTMLElement[] = [];
   ov.querySelectorAll<HTMLElement>(".vcx-igrid9 .vcx-islot").forEach((e) => invEls.push(e));
-  const gridEls: HTMLElement[] = [];
-  gridEl.querySelectorAll<HTMLElement>(".vcx-islot").forEach((e) => gridEls.push(e));
-
-  // invEls DOM sırası: slot 9..35 sonra 0..8
   function slotOf(k: number): number { return k < 27 ? k + 9 : k - 27; }
 
   function renderAll() {
     invEls.forEach((el, k) => paint(el, getRef({ kind: "inv", i: slotOf(k) })));
-    for (let i = 0; i < nCells; i++) paint(gridEls[i], grid[i]);
-    const rc = recipe();
-    if (rc) paint(resultEl, cellOf(rc.outId, rc.outCount), true);
-    else {
-      resultEl.style.backgroundImage = "none";
-      resultEl.style.backgroundColor = "rgba(0,0,0,.4)";
-      resultEl.innerHTML = "";
-      resultEl.title = "Kalıp eşleşmiyor";
-      resultEl.classList.remove("hl");
-    }
-    // imleç hayaleti
+    paint(inEl, getRef({ kind: "f", slot: "in" }));
+    paint(fuelEl, getRef({ kind: "f", slot: "fuel" }));
+    paint(outEl, getRef({ kind: "f", slot: "out" }), true);
     const cur = cursor;
     if (cur && cur.id !== null) {
       ghost.style.display = "block";
       ghost.style.backgroundImage = `url(${iconDataUrl(cur.id)})`;
-      const gmeta = toolMetaOf(cur.id);
-      ghost.innerHTML = gmeta ? "" : `<b>${cur.count}</b>`;
+      ghost.innerHTML = toolMetaOf(cur.id) ? "" : `<b>${cur.count}</b>`;
       ghost.title = `${itemNameOf(cur.id)} ×${cur.count}`;
     } else ghost.style.display = "none";
   }
@@ -230,8 +208,9 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
   /* ---------- slot etkileşimi ---------- */
   function slotMouse(r: Ref, right: boolean) {
     const src = getRef(r);
+    const isOut = r.kind === "f" && r.slot === "out";
+    if (isOut && cursor) return; // çıktıya koyulamaz
     if (!right) {
-      // sol tık: kaldır / bırak / istifle / değiştir
       if (!cursor) {
         if (src.id !== null) { cursor = cellOf(src.id, src.count, src.dmg); setRef(r, null, 0); }
       } else if (src.id === null) {
@@ -252,10 +231,9 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
       refresh();
       return;
     }
-    // sağ tık: imleç boşsa yarım al; doluysa 1'er koy
     if (!cursor) {
       if (src.id !== null) {
-        const half = Math.ceil(src.count / 2);
+        const half = isOut ? src.count : Math.ceil(src.count / 2); // çıktıdan tam al
         cursor = cellOf(src.id, half, src.dmg);
         setRef(r, src.id, src.count - half, src.dmg);
       }
@@ -271,29 +249,23 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     refresh();
   }
 
-  function tryCraft(): boolean {
-    const rc = recipe();
-    if (!rc) return false;
-    // imleçte ürün için yer yoksa üretme
-    if (cursor && (cursor.id !== rc.outId || cursor.count + rc.outCount > stackLimitOf(rc.outId))) return false;
-    // her grid hücresinden 1 tüket
-    for (const g of grid) {
-      if (g.id !== null && g.count > 0) {
-        g.count -= 1;
-        if (g.count <= 0) { g.id = null; g.count = 0; g.dmg = undefined; }
-      }
-    }
-    if (!cursor) {
-      const t = toolMetaOf(rc.outId);
-      cursor = cellOf(rc.outId, 0, t ? t.dur : undefined);
-    }
-    cursor.count += rc.outCount;
-    refresh();
-    return true;
+  /* ---------- çubuklar (gerçek zamanlı) ---------- */
+  let raf = 0;
+  let lastSig = "";
+  function tickUI() {
+    const burnPct = f.burn > 0 && f.burnMax > 0 ? Math.min(100, (f.burn / f.burnMax) * 100) : 0;
+    const cookPct = f.burn > 0 ? Math.min(100, (f.cook / COOK_TIME) * 100) : 0;
+    flameFill.style.width = burnPct + "%";
+    cookFill.style.width = cookPct + "%";
+    const sig = `${f.input?.id ?? 0}:${f.input?.count ?? 0}|${f.fuel?.id ?? 0}:${f.fuel?.count ?? 0}|${f.output?.id ?? 0}:${f.output?.count ?? 0}`;
+    if (sig !== lastSig) { lastSig = sig; renderAll(); } // pişirme sonucu değişince tazelenir
+    raf = requestAnimationFrame(tickUI);
   }
+  raf = requestAnimationFrame(tickUI);
 
-  /* ---------- kapatma: grid + imleç envantere geri döner ---------- */
+  /* ---------- kapatma ---------- */
   function teardown() {
+    cancelAnimationFrame(raf);
     ov.remove();
     style.remove();
     ghost.remove();
@@ -307,10 +279,12 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
       const left = inv.addStack({ id: cur.id, count: cur.count, dmg: cur.dmg });
       if (left > 0) host.toast(`${itemNameOf(cur.id)} için yer yok — yok oldu!`);
     }
-    for (const g of grid) {
-      if (g.id !== null && g.count > 0) {
-        const left = inv.addStack({ id: g.id, count: g.count, dmg: g.dmg });
-        if (left > 0) host.toast(`${itemNameOf(g.id)} için yer yok — yok oldu!`);
+    for (const slot of ["in", "fuel", "out"] as FSlot[]) {
+      const s = f[fKey[slot]];
+      if (s && s.count > 0) {
+        const left = inv.addStack({ id: s.id, count: s.count, dmg: s.dmg });
+        if (left > 0) host.toast(`${itemNameOf(s.id)} için yer yok — yok oldu!`);
+        f[fKey[slot]] = null;
       }
     }
     teardown();
@@ -338,14 +312,16 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
     e.stopPropagation();
     const t = e.target as HTMLElement;
     const s = t.closest<HTMLElement>("[data-sl]");
-    if (s && s.dataset.sl === "r") {
-      if (e.button === 0 || e.button === 2) { if (tryCraft()) host.click(); }
-      return;
-    }
-    if (s && (e.button === 0 || e.button === 2)) {
-      const i = Number(s.dataset.i);
-      slotMouse(s.dataset.sl === "g" ? { kind: "grid", i } : { kind: "inv", i }, e.button === 2);
-      host.click();
+    if (s) {
+      const sl = s.dataset.sl;
+      const r: Ref = sl === "i" ? { kind: "inv", i: Number(s.dataset.i) } : { kind: "f", slot: sl as FSlot };
+      if (sl === "out" && (e.button === 0 || e.button === 2)) {
+        // çıktı: yalnızca al (imleç boşsa)
+        if (!cursor) { slotMouse(r, e.button === 2); host.click(); }
+      } else if (e.button === 0 || e.button === 2) {
+        slotMouse(r, e.button === 2);
+        host.click();
+      }
     }
   });
   ov.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -356,7 +332,6 @@ export function openInventoryScreen(wrap: HTMLElement, host: InvHost, mode: 2 | 
   }, { passive: false });
   ov.querySelector<HTMLElement>(".vcx-iclose")!.addEventListener("click", close);
 
-  // başlangıçta imleç ortada dursun
   ghost.style.left = `${(rectOf().width - 40) / 2}px`;
   ghost.style.top = `${(rectOf().height - 40) / 2}px`;
 

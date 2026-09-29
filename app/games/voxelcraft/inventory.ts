@@ -17,7 +17,7 @@ export const STACK_MAX = 64;
 export const ITEM_NAME: Record<number, string> = {
   [B.GRASS]: "Çimen", [B.DIRT]: "Toprak", [B.STONE]: "Taş", [B.SAND]: "Kum",
   [B.WOOD]: "Odun", [B.LEAVES]: "Yaprak", [B.PLANKS]: "Kalas", [B.GLASS]: "Cam",
-  [B.COBBLE]: "Arnavut", [B.BRICK]: "Tuğla", [B.STONE_BRICKS]: "Taş Tuğla",
+  [B.COBBLE]: "Arnavut", [B.BRICK]: "Tuğla Blok", [B.STONE_BRICKS]: "Taş Tuğla",
   [B.GRAVEL]: "Çakıl", [B.CLAY]: "Kil", [B.SNOW]: "Kar", [B.ICE]: "Buz",
   [B.COAL_ORE]: "Kömür Cevheri", [B.IRON_ORE]: "Demir Cevheri",
   [B.GOLD_ORE]: "Altın Cevheri", [B.DIAMOND_ORE]: "Elmas Cevheri",
@@ -27,6 +27,8 @@ export const ITEM_NAME: Record<number, string> = {
   [B.CRAFTING_TABLE]: "Üretim Masası",
   [B.BIRCH_WOOD]: "Huş Odun", [B.BIRCH_LEAVES]: "Huş Yaprağı",
   [B.PINE_WOOD]: "Çam Odun", [B.PINE_LEAVES]: "Çam Yaprağı",
+  [B.CACTUS]: "Kaktüs", [B.DEAD_BUSH]: "Ölü Çalı", [B.FURNACE]: "Fırın",
+  [B.IRON_BLOCK]: "Demir Blok", [B.GOLD_BLOCK]: "Altın Blok", [B.DIAMOND_BLOCK]: "Elmas Blok",
 };
 
 // Bu bloklar kırılınca düşer; gerisi (bedrock, su, hava) düşürmez.
@@ -36,6 +38,9 @@ export function dropsFor(blockId: number): number | null {
     case B.LEAVES: case B.BIRCH_LEAVES: case B.PINE_LEAVES:
     case B.TALL_GRASS: case B.FLOWER_RED: case B.FLOWER_YELLOW:
       return null; // yapraklar/bitkiler doğrudan düşmez (elma şansı ayrı)
+    case B.DEAD_BUSH: return I.STICK; // ölü çalıdan çubuk
+    case B.COAL_ORE: return I.COAL;   // kömür cevheri → kömür
+    case B.DIAMOND_ORE: return I.DIAMOND; // elmas cevheri → elmas
     default:
       return blockId;
   }
@@ -45,16 +50,20 @@ export function dropsFor(blockId: number): number | null {
 export const I = {
   STICK: 1000,
   APPLE: 1002, MEAT: 1003, WOOL: 1004, // yemekler / yün
+  COAL: 1005, IRON: 1006, GOLD: 1007, COOKED: 1008, BRICK_ITEM: 1009, // yakıt / külçe / ara ürün
   // aletler (üretim masası 3×3 ile yapılır)
   WPICK: 1010, SPICK: 1011,
   WAXE: 1012, SAXE: 1013,
   WSHOV: 1014, SSHOV: 1015,
+  IPICK: 1017, IAXE: 1018, ISHOV: 1019,
+  DPICK: 1020, DAXE: 1021, DSHOV: 1022,
+  DIAMOND: 1016, // elmas taşı (cevherden düşer; alet/blok üretiminde kullanılır)
 } as const;
 
 export type ToolType = "pickaxe" | "axe" | "shovel";
 export interface ToolMeta {
   type: ToolType;
-  tier: "wood" | "stone";
+  tier: "wood" | "stone" | "iron" | "diamond";
   dur: number;   // toplam dayanıklılık
   speed: number; // kırma hızı çarpanı (doğru blok türünde)
 }
@@ -63,6 +72,7 @@ export interface ItemDef {
   stack: number;
   tool?: ToolMeta;
   food?: number; // açlık geri kazanımı (yenilebilir)
+  fuel?: number; // yakıt: fırında sağladığı yanma süresi (sn)
 }
 
 export const ITEM_DEFS: Record<number, ItemDef> = {
@@ -76,6 +86,18 @@ export const ITEM_DEFS: Record<number, ItemDef> = {
   [I.SAXE]: { name: "Taş Balta", stack: 1, tool: { type: "axe", tier: "stone", dur: 132, speed: 4.5 } },
   [I.WSHOV]: { name: "Tahta Kürek", stack: 1, tool: { type: "shovel", tier: "wood", dur: 60, speed: 3.0 } },
   [I.SSHOV]: { name: "Taş Kürek", stack: 1, tool: { type: "shovel", tier: "stone", dur: 132, speed: 4.5 } },
+  [I.COAL]: { name: "Kömür", stack: 64, fuel: 30 },
+  [I.IRON]: { name: "Demir Külçe", stack: 64 },
+  [I.GOLD]: { name: "Altın Külçe", stack: 64 },
+  [I.COOKED]: { name: "Pişmiş Et", stack: 64, food: 8 },
+  [I.BRICK_ITEM]: { name: "Tuğla", stack: 64 },
+  [I.DIAMOND]: { name: "Elmas", stack: 64 },
+  [I.IPICK]: { name: "Demir Kazma", stack: 1, tool: { type: "pickaxe", tier: "iron", dur: 250, speed: 6 } },
+  [I.IAXE]: { name: "Demir Balta", stack: 1, tool: { type: "axe", tier: "iron", dur: 250, speed: 6 } },
+  [I.ISHOV]: { name: "Demir Kürek", stack: 1, tool: { type: "shovel", tier: "iron", dur: 250, speed: 6 } },
+  [I.DPICK]: { name: "Elmas Kazma", stack: 1, tool: { type: "pickaxe", tier: "diamond", dur: 360, speed: 8 } },
+  [I.DAXE]: { name: "Elmas Balta", stack: 1, tool: { type: "axe", tier: "diamond", dur: 360, speed: 8 } },
+  [I.DSHOV]: { name: "Elmas Kürek", stack: 1, tool: { type: "shovel", tier: "diamond", dur: 360, speed: 8 } },
 };
 
 export function itemNameOfItem(id: number): string | undefined {
@@ -83,6 +105,15 @@ export function itemNameOfItem(id: number): string | undefined {
 }
 export function foodOf(id: number): number {
   return ITEM_DEFS[id]?.food ?? 0;
+}
+/** Yakıt süresi (sn): eşya fuel değeri ya da odun/kalas blokları. */
+export function fuelOf(id: number): number {
+  const f = ITEM_DEFS[id]?.fuel ?? 0;
+  if (f > 0) return f;
+  switch (id) {
+    case B.WOOD: case B.BIRCH_WOOD: case B.PINE_WOOD: case B.PLANKS: return 10;
+    default: return 0;
+  }
 }
 export function toolMetaOf(id: number): ToolMeta | undefined {
   return ITEM_DEFS[id]?.tool;
@@ -115,10 +146,11 @@ export class Inventory {
     const tool = toolMetaOf(s.id);
     // 1) kısmi stack'lere birleştir (yalnız stack'lenebilir eşyalar)
     if (!tool) {
+      const lim = stackLimitOf(s.id); // alet olmayan eşyada gerçek stack limiti
       for (let i = 0; i < this.slots.length && remaining > 0; i++) {
         const cur = this.slots[i];
-        if (cur && cur.id === s.id && cur.count < STACK_MAX) {
-          const space = STACK_MAX - cur.count;
+        if (cur && cur.id === s.id && cur.count < lim) {
+          const space = lim - cur.count;
           const put = Math.min(space, remaining);
           cur.count += put;
           remaining -= put;
@@ -132,7 +164,7 @@ export class Inventory {
           this.slots[i] = { id: s.id, count: 1, dmg: s.dmg ?? tool.dur };
           remaining -= 1;
         } else {
-          const put = Math.min(STACK_MAX, remaining);
+          const put = Math.min(stackLimitOf(s.id), remaining);
           this.slots[i] = { id: s.id, count: put };
           remaining -= put;
         }

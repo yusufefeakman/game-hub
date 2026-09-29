@@ -8,7 +8,7 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 
 | Oyun | Açıklama | Route |
 |---|---|---|
-| **VoxelCraft** ⛏️ | Seed'li voxel survival: ova/tepe/mağara/cevher, meşe-huş-çam ormanları, gündüz/gece + yıldızlar, envanter+üretim, aletler, canlılar, seed+blok kaydı, mobil dokunmatik | `/game-hub/games/voxelcraft` |
+| **VoxelCraft** ⛏️ | Seed'li voxel survival: çöl/kar biyomları, mağara/cevher, meşe-huş-çam ormanları, gündüz/gece + yağmur/kar, fırınla pişirme, demir/elmas aletler, envanter+üretim, canlılar, otomatik kayıt, mobil dokunmatik | `/game-hub/games/voxelcraft` |
 | **Doping Runner** ⚡ | Neon şehirde sonsuz koşu: doping topla, hızlan, engellerden kaç — mobil uyumlu | `/game-hub/games/doping-runner` |
 | **Akıl Küpü** 🧩 | SOMA tarzı 3D parça yerleştirme: 7 renkli parçayı 3×3×3 küpe yerleştir — dokunmatik, 3D önizleme, animasyonlu çözücü, rekor takibi | `/game-hub/games/akil-kupu` |
 | **Sunny Side Ride** 🚲 | Açık dünya 3D bisiklet macerası: ağaç tünelli sokaklar, rampalar, ahşap köprü, tepeler, parklar, yayalar ve trafik — pedal/fren, zıplama, sprint, token ve checkpoint'ler | `/game-hub/games/sunny-side-ride` |

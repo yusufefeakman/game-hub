@@ -51,6 +51,26 @@ export const RECIPES: Recipe[] = [
   rec(3, 3, [[C, C, C], [0, S, 0], [0, S, 0]], I.SPICK, 1),              // taş kazma
   rec(3, 3, [[C, C, 0], [C, S, 0], [0, S, 0]], I.SAXE, 1),               // taş balta
   rec(3, 3, [[C, 0, 0], [S, 0, 0], [S, 0, 0]], I.SSHOV, 1),              // taş kürek
+
+  // ---- 3×3 — demir & elmas aletler ----
+  rec(3, 3, [[I.IRON, I.IRON, I.IRON], [0, S, 0], [0, S, 0]], I.IPICK, 1),
+  rec(3, 3, [[I.IRON, I.IRON, 0], [I.IRON, S, 0], [0, S, 0]], I.IAXE, 1),
+  rec(3, 3, [[I.IRON, 0, 0], [S, 0, 0], [S, 0, 0]], I.ISHOV, 1),
+  rec(3, 3, [[I.DIAMOND, I.DIAMOND, I.DIAMOND], [0, S, 0], [0, S, 0]], I.DPICK, 1),
+  rec(3, 3, [[I.DIAMOND, I.DIAMOND, 0], [I.DIAMOND, S, 0], [0, S, 0]], I.DAXE, 1),
+  rec(3, 3, [[I.DIAMOND, 0, 0], [S, 0, 0], [S, 0, 0]], I.DSHOV, 1),
+
+  // ---- 3×3 — fırın ve metal/tuğla bloklar ----
+  rec(3, 3, [[C, C, C], [C, 0, C], [C, C, C]], B.FURNACE, 1),            // fırın (arnavut halkası)
+  rec(2, 2, [[I.BRICK_ITEM, I.BRICK_ITEM], [I.BRICK_ITEM, I.BRICK_ITEM]], B.BRICK, 1), // tuğla blok
+  rec(3, 3, [[I.IRON, I.IRON, I.IRON], [I.IRON, I.IRON, I.IRON], [I.IRON, I.IRON, I.IRON]], B.IRON_BLOCK, 1),
+  rec(3, 3, [[I.GOLD, I.GOLD, I.GOLD], [I.GOLD, I.GOLD, I.GOLD], [I.GOLD, I.GOLD, I.GOLD]], B.GOLD_BLOCK, 1),
+  rec(3, 3, [[I.DIAMOND, I.DIAMOND, I.DIAMOND], [I.DIAMOND, I.DIAMOND, I.DIAMOND], [I.DIAMOND, I.DIAMOND, I.DIAMOND]], B.DIAMOND_BLOCK, 1),
+
+  // ---- 1×1 — bloklardan geri dönüşüm ----
+  rec(1, 1, [[B.IRON_BLOCK]], I.IRON, 9),
+  rec(1, 1, [[B.GOLD_BLOCK]], I.GOLD, 9),
+  rec(1, 1, [[B.DIAMOND_BLOCK]], I.DIAMOND, 9),
 ];
 
 /** Izgaradaki boş satır/sütunları atarak sol-üste hizalı içerik kutusu döner. */
@@ -103,15 +123,21 @@ function fallbackIcon(c: CanvasRenderingContext2D, rgb: [number, number, number]
 function toolIcon(id: number, c: CanvasRenderingContext2D) {
   const meta = toolMetaOf(id);
   if (!meta) { fallbackIcon(c, [140, 140, 150]); return; }
-  const stone = meta.tier === "stone";
-  const head = stone ? "rgb(150,150,158)" : "rgb(168,128,78)";
-  const headDark = stone ? "rgb(96,96,104)" : "rgb(118,86,52)";
-  fallbackIcon(c, stone ? [96, 98, 106] : [150, 120, 82]);
+  const pal = meta.tier === "diamond"
+    ? { bg: [52, 170, 170] as [number, number, number], head: "rgb(96,228,228)", dark: "rgb(56,180,180)", stick: "#6e5b3c" }
+    : meta.tier === "iron"
+      ? { bg: [150, 152, 158] as [number, number, number], head: "rgb(216,216,216)", dark: "rgb(160,160,166)", stick: "#6e5b3c" }
+      : meta.tier === "stone"
+        ? { bg: [96, 98, 106] as [number, number, number], head: "rgb(150,150,158)", dark: "rgb(96,96,104)", stick: "#6e5b3c" }
+        : { bg: [150, 120, 82] as [number, number, number], head: "rgb(168,128,78)", dark: "rgb(118,86,52)", stick: "#8a5a2b" };
+  const head = pal.head;
+  const headDark = pal.dark;
+  fallbackIcon(c, pal.bg);
   c.save();
   c.translate(16, 18);
   c.rotate(-Math.PI / 4);
   // sap
-  c.fillStyle = stone ? "#6e5b3c" : "#8a5a2b";
+  c.fillStyle = pal.stick;
   c.fillRect(-3, -16, 6, 32);
   c.fillStyle = head;
   if (meta.type === "pickaxe") {
@@ -163,6 +189,30 @@ function itemIcon(id: number): string {
     for (const [x, y, r] of [[10, 10, 6], [22, 12, 5], [16, 22, 6], [26, 24, 4], [6, 24, 4]] as const) {
       c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
     }
+  } else if (id === I.COAL) {
+    fallbackIcon(c, [60, 60, 64]);
+    c.fillStyle = "#2b2b2f";
+    c.beginPath(); c.moveTo(8, 24); c.lineTo(12, 8); c.lineTo(22, 10); c.lineTo(26, 22); c.closePath(); c.fill();
+    c.fillStyle = "#4a4a52"; c.fillRect(12, 12, 4, 3); c.fillRect(18, 18, 4, 3);
+  } else if (id === I.IRON || id === I.GOLD || id === I.DIAMOND) {
+    const bg: [number, number, number] = id === I.IRON ? [150, 152, 158] : id === I.GOLD ? [200, 170, 60] : [70, 170, 170];
+    const col = id === I.IRON ? ["#d8d8d8", "#a8a8ae"] : id === I.GOLD ? ["#f7d84e", "#c9a62a"] : ["#6ae4e4", "#3fbfbf"];
+    fallbackIcon(c, bg);
+    c.fillStyle = col[0];
+    c.beginPath(); c.moveTo(10, 22); c.lineTo(14, 10); c.lineTo(22, 10); c.lineTo(26, 22); c.closePath(); c.fill();
+    c.fillStyle = col[1]; c.fillRect(12, 20, 12, 3);
+    if (id === I.DIAMOND) { c.fillStyle = "#d5ffff"; c.fillRect(16, 12, 3, 3); }
+  } else if (id === I.COOKED) {
+    fallbackIcon(c, [150, 90, 50]);
+    c.fillStyle = "#a8602e";
+    c.beginPath(); c.moveTo(8, 26); c.lineTo(10, 8); c.lineTo(18, 6); c.lineTo(24, 12); c.lineTo(22, 26); c.closePath(); c.fill();
+    c.fillStyle = "#6e3a18"; c.fillRect(9, 10, 3, 2); c.fillRect(16, 16, 4, 2); c.fillRect(12, 22, 5, 2);
+    c.fillStyle = "#f0c8a8"; c.fillRect(13, 13, 3, 2);
+  } else if (id === I.BRICK_ITEM) {
+    fallbackIcon(c, [155, 84, 72]);
+    c.fillStyle = "#9c5040"; c.fillRect(6, 10, 20, 12);
+    c.fillStyle = "#c1705c"; c.fillRect(8, 12, 16, 8);
+    c.fillStyle = "#7a3a2c"; c.fillRect(6, 15, 20, 2);
   } else if (toolMetaOf(id)) {
     toolIcon(id, c);
   } else {

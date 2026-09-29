@@ -383,7 +383,7 @@ export class Mobs {
       }
       mvx = m.dirX * m.def.speed;
       mvz = m.dirZ * m.def.speed;
-      m.yaw = Math.atan2(m.dirX, m.dirZ);
+      m.yaw = Math.atan2(m.dirX, m.dirZ) + Math.PI; // pasiflerin kafası -Z'de → bakış düzeltilir
     }
 
     // zıplama (tavuklar hoplar)

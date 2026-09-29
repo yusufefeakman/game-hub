@@ -12,8 +12,9 @@
      WASD / Oklar   hareket · Space zıpla · Shift koş
      1-9 / tekerlek hotbar'dan blok seç
      Sol tık (basılı tut) bloğu kaz — doğru alet hızlandırır
-     Sağ tık        seçili bloğu yerleştir (üretim masasına = 3×3 aç)
+     Sağ tık        seçili bloğu yerleştir (masa = 3×3 · fırın = pişirme)
      E              envanter + üretim (2×2) aç/kapat
+     F              seçili yiyeceği ye (toklukta şifa)
      Esc            pointer lock'tan çık (menü)
      M              ses aç/kapat
 
@@ -22,14 +23,16 @@
    ===================================================================== */
 import * as THREE from "three";
 import {
-  B, BLOCKS, ATLAS_CANVAS, tileUV,
+  B, BLOCKS, ATLAS_CANVAS, tileUV, tileRect, tileIndex, PLANT_IDS, COUNT,
   isSolid, isTransparent, isLiquid, isBreakable, initBlocks,
 } from "./blocks";
 import { Inventory, dropsFor, toolMetaOf, foodOf, I } from "./inventory";
 import { iconDataUrl, itemNameOf } from "./crafting";
 import { openInventoryScreen, type InvHost } from "./invui";
+import { openFurnaceScreen, type FurnaceHost } from "./furnaceui";
+import { furnaces, furnaceDirs, openFurnace, removeFurnace, tickFurnaces, serializeFurnaces, restoreFurnaces, clearFurnaces } from "./furnace";
 import { Mobs, type MobCtx } from "./mobs";
-import { makeSaveV2, writeSave, readSave, saveWorldBytes, clearSave, setPendingSeed, takePendingSeed } from "./save";
+import { makeSaveV2, makeSave, writeSave, readSave, saveWorldBytes, clearSave, setPendingSeed, takePendingSeed, type SaveFile } from "./save";
 
 /* ================= 1. CONSTANTS ================= */
 const WORLD_X = 128;
@@ -135,6 +138,14 @@ function heightAt(x: number, z: number): number {
   return Math.max(5, Math.min(WORLD_Y - 12, Math.round(h)));
 }
 
+/* biyom maskesi: 0 = normal · 1 = çöl · 2 = kar (geniş bölgeler) */
+function biomeAt(x: number, z: number): 0 | 1 | 2 {
+  const b = noise2(x * 0.006 + 731, z * 0.006 - 214);
+  if (b > 0.64) return 1;
+  if (b < 0.26) return 2;
+  return 0;
+}
+
 // 3D gürültü (mağaralar için)
 function noise3(x: number, y: number, z: number): number {
   return (noise2(x * 0.09, z * 0.09) + noise2(z * 0.09 + 7, y * 0.11 + 3)) * 0.5;
@@ -143,29 +154,37 @@ function noise3(x: number, y: number, z: number): number {
 function buildWorldData() {
   world = new Uint8Array(WORLD_X * WORLD_Y * WORLD_Z);
   edits.clear(); // yeni üretim: düzenleme günlüğü sıfırlanır
+  clearFurnaces(); // yeni üretim: fırınlar da sıfırlanır
   // terrain columns
   for (let x = 0; x < WORLD_X; x++) {
     for (let z = 0; z < WORLD_Z; z++) {
       const h = heightAt(x, z);
-      const isBeach = h <= SEA_LEVEL + 1;
+      const biome = biomeAt(x, z);
+      const isBeach = h <= SEA_LEVEL + 1 || biome === 1;
       for (let y = 0; y <= Math.max(h, SEA_LEVEL); y++) {
         let id: number;
         if (y === 0) id = B.BEDROCK;
         else if (y <= 1) id = B.STONE;
         else if (y === h) {
-          if (isBeach) id = B.SAND;
+          if (biome === 1) id = B.SAND;
+          else if (biome === 2) id = B.SNOW;
+          else if (isBeach) id = B.SAND;
           else if (noise2(x * 0.3 + 5, z * 0.3 + 9) > 0.55 && h > 18) id = B.STONE;
           else id = B.GRASS;
         } else if (y >= h - 3) {
           id = isBeach ? B.SAND : B.DIRT;
           if (isBeach && y >= h - 1) id = B.SAND;
+        } else if (biome === 1 && y >= h - 7) {
+          id = B.SANDSTONE; // çöl: kumtaşlı katman
         } else if (y < h - 8 && y > 2 && noise2(x * 0.2, z * 0.2) > 0.78 && y >= h - 12 && h > SEA_LEVEL + 6) {
           id = B.GRAVEL; // gravel pockets below surface
         } else {
           id = B.STONE;
         }
-        if (y > h && y <= SEA_LEVEL) id = B.WATER;
-        if (y > h) continue;
+        if (y > h) {
+          if (y > SEA_LEVEL) continue;
+          id = B.WATER; // deniz seviyesi altındaki boşluklar su ile dolar
+        }
         world[idx(x, y, z)] = id;
       }
       // water fill handled by loop above (y<=SEA_LEVEL & y>h)
@@ -194,14 +213,15 @@ function buildWorldData() {
     for (let z = 3; z < WORLD_Z - 3; z++) {
       const h = heightAt(x, z);
       const top = getBlock(x, h, z);
+      const biome = biomeAt(x, z);
       // replace grassy caps of tall peaks with snow/stone
       if (h > SEA_LEVEL + 9 && top === B.GRASS) {
         const n = fbm(x * 0.4 + 3, z * 0.4 + 3);
         world[idx(x, h, z)] = n > 0.35 ? B.SNOW : B.STONE;
         if (n > 0.35 && getBlock(x, h + 1, z) === B.AIR) world[idx(x, h + 1, z)] = B.SNOW;
       }
-      // underwater clay
-      if (top === B.WATER && h >= SEA_LEVEL - 2) {
+      // underwater clay (su artık yazılıyor: sığ göl tabanında kil)
+      if (h <= SEA_LEVEL && top === B.SAND) {
         for (let yy = h - 1; yy >= Math.max(1, h - 3); yy--) {
           if (getBlock(x, yy, z) === B.SAND) { world[idx(x, yy, z)] = B.CLAY; break; }
         }
@@ -212,6 +232,22 @@ function buildWorldData() {
         if (rr < 0.02) world[idx(x, h + 1, z)] = B.FLOWER_RED;
         else if (rr < 0.05) world[idx(x, h + 1, z)] = B.FLOWER_YELLOW;
         else if (rr < 0.16) world[idx(x, h + 1, z)] = B.TALL_GRASS;
+      }
+      // çöl / kar biyomu yüzey bitkileri + donan göl
+      if (top === B.SAND && getBlock(x, h + 1, z) === B.AIR) {
+        const rr = hash2(x * 11 + 17, z * 19 + 7);
+        if (biome === 1) {
+          if (rr < 0.012) { // kaktüs: 1-3 blok yüksek
+            const ch = 1 + Math.floor(hash2(x + 5, z + 9) * 3);
+            for (let t = 1; t <= ch && h + t < WORLD_Y; t++) world[idx(x, h + t, z)] = B.CACTUS;
+          } else if (rr < 0.06) world[idx(x, h + 1, z)] = B.DEAD_BUSH;
+        } else if (rr < 0.015) world[idx(x, h + 1, z)] = B.DEAD_BUSH;
+      }
+      if (biome === 2 && top === B.SNOW && getBlock(x, h + 1, z) === B.AIR && hash2(x * 7 + 3, z * 13 + 5) < 0.05) {
+        world[idx(x, h + 1, z)] = B.SNOW; // kar birikintisi
+      }
+      if (biome === 2 && h < SEA_LEVEL && getBlock(x, SEA_LEVEL, z) === B.WATER && getBlock(x, SEA_LEVEL + 1, z) === B.AIR) {
+        world[idx(x, SEA_LEVEL, z)] = B.ICE; // göller donar
       }
       // --- kaya kümeleri (küçük taş parçaları, performans dostu: 2-4 blok) ---
       if (top === B.GRASS && getBlock(x, h + 1, z) === B.AIR && hash2(x * 91 + 17, z * 53 + 29) > 0.988) {
@@ -224,8 +260,8 @@ function buildWorldData() {
           if (hash2(x + 21, z + 9) > 0.5) world[idx(x, h + 1, z + 1)] = rock;
         }
       }
-      // --- ağaçlar: meşe / huş / çam (bölgeye göre tür seçimi) ---
-      if (top === B.GRASS && h > SEA_LEVEL + 1 && h < WORLD_Y - 14) {
+      // --- ağaçlar: meşe / huş / çam (bölge + biyoma göre tür seçimi) ---
+      if ((top === B.GRASS || (biome === 2 && top === B.SNOW)) && h > SEA_LEVEL + 1 && h < WORLD_Y - 14) {
         const region = noise2(x * 0.012 + 300, z * 0.012 - 200); // orman bölgesi
         const forestChance = region > 0.55 ? 0.055 : 0.024;      // sık/seyrek orman
         const tr = hash2(x * 31 + 7, z * 57 + 13);
@@ -237,8 +273,8 @@ function buildWorldData() {
         if (clash) continue;
 
         const species = hash2(x * 17 + 3, z * 23 + 91); // 0..1 → tür
-        const isBirch = species > 0.72;
-        const isPine = species <= 0.42;
+        const isBirch = biome !== 2 && species > 0.72;
+        const isPine = biome === 2 ? species <= 0.85 : species <= 0.42; // kar biyomu: çam ormanı
         const logId = isBirch ? B.BIRCH_WOOD : isPine ? B.PINE_WOOD : B.WOOD;
         const leafId = isBirch ? B.BIRCH_LEAVES : isPine ? B.PINE_LEAVES : B.LEAVES;
 
@@ -290,6 +326,8 @@ function buildWorldData() {
    Yüzler CCW; atlas UV'leri blocks.ts'ten gelir. Su/cam ayrı geometry. */
 const SP = [] as number[], SU = [] as number[], SI = [] as number[];
 const WP = [] as number[], WU = [] as number[], WI = [] as number[];
+const TP = [] as number[], TU = [] as number[], TI = [] as number[]; // yarı saydam + bitki
+let FURNACE_SIDE_TILE = 0; // startGame'de tileIndex ile çözülür
 
 const FACE_VERTS: number[][][] = [
   [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]],
@@ -337,12 +375,32 @@ function pushQuad(
   I.push(base, base + 1, base + 2, base, base + 2, base + 3);
 }
 
-/** Chunk'ın solid (ve yarı saydam yaprak) + su geometrisini üretir. */
-function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGeometry | null; water: THREE.BufferGeometry | null } {
+/** Bitki blokları için çapraz (X) iki quad — alfalı doku, tam hücre. */
+function pushPlantQuad(P: number[], U: number[], I: number[], x: number, y: number, z: number, tile: number) {
+  const [u0, v0, u1, v1] = tileUV(tile);
+  const a = 0.14, b = 0.86;
+  const yBot = y + 0.05, yTop = y + 0.95;
+  const quad = (ax: number, az: number, bx: number, bz: number) => {
+    const base = P.length / 3;
+    P.push(x + ax, yBot, z + az, x + bx, yBot, z + bz, x + bx, yTop, z + bz, x + ax, yTop, z + az);
+    U.push(u0, v1, u1, v1, u1, v0, u0, v0);
+    I.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    P.push(x + bx, yBot, z + bz, x + ax, yBot, z + az, x + ax, yTop, z + az, x + bx, yTop, z + bz);
+    U.push(u1, v1, u0, v1, u0, v0, u1, v0);
+    I.push(base + 4, base + 5, base + 6, base + 4, base + 6, base + 7);
+  };
+  quad(a, a, b, b);
+  quad(b, a, a, b);
+}
+
+/** Chunk'ın solid + su + yarı saydam/bitki geometrisini üretir. */
+function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGeometry | null; water: THREE.BufferGeometry | null; trans: THREE.BufferGeometry | null } {
   SP.length = 0; SU.length = 0; SI.length = 0;
   WP.length = 0; WU.length = 0; WI.length = 0;
+  TP.length = 0; TU.length = 0; TI.length = 0;
   const SOL = [] as number[]; // per-vertex brightness (AO)
   const WBR = [] as number[];
+  const TBR = [] as number[];
 
   for (let y = 0; y < WORLD_Y; y++) {
     for (let z = cz0; z < cz0 + CHUNK; z++) {
@@ -350,8 +408,15 @@ function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGe
         const id = world[idx(x, y, z)];
         if (id === B.AIR) continue;
         const isWater = isLiquid(id);
-        const isTrans = isTransparent(id) || isWater;
+        const isPlant = PLANT_IDS.has(id);
+        const isTrans = isTransparent(id) && !isPlant;
         const def = BLOCKS[id];
+        if (isPlant) {
+          // bitkiler: çapraz quad, komşu testi yok
+          pushPlantQuad(TP, TU, TI, x, y, z, def.tiles[0]);
+          for (let k = 0; k < 8; k++) TBR.push(0.92);
+          continue;
+        }
         const nbr = [
           getBlock(x, y + 1, z), getBlock(x, y - 1, z),
           getBlock(x + 1, y, z), getBlock(x - 1, y, z),
@@ -375,7 +440,8 @@ function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGe
             draw = !nbOpaque;
           }
           if (!draw) continue;
-          const tile = def.tiles[f];
+          let tile = def.tiles[f];
+          if (id === B.FURNACE && f >= 2 && furnaceDirs.get(idx(x, y, z)) !== f) tile = FURNACE_SIDE_TILE;
           const [dx, dy, dz] = FACE_DIR[f];
           // ambient occlusion: karşılıklı köşe komşulukları
           const x2 = x + dx, y2 = y + dy, z2 = z + dz;
@@ -403,10 +469,12 @@ function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGe
             const baseY = f === 0 ? y + 0.86 : y;
             pushQuad(WP, WU, WI, x, baseY, z, f, tile, aoV, f === 0 ? 1 : topY);
             for (let k = 0; k < 4; k++) WBR.push(0.72);
+          } else if (isTrans) {
+            pushQuad(TP, TU, TI, x, y, z, f, tile, aoV);
+            for (let k = 0; k < 4; k++) TBR.push(aoV);
           } else {
-            pushQuad(isTrans ? WP : SP, isTrans ? WU : SU, isTrans ? WI : SI, x, y, z, f, tile, aoV);
-            if (isTrans) for (let k = 0; k < 4; k++) WBR.push(aoV);
-            else for (let k = 0; k < 4; k++) SOL.push(aoV);
+            pushQuad(SP, SU, SI, x, y, z, f, tile, aoV);
+            for (let k = 0; k < 4; k++) SOL.push(aoV);
           }
         }
       }
@@ -438,7 +506,19 @@ function buildChunkGeometries(cx0: number, cz0: number): { solid: THREE.BufferGe
     geo.computeVertexNormals();
     return geo;
   };
-  return { solid: mkSolid(), water: mkWater() };
+  const mkTrans = () => {
+    if (TI.length === 0) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(TP, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(TU, 2));
+    const cols: number[] = [];
+    for (const a of TBR) cols.push(a, a, a);
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    geo.setIndex(TI);
+    geo.computeVertexNormals();
+    return geo;
+  };
+  return { solid: mkSolid(), water: mkWater(), trans: mkTrans() };
 }
 
 /* ================= 5. SCENE ================= */
@@ -451,8 +531,9 @@ let atlasTex: THREE.CanvasTexture;
 /* Tüm chunklar aynı iki materyali paylaşır (draw call ve program sayısını düşürür) */
 let solidMat: THREE.MeshLambertMaterial | null = null;
 let waterMat: THREE.MeshLambertMaterial | null = null;
+let transMat: THREE.MeshLambertMaterial | null = null; // cam/yaprak/buz + bitkiler (alphaTest)
 
-interface ChunkMeshes { cx: number; cz: number; solid: THREE.Mesh | null; water: THREE.Mesh | null; }
+interface ChunkMeshes { cx: number; cz: number; solid: THREE.Mesh | null; water: THREE.Mesh | null; trans: THREE.Mesh | null; }
 const chunks = new Map<string, ChunkMeshes>();
 
 const player = {
@@ -513,16 +594,21 @@ function mineClassOf(id: number): "pickaxe" | "axe" | "shovel" | "hand" | null {
     case B.DIRT: case B.GRASS: case B.SAND: case B.GRAVEL: case B.CLAY:
     case B.SNOW: case B.ICE:
       return "shovel";
-    default: // çiçekler, uzun çimen — el ile
+    case B.FURNACE: case B.IRON_BLOCK: case B.GOLD_BLOCK: case B.DIAMOND_BLOCK:
+      return "pickaxe";
+    default: // çiçekler, uzun çimen, kaktüs — el ile
       return "hand";
   }
 }
-function tierRank(t: "wood" | "stone"): number { return t === "stone" ? 1 : 0; }
+function tierRank(t: "wood" | "stone" | "iron" | "diamond"): number {
+  return t === "diamond" ? 3 : t === "iron" ? 2 : t === "stone" ? 1 : 0;
+}
 // cevher → gereken minimum kazma seviyesi (-1 = cevher değil)
 function oreTierOf(id: number): number {
   switch (id) {
     case B.COAL_ORE: return 0;
-    case B.IRON_ORE: case B.GOLD_ORE: case B.DIAMOND_ORE: return 1;
+    case B.IRON_ORE: case B.GOLD_ORE: return 1;
+    case B.DIAMOND_ORE: return 2; // demir kazma gerekir
     default: return -1;
   }
 }
@@ -584,6 +670,7 @@ function refreshChunks() {
     if (!want.has(k)) {
       if (cm.solid) { worldRoot.remove(cm.solid); cm.solid.geometry.dispose(); }
       if (cm.water) { worldRoot.remove(cm.water); cm.water.geometry.dispose(); }
+      if (cm.trans) { worldRoot.remove(cm.trans); cm.trans.geometry.dispose(); }
       chunks.delete(k);
     }
   }
@@ -594,19 +681,33 @@ function refreshChunks() {
       depthWrite: false, side: THREE.DoubleSide,
     });
   }
-  // yalnızca eksik / kirli chunkları ör
+  if (!transMat) {
+    // cam/yaprak/buz + bitkiler: alphaTest ile şeffaf pikseller atılır
+    transMat = new THREE.MeshLambertMaterial({
+      map: atlasTex, vertexColors: true, transparent: true, alphaTest: 0.5,
+    });
+  }
+  // yalnızca eksik / kirli chunkları ör — mesafeye göre sıralı, kare başına bütçeli
+  const need: { k: string; cx: number; cz: number; d: number }[] = [];
   for (const k of want) {
-    const needsBuild = worldDirty || !chunks.has(k) || dirtyChunks.has(k);
-    if (!needsBuild) continue;
+    if (!(worldDirty || !chunks.has(k) || dirtyChunks.has(k))) continue;
     const [cxs, czs] = k.split(",");
     const cx = Number(cxs), cz = Number(czs);
+    need.push({ k, cx, cz, d: (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz) });
+  }
+  need.sort((a, b) => a.d - b.d);
+  // küçük düzenlemeler anında; büyük gruplar (yükleme/hareket/menzil) kademe kademe → takılma yok
+  const budget = need.length > 6 ? 4 : need.length;
+  for (let n = 0; n < need.length && n < budget; n++) {
+    const { k, cx, cz } = need[n];
     const g = buildChunkGeometries(cx * CHUNK, cz * CHUNK);
     const existing = chunks.get(k);
     if (existing) {
       if (existing.solid) { worldRoot.remove(existing.solid); existing.solid.geometry.dispose(); }
       if (existing.water) { worldRoot.remove(existing.water); existing.water.geometry.dispose(); }
+      if (existing.trans) { worldRoot.remove(existing.trans); existing.trans.geometry.dispose(); }
     }
-    const entry: ChunkMeshes = { cx, cz, solid: null, water: null };
+    const entry: ChunkMeshes = { cx, cz, solid: null, water: null, trans: null };
     if (g.solid) {
       g.solid.computeBoundingSphere();
       const m = new THREE.Mesh(g.solid, solidMat);
@@ -622,18 +723,60 @@ function refreshChunks() {
       worldRoot.add(m);
       entry.water = m;
     }
+    if (g.trans) {
+      g.trans.computeBoundingSphere();
+      const m = new THREE.Mesh(g.trans, transMat);
+      m.frustumCulled = true;
+      m.renderOrder = 2;
+      worldRoot.add(m);
+      entry.trans = m;
+    }
     chunks.set(k, entry);
+    dirtyChunks.delete(k);
   }
-  dirtyChunks.clear();
-  worldDirty = false;
+  if (need.length <= budget) worldDirty = false;
 }
 
 /* ================= 8. MAIN ================= */
 let bits: { m: THREE.Mesh; vx: number; vy: number; vz: number; life: number }[] = [];
+let bitGeo: THREE.BoxGeometry | null = null;
+const bitMats = new Map<number, THREE.MeshBasicMaterial>();
+const bitColorCache = new Map<number, number>();
+function bitGeoOf(): THREE.BoxGeometry {
+  if (!bitGeo) bitGeo = new THREE.BoxGeometry(0.13, 0.13, 0.13);
+  return bitGeo;
+}
+function bitMatOf(color: number): THREE.MeshBasicMaterial {
+  let m = bitMats.get(color);
+  if (!m) { m = new THREE.MeshBasicMaterial({ color }); bitMats.set(color, m); }
+  return m;
+}
+/** Blok dokusunun ortalama rengi — kırma/yerleştirme partikülleri blok renginde olur. */
+function blockParticleColor(id: number): number {
+  const hit = bitColorCache.get(id);
+  if (hit !== undefined) return hit;
+  let col = 0xcccccc;
+  const d = BLOCKS[id];
+  const atlas = ATLAS_CANVAS;
+  if (d && atlas) {
+    try {
+      const r = tileRect(d.tiles[0]);
+      const ctx = atlas.getContext("2d");
+      if (ctx) {
+        const img = ctx.getImageData(r.x + 4, r.y + 4, 8, 8).data;
+        let rr = 0, gg = 0, bb = 0, n = 0;
+        for (let i = 0; i < img.length; i += 16) { rr += img[i]; gg += img[i + 1]; bb += img[i + 2]; n++; }
+        col = ((rr / n) << 16) | ((gg / n) << 8) | (bb / n);
+      }
+    } catch { /* okunamadı → varsayılan */ }
+  }
+  bitColorCache.set(id, col);
+  return col;
+}
 function spawnBits(x: number, y: number, z: number, color: number) {
   for (let i = 0; i < 5; i++) {
     if (bits.length >= 110) break;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.13), new THREE.MeshBasicMaterial({ color }));
+    const m = new THREE.Mesh(bitGeoOf(), bitMatOf(color));
     m.position.set(x, y, z);
     scene.add(m);
     bits.push({ m, vx: (Math.random() - 0.5) * 5, vy: Math.random() * 6 + 2.5, vz: (Math.random() - 0.5) * 5, life: 0.6 + Math.random() * 0.35 });
@@ -643,7 +786,7 @@ function updateBits(dt: number) {
   for (let i = bits.length - 1; i >= 0; i--) {
     const p = bits[i];
     p.life -= dt;
-    if (p.life <= 0) { scene.remove(p.m); (p.m.material as THREE.Material).dispose(); p.m.geometry.dispose(); bits.splice(i, 1); continue; }
+    if (p.life <= 0) { scene.remove(p.m); bits.splice(i, 1); continue; } // geo/mat paylaşımlı — dispose yok
     p.vy -= 16 * dt;
     p.m.position.x += p.vx * dt;
     p.m.position.y += p.vy * dt;
@@ -660,7 +803,8 @@ function findSpawn(): { x: number; y: number; z: number } {
       const z = Math.round(cz + Math.sin(ang) * r);
       if (x < 3 || x >= WORLD_X - 3 || z < 3 || z >= WORLD_Z - 3) continue;
       const h = heightAt(x, z);
-      if (getBlock(x, h, z) === B.GRASS && getBlock(x, h + 1, z) === B.AIR) {
+      const topB = getBlock(x, h, z);
+      if ((topB === B.GRASS || topB === B.SAND || topB === B.SNOW) && getBlock(x, h + 1, z) === B.AIR) {
         return { x: x + 0.5, y: h + 0.02, z: z + 0.5 };
       }
     }
@@ -736,10 +880,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const tw = e > 0 && e < 0.45 ? (0.45 - e) / 0.45 : 0; // alacakaranlık katsayısı
     bgCol.copy(skyNight).lerp(skyDay, Math.min(1, dl * 1.25));
     if (tw > 0) bgCol.lerp(skyDusk, tw * 0.7);
+    if (raining) bgCol.lerp(rainTint, 0.45); // kapalı hava tonu
     fog.color.copy(bgCol);
     // güneş gökyüzünde dolaşır (doğu → batı)
     sun.position.set(60 + Math.sin(ang) * 140, 40 + Math.max(0.08, e) * 230, 70 + Math.cos(ang) * 60);
-    sun.intensity = 0.04 + 1.3 * dl;
+    sun.intensity = (0.04 + 1.3 * dl) * (raining ? 0.55 : 1);
     if (dl < 0.08) sun.color.copy(moonCol);
     else { sun.color.copy(sunWhite); sun.color.lerp(sunOrange, tw * 0.65); }
     hemi.intensity = 0.34 + 0.62 * dl;
@@ -770,8 +915,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     );
     sunDisc.visible = e > -0.12;
     moonDisc.visible = e < 0.12;
-    const icon = e > 0.06 ? "☀️" : e < -0.06 ? "🌙" : p < 0.5 ? "🌅" : "🌇";
-    const phaseTxt = e > 0.06 ? "Gündüz" : e < -0.06 ? "Gece" : p < 0.5 ? "Gündoğumu" : "Gün batımı";
+    const snowyNow = biomeAt(Math.floor(player.x), Math.floor(player.z)) === 2;
+    const icon = raining ? (snowyNow ? "❄️" : "🌧️") : e > 0.06 ? "☀️" : e < -0.06 ? "🌙" : p < 0.5 ? "🌅" : "🌇";
+    const phaseTxt = raining ? (snowyNow ? "Kar" : "Yağmur") : e > 0.06 ? "Gündüz" : e < -0.06 ? "Gece" : p < 0.5 ? "Gündoğumu" : "Gün batımı";
     const dayNo = Math.floor(worldTime / DAY_LEN) + 1;
     const ce = document.getElementById("vcx-clock");
     if (ce) ce.textContent = `${icon} ${phaseTxt} · Gün ${dayNo}`;
@@ -835,6 +981,53 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   scene.add(sunDisc);
   scene.add(moonDisc);
 
+  /* ---- hava durumu: yağmur / kar (Points — tek draw call) ---- */
+  const rainCount = 240;
+  const rainPos = new Float32Array(rainCount * 3);
+  const rainVel = new Float32Array(rainCount);
+  for (let i = 0; i < rainCount; i++) {
+    rainPos[i * 3] = Math.random() * 40 - 20;
+    rainPos[i * 3 + 1] = Math.random() * 26;
+    rainPos[i * 3 + 2] = Math.random() * 40 - 20;
+    rainVel[i] = 13 + Math.random() * 9;
+  }
+  const rainGeo = new THREE.BufferGeometry();
+  rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
+  const rainMat = new THREE.PointsMaterial({ color: 0x9fc6e8, size: 2, sizeAttenuation: false, transparent: true, opacity: 0.85, depthWrite: false, fog: false });
+  const rain = new THREE.Points(rainGeo, rainMat);
+  rain.frustumCulled = false;
+  rain.visible = false;
+  scene.add(rain);
+  const rainTint = new THREE.Color(0x51647a);
+  let raining = false;
+  let weatherT = 25 + Math.random() * 50; // sonraki hava değişimi (sn)
+  function updateWeather(dt: number) {
+    weatherT -= dt;
+    if (weatherT <= 0) {
+      weatherT = 45 + Math.random() * 80;
+      raining = !raining && Math.random() < 0.5;
+      const snowyNow = biomeAt(Math.floor(player.x), Math.floor(player.z)) === 2;
+      showToast(raining ? (snowyNow ? "❄️ Kar yağmaya başladı!" : "🌧️ Yağmur başladı!") : "☀️ Hava açtı");
+    }
+    rain.visible = raining && state === "play";
+    if (!rain.visible) return;
+    const snowy = biomeAt(Math.floor(player.x), Math.floor(player.z)) === 2;
+    rainMat.color.setHex(snowy ? 0xeaf6ff : 0x9fc6e8);
+    rainMat.size = snowy ? 2.6 : 2;
+    const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+    for (let i = 0; i < rainCount; i++) {
+      let x = rainPos[i * 3], y = rainPos[i * 3 + 1], z = rainPos[i * 3 + 2];
+      y -= rainVel[i] * (snowy ? 0.3 : 1) * dt;
+      if (y < cy - 14 || Math.abs(x - cx) > 20 || Math.abs(z - cz) > 20) {
+        x = cx + Math.random() * 40 - 20;
+        z = cz + Math.random() * 40 - 20;
+        y = cy + 12 + Math.random() * 10;
+      }
+      rainPos[i * 3] = x; rainPos[i * 3 + 1] = y; rainPos[i * 3 + 2] = z;
+    }
+    rainGeo.attributes.position.needsUpdate = true;
+  }
+
   // bakılan/kazılan blok vurgusu
   const hlGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002));
   const hlMat = new THREE.LineBasicMaterial({ color: 0x0c0c0c, transparent: true, opacity: 0.9 });
@@ -854,6 +1047,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   // init blocks & atlas
   initBlocks();
+  FURNACE_SIDE_TILE = tileIndex("furnace_side");
   if (ATLAS_CANVAS) {
     atlasTex = new THREE.CanvasTexture(ATLAS_CANVAS);
     // yakında keskin (Nearest), uzakta mipmap ile yumuşak → titreme/bozulma azalır
@@ -890,18 +1084,22 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   // kayıt varsa geri yükle (v2: seed + düzenlemeler · v1: tam dünya)
   let hasSave = false;
+  let legacyFullSave = false; // v1 kayıt → tam dünya formatıyla yazılır (edit kaybı önlenir)
   if (loaded) {
     if (loaded.v === 2) {
       hasSave = true;
       for (const [i, b] of loaded.edits) {
-        if (i >= 0 && i < world.length) { world[i] = b; edits.set(i, b); }
+        // blok id doğrulanmazsa bozuk kayıt mesh'i çökertir
+        if (i >= 0 && i < world.length && Number.isFinite(b) && b >= 0 && b < COUNT) { world[i] = b; edits.set(i, b); }
       }
+      restoreFurnaces(loaded.furnaces);
       worldDirty = true;
     } else {
       const wb = saveWorldBytes(loaded, WORLD_X * WORLD_Y * WORLD_Z);
       if (wb) {
         hasSave = true;
         world.set(wb);
+        legacyFullSave = true; // düzenleme günlüğü yeniden kurulamaz → v1 formatı sürdürülür
         worldDirty = true;
       }
     }
@@ -948,7 +1146,12 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     onChanged() { refreshHotbarUI(); },
     toast: (m) => showToast(m),
     click: () => AudioSys.click(),
-    closed() { if (!disposed && !touchMode) canvas.requestPointerLock?.(); },
+    closed() {
+      // iç kapatma (✕): invOpen'ı da kapat — dünya donmasın
+      invOpen = false;
+      invCleanup = null;
+      if (!disposed && !touchMode && state === "play") canvas.requestPointerLock?.();
+    },
   };
   function openInv(mode: 2 | 3) {
     if (invOpen || disposed) return;
@@ -965,6 +1168,27 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const fn = invCleanup;
     invCleanup = null;
     if (fn) fn(); // grid+imleç envantere döner; closed() pointer lock'u geri ister
+  }
+  /* -------- fırın ekranı (sağ tık) -------- */
+  function openFurnaceUI(i: number) {
+    if (invOpen || disposed) return;
+    invOpen = true;
+    stopMining();
+    keys.f = keys.b = keys.l = keys.r = keys.jump = keys.run = false;
+    tMoveX = 0; tMoveZ = 0;
+    if (!touchMode) document.exitPointerLock?.();
+    const fHost: FurnaceHost = {
+      inventory, furnace: openFurnace(i),
+      onChanged() { refreshHotbarUI(); },
+      toast: (m) => showToast(m),
+      click: () => AudioSys.click(),
+      closed() {
+        invOpen = false;
+        invCleanup = null;
+        if (!disposed && !touchMode && state === "play") canvas.requestPointerLock?.();
+      },
+    };
+    invCleanup = openFurnaceScreen(wrap, fHost);
   }
 
   /* -------- canlılar (mobs.ts) -------- */
@@ -1035,7 +1259,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (f <= 0) { showToast("Bu yenmez"); return; }
     if (player.hunger >= 20 && player.hp >= 20) { showToast("Toksun, yiyemezsin"); return; }
     inventory.remove(selectedSlot, 1);
+    const over = Math.max(0, player.hunger + f - 20);
     player.hunger = Math.min(20, player.hunger + f);
+    if (over > 0 && player.hp < 20) heal(Math.min(over, 20 - player.hp)); // tokken şifa
     eatCd = 0.7;
     AudioSys.tone("square", 210, 130, 0.08, 0.3);
     window.setTimeout(() => AudioSys.tone("square", 150, 95, 0.1, 0.3), 140);
@@ -1046,8 +1272,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   function updateCombat(dt: number) {
     if (eatCd > 0) eatCd -= dt;
+    if (meleeCd > 0) meleeCd -= dt; // bekleme her koşulda işler
     if (!mining) return; // mining = sol tık basılı
-    if (meleeCd > 0) { meleeCd -= dt; return; }
+    if (meleeCd > 0) return;
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     const hit = mobs.tryPlayerHit(camera.position.x, camera.position.y, camera.position.z, dir.x, dir.y, dir.z, 3.4, dmgForSelected());
@@ -1057,15 +1284,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   /* -------- kayıt sistemi -------- */
   let autoSaveT = 0;
   function persist(notify: boolean): void {
-    const data = makeSaveV2(
-      worldSeed,
-      edits,
-      { x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, hp: player.hp, hunger: player.hunger },
-      worldTime,
-      inventory.slots.map((s) => (s ? { id: s.id, count: s.count, dmg: s.dmg } : null)),
-      selectedSlot,
-      renderRadius,
-    );
+    const P = { x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, hp: player.hp, hunger: player.hunger };
+    const invSlots = inventory.slots.map((s) => (s ? { id: s.id, count: s.count, dmg: s.dmg } : null));
+    const data: SaveFile = legacyFullSave
+      ? makeSave(world, P, worldTime, invSlots, selectedSlot, worldSeed) // v1: tam dünya korunur (düzenleme günlüğü yok)
+      : makeSaveV2(worldSeed, edits, P, worldTime, invSlots, selectedSlot, renderRadius, serializeFurnaces());
     if (writeSave(data) && notify) showToast("💾 Kaydedildi");
     else if (notify) showToast("⚠️ Kayıt başarısız (depolama dolu olabilir)");
   }
@@ -1075,8 +1298,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const v = Math.max(RENDER_RADIUS_MIN, Math.min(RENDER_RADIUS_MAX, Math.round(n)));
     if (v === renderRadius) return;
     renderRadius = v;
-    applyViewDistance();
-    worldDirty = true;
+    applyViewDistance(); // eksik chunklar örülür, menzil dışı kaldırılır (tam yeniden inşa yok)
     persist(false);
   };
   (window as unknown as { __vcxSeed?: () => number }).__vcxSeed = () => worldSeed;
@@ -1090,14 +1312,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - dy * 0.0035));
     },
     jump() { if (state === "play" && !invOpen) keys.jump = true; },
-    sprint(on: boolean) { keys.run = on; },
+    sprint(on: boolean) { keys.run = on && state === "play" && !invOpen; },
     mine(on: boolean) {
       if (state !== "play" || invOpen) { if (!on) stopMining(); return; }
       if (on) { mineWarned = ""; mining = true; mineKey = ""; mineT = 0; }
       else stopMining();
     },
     place() { if (state === "play" && !invOpen) onInteract(); },
-    inventory() { if (invOpen) closeInv(); else openInv(2); },
+    eat() { if (state === "play" && !invOpen) eatSelected(); },
+    inventory() { if (invOpen) closeInv(); else if (state === "play") openInv(2); },
     isTouch: () => touchMode,
   };
   (window as unknown as { __vcxTouch?: typeof touchApi }).__vcxTouch = touchApi;
@@ -1147,7 +1370,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     setMenuVisible(false);
     const m = document.getElementById("vcx-menu");
     const h = m?.querySelector("h2");
-    if (h) h.textContent = "Minecraft benzeri blok dünyası";
+    if (h) h.textContent = "Keşfet: çöl · kar · mağara · fırın · hava";
     canvas.requestPointerLock?.();
   };
   (window as unknown as { __vcxStart?: () => void }).__vcxStart = startPlay;
@@ -1157,7 +1380,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (!pointerLocked) canvas.requestPointerLock?.();
   };
   canvas.addEventListener("click", onCanvasClick);
-  document.addEventListener("pointerlockchange", () => {
+  const onPLChange = () => {
     if (touchMode) return; // dokunmatikte pointer lock kullanılmaz
     pointerLocked = document.pointerLockElement === canvas;
     if (!pointerLocked) stopMining();
@@ -1167,39 +1390,46 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       state = "menu";
       setMenuVisible(true);
     }
-  });
-  document.addEventListener("mousemove", (e) => {
+  };
+  document.addEventListener("pointerlockchange", onPLChange);
+  const onMouseMove = (e: MouseEvent) => {
     if (!pointerLocked || state !== "play") return;
     player.yaw -= e.movementX * 0.0022;
     player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - e.movementY * 0.0022));
-  });
-  canvas.addEventListener("mousedown", (e) => {
+  };
+  document.addEventListener("mousemove", onMouseMove);
+  const onDownCanvas = (e: MouseEvent) => {
     if (state !== "play" || !pointerLocked) return;
     e.preventDefault();
     if (e.button === 0) {
-      // önce yakındaki canlıya vur; yoksa kazmaya başla
+      // önce yakındaki canlıya vur (vuruş bekleme süresiyle); yoksa kazmaya başla
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
-      const hitMob = mobs.tryPlayerHit(camera.position.x, camera.position.y, camera.position.z, dir.x, dir.y, dir.z, 3.4, dmgForSelected());
+      const hitMob = meleeCd <= 0 && mobs.tryPlayerHit(camera.position.x, camera.position.y, camera.position.z, dir.x, dir.y, dir.z, 3.4, dmgForSelected());
+      if (hitMob) meleeCd = 0.4;
       if (!hitMob) { mineWarned = ""; mining = true; mineKey = ""; mineT = 0; }
     }
     else if (e.button === 2) onInteract();
-  });
+  };
+  canvas.addEventListener("mousedown", onDownCanvas);
   const onMouseUp = (e: MouseEvent) => { if (e.button === 0) stopMining(); };
   document.addEventListener("mouseup", onMouseUp);
-  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-  canvas.addEventListener("wheel", (e) => {
+  const onCtxMenu = (e: Event) => e.preventDefault();
+  canvas.addEventListener("contextmenu", onCtxMenu);
+  const onWheelCanvas = (e: WheelEvent) => {
     if (state !== "play" || invOpen) return;
     e.preventDefault();
-    selectSlot((selectedSlot + (e.deltaY > 0 ? 1 : 9)) % 10);
-  }, { passive: false });
+    selectSlot((selectedSlot + (e.deltaY > 0 ? 1 : 8)) % 9); // 9 slotta tam döngü
+  };
+  canvas.addEventListener("wheel", onWheelCanvas, { passive: false });
 
-  // Sağ tık: bakılan blok üretim masasıysa 3×3 aç; değilse blok yerleştir
+  // Sağ tık: masa → 3×3 · fırın → pişirme ekranı · değilse blok yerleştir
   function onInteract() {
     const hit = raycast(5.5);
-    if (hit && getBlock(hit.x, hit.y, hit.z) === B.CRAFTING_TABLE) {
-      openInv(3);
-      return;
+    if (hit) {
+      const tgt = getBlock(hit.x, hit.y, hit.z);
+      if (tgt === B.CRAFTING_TABLE) { openInv(3); return; }
+      if (tgt === B.FURNACE) { openFurnaceUI(idx(hit.x, hit.y, hit.z)); return; }
     }
     placeBlock();
   }
@@ -1227,6 +1457,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     mineKey = "";
     mineT = 0;
     targetHL.visible = false;
+    if (mineBar) mineBar.style.display = "none";
   }
 
   function doBreakBlock(hit: { x: number; y: number; z: number }) {
@@ -1234,8 +1465,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (b === B.BEDROCK || b === B.AIR || isLiquid(b)) return;
     if (!isBreakable(b)) return;
     setBlock(hit.x, hit.y, hit.z, B.AIR);
+    if (b === B.FURNACE) { // fırın içeriği de düşer
+      const f = removeFurnace(idx(hit.x, hit.y, hit.z));
+      if (f) for (const s of [f.input, f.fuel, f.output]) {
+        if (s && s.count > 0) {
+          const left = inventory.addStack({ id: s.id, count: s.count, dmg: s.dmg });
+          if (left > 0) showToast("Envanter dolu — fırın içeriği kayboldu!");
+        }
+      }
+    }
     AudioSys.break();
-    spawnBits(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 0xcccccc);
+    spawnBits(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, blockParticleColor(b));
 
     const toolId = currentTool();
     const meta = toolId !== null ? toolMetaOf(toolId) : undefined;
@@ -1246,11 +1486,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       const ok = !!meta && meta.type === "pickaxe" && tierRank(meta.tier) >= need;
       if (!ok) {
         drop = null;
-        showToast(need === 0 ? "Cevher için kazma gerek!" : "Bu cevher için taş kazma gerek!");
+        showToast(need === 0 ? "Cevher için kazma gerek!" : need === 1 ? "Bu cevher için taş kazma gerek!" : "Bu cevher için demir kazma gerek!");
       }
     } else if (b === B.OBSIDIAN) {
-      const ok = !!meta && meta.type === "pickaxe" && tierRank(meta.tier) >= 1;
-      if (!ok) drop = null;
+      const ok = !!meta && meta.type === "pickaxe" && tierRank(meta.tier) >= 3;
+      if (!ok) { drop = null; showToast("Obsidyen için elmas kazma gerek!"); }
     }
     if (drop !== null) {
       const left = inventory.add(drop, 1);
@@ -1269,21 +1509,22 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   function updateMining(dt: number) {
-    if (!mining) return;
+    if (!mining) { if (mineBar) mineBar.style.display = "none"; return; }
     const hit = raycast(7);
-    if (!hit) { if (targetHL.visible) targetHL.visible = false; mineKey = ""; return; }
+    if (!hit) { if (targetHL.visible) targetHL.visible = false; mineKey = ""; if (mineBar) mineBar.style.display = "none"; return; }
     const b = getBlock(hit.x, hit.y, hit.z);
-    if (b === B.AIR || isLiquid(b) || !isBreakable(b)) { if (targetHL.visible) targetHL.visible = false; mineKey = ""; return; }
+    if (b === B.AIR || isLiquid(b) || !isBreakable(b)) { if (targetHL.visible) targetHL.visible = false; mineKey = ""; if (mineBar) mineBar.style.display = "none"; return; }
     const key = hit.x + "," + hit.y + "," + hit.z;
     const toolId = currentTool();
     const meta = toolId !== null ? toolMetaOf(toolId) : undefined;
     const need = oreTierOf(b);
 
-    // Obsidyen: taş kazma yoksa kazma ilerlemez (tutma sürer, melee çalışabilir)
-    if (b === B.OBSIDIAN && !(meta?.type === "pickaxe" && tierRank(meta.tier) >= 1)) {
-      if (mineWarned !== key) { mineWarned = key; showToast("Obsidyen için taş kazma gerek!"); }
+    // Obsidyen: elmas kazma yoksa kazma ilerlemez (tutma sürer, melee çalışabilir)
+    if (b === B.OBSIDIAN && !(meta?.type === "pickaxe" && tierRank(meta.tier) >= 3)) {
+      if (mineWarned !== key) { mineWarned = key; showToast("Obsidyen için elmas kazma gerek!"); }
       targetHL.visible = false;
       mineKey = "";
+      if (mineBar) mineBar.style.display = "none";
       return;
     }
     if (need >= 0 && !(meta?.type === "pickaxe" && tierRank(meta.tier) >= need)) {
@@ -1301,6 +1542,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const hard = BLOCKS[b]?.hardness ?? 1;
     const req = Math.max(0.12, (hard * 1.7 + 0.08) / speed);
     mineT += dt;
+    if (mineBar && mineFillEl) { // kazma ilerleme çubuğu
+      mineBar.style.display = "block";
+      mineFillEl.style.width = Math.min(100, (mineT / req) * 100) + "%";
+    }
     if (mineT >= req) {
       doBreakBlock(hit);
       mineKey = "";
@@ -1320,9 +1565,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (id === null || id === B.WATER || !BLOCKS[id]) return;
     if (isLiquid(id) || id === B.AIR) return;
     setBlock(px, py, pz, id);
+    if (id === B.FURNACE) {
+      // fırın bakılan yöne döner (normal, boş hücreye doğrudur)
+      furnaceDirs.set(idx(px, py, pz), hit.nx === 1 ? 2 : hit.nx === -1 ? 3 : hit.nz === 1 ? 4 : hit.nz === -1 ? 5 : 2);
+    }
     inventory.remove(selectedSlot, 1);
     AudioSys.place();
-    spawnBits(px + 0.5, py + 0.5, pz + 0.5, 0xcccccc);
+    spawnBits(px + 0.5, py + 0.5, pz + 0.5, blockParticleColor(id));
     refreshHotbarUI();
   }
 
@@ -1510,11 +1759,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
         mobs.update(dt);
       }
       updateBits(dt);
+      tickFurnaces(dt); // fırınlar gerçek zamanlı çalışır (ekran açıkken de)
     }
     // hedef blok bilgisi: raycast'i her karede değil, 10 kez/sn çalıştır
     aimT += dt;
     if (aimT >= 0.1) { aimT = 0; updateAimUI(); }
     refreshChunks();
+    updateWeather(dt);
     updateSky();
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
@@ -1522,24 +1773,36 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   raf = requestAnimationFrame(loop);
 
   const cleanupBits = () => {
-    for (const p of bits) { scene.remove(p.m); (p.m.material as THREE.Material).dispose(); p.m.geometry.dispose(); }
+    for (const p of bits) scene.remove(p.m);
     bits = [];
+    if (bitGeo) { bitGeo.dispose(); bitGeo = null; }
+    bitMats.forEach((m) => m.dispose()); bitMats.clear();
+    bitColorCache.clear();
   };
   return () => {
     disposed = true;
     if (invOpen) closeInv();
     persist(false); // ayrılırken son durumu sakla
+    clearFurnaces(); // fırın durumu remount'ta kayıttan geri gelir
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     document.removeEventListener("mouseup", onMouseUp);
+    document.removeEventListener("pointerlockchange", onPLChange);
+    document.removeEventListener("mousemove", onMouseMove);
+    canvas.removeEventListener("click", onCanvasClick);
+    canvas.removeEventListener("mousedown", onDownCanvas);
+    canvas.removeEventListener("wheel", onWheelCanvas);
+    canvas.removeEventListener("contextmenu", onCtxMenu);
     targetHL.visible = false;
     scene.remove(targetHL);
     hlGeo.dispose();
     hlMat.dispose();
     // gökyüzü nesneleri
     scene.remove(skyDome); scene.remove(stars); scene.remove(sunDisc); scene.remove(moonDisc);
+    scene.remove(rain);
+    rainGeo.dispose(); rainMat.dispose();
     skyDome.geometry.dispose();
     (skyDome.material as THREE.Material).dispose();
     starGeo.dispose();
@@ -1551,6 +1814,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     chunks.forEach((cm) => {
       if (cm.solid) { cm.solid.geometry.dispose(); }
       if (cm.water) { cm.water.geometry.dispose(); }
+      if (cm.trans) { cm.trans.geometry.dispose(); }
     });
     chunks.clear();
     mobs.clear();
@@ -1559,9 +1823,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     atlasTex.dispose();
     solidMat?.dispose();
     waterMat?.dispose();
+    transMat?.dispose();
     solidMat = null;
     waterMat = null;
-    wrap.remove();
+    transMat = null;
+    // canvas orijinal ebeveynine döner → StrictMode çift-mount'ta oyun boş kalmaz
+    const parent = wrap.parentNode;
+    if (parent) { parent.insertBefore(canvas, wrap); parent.removeChild(wrap); }
     renderer.dispose();
   };
 }
@@ -1572,6 +1840,8 @@ let healthFill: HTMLElement | null = null;
 let hungerFill: HTMLElement | null = null;
 let toastEl: HTMLElement | null = null;
 let toastTimer = 0;
+let mineBar: HTMLElement | null = null;   // kazma ilerleme çubuğu (buildUI'de kurulur)
+let mineFillEl: HTMLElement | null = null;
 
 function showToast(text: string) {
   const el = toastEl;
@@ -1662,7 +1932,7 @@ function showDeathScreen() {
   const m = document.getElementById("vcx-menu");
   if (m) {
     const h = m.querySelector("h2");
-    if (h) h.textContent = "💀 Öldün — dünya sıfırlandı, tekrar dene!";
+    if (h) h.textContent = "💀 Öldün — envanter sıfırlandı, dünya duruyor!";
   }
 }
 
@@ -1720,6 +1990,9 @@ select.vcx-input{cursor:pointer;min-width:110px}
 .vcx-cross::before,.vcx-cross::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px #000}
 .vcx-cross::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
 .vcx-cross::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%)}
+.vcx-minebar{position:absolute;top:calc(50% - 26px);left:50%;transform:translateX(-50%);width:92px;height:6px;
+  border-radius:3px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);z-index:5;pointer-events:none;display:none}
+.vcx-minebar i{display:block;height:100%;width:0%;border-radius:3px;background:linear-gradient(90deg,#7ee081,#ffd23f)}
 .vcx-tip{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.8);font-size:12px;z-index:5;pointer-events:none;white-space:nowrap;text-shadow:0 1px 3px #000}
 .vcx-toast{position:absolute;top:22%;left:50%;transform:translateX(-50%);color:#ffe066;font-size:22px;font-weight:800;text-shadow:2px 2px 0 #000;z-index:8;pointer-events:none;opacity:0;transition:opacity .25s;font-family:'Segoe UI',sans-serif}
 .vcx-toast.show{opacity:1}
@@ -1791,6 +2064,7 @@ select.vcx-input{cursor:pointer;min-width:110px}
       sprint(on: boolean): void;
       mine(on: boolean): void;
       place(): void;
+      eat(): void;
       inventory(): void;
       isTouch(): boolean;
     };
@@ -1815,6 +2089,7 @@ select.vcx-input{cursor:pointer;min-width:110px}
       <button class="vcx-tbtn" data-act="jump" title="Zıpla">⤒</button>
       <button class="vcx-tbtn" data-act="run" title="Koş">🏃</button>
       <button class="vcx-tbtn" data-act="inv" title="Envanter">🎒</button>
+      <button class="vcx-tbtn" data-act="eat" title="Ye (seçili yiyecek)">🍖</button>
       <button class="vcx-tbtn big" data-act="mine" title="Kaz (basılı tut)">⛏️</button>
       <button class="vcx-tbtn big" data-act="place" title="Yerleştir">🧱</button>`;
     container.appendChild(btns);
@@ -1871,19 +2146,22 @@ select.vcx-input{cursor:pointer;min-width:110px}
         b.addEventListener("pointercancel", up);
         b.addEventListener("pointerleave", up);
       } else if (act === "run") {
-        let on = false;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          on = !on;
-          b.classList.toggle("on", on);
-          call()?.sprint?.(on);
+          b.classList.add("on");
+          call()?.sprint?.(true);
         });
+        const up = () => { b.classList.remove("on"); call()?.sprint?.(false); };
+        b.addEventListener("pointerup", up);
+        b.addEventListener("pointercancel", up);
+        b.addEventListener("pointerleave", up);
       } else {
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
           if (act === "jump") call()?.jump?.();
           else if (act === "place") call()?.place?.();
           else if (act === "inv") call()?.inventory?.();
+          else if (act === "eat") call()?.eat?.();
         });
       }
     });
@@ -1904,10 +2182,15 @@ select.vcx-input{cursor:pointer;min-width:110px}
   healthFill = document.getElementById("vcx-hp");
   hungerFill = document.getElementById("vcx-hg");
 
-  // --- crosshair ---
+  // --- crosshair + kazma ilerleme çubuğu ---
   const cross = document.createElement("div");
   cross.className = "vcx-cross";
   container.appendChild(cross);
+  mineBar = document.createElement("div");
+  mineBar.className = "vcx-minebar";
+  mineFillEl = document.createElement("i");
+  mineBar.appendChild(mineFillEl);
+  container.appendChild(mineBar);
 
   // --- toast ---
   toastEl = document.createElement("div");
@@ -1917,7 +2200,7 @@ select.vcx-input{cursor:pointer;min-width:110px}
 
   const tip = document.createElement("div");
   tip.className = "vcx-tip";
-  tip.textContent = "Sol tık: kaz / canlıya vur · Sağ tık: yerleştir · E: envanter · F: ye · Esc: menü";
+  tip.textContent = "Sol tık: kaz / canlıya vur · Sağ tık: yerleştir / masa / fırın · E: envanter · F: ye · Esc: menü";
   container.appendChild(tip);
 
   // hotbar'ı 9 boş slot ile kur (içerik refreshHotbarUI ile dolar)
@@ -1939,7 +2222,8 @@ select.vcx-input{cursor:pointer;min-width:110px}
     <h2>Minecraft benzeri blok dünyası</h2>
     <p class="row"><span class="k">W A S D</span> hareket &nbsp;&nbsp;<span class="k">Space</span> zıpla &nbsp;&nbsp;<span class="k">Shift</span> koş</p>
     <p class="row"><span class="k">Sol tık</span> (basılı tut) kaz &nbsp;&nbsp;<span class="k">Sağ tık</span> yerleştir &nbsp;&nbsp;<span class="k">1-9</span>/tekerlek blok</p>
-    <p class="row"><span class="k">E</span> envanter+üretim &nbsp;&nbsp;<span class="k">F</span> ye (seçili yiyecek) &nbsp;&nbsp;<span class="k">Sağ tık</span> masada: 3×3</p>
+    <p class="row"><span class="k">E</span> envanter+üretim &nbsp;&nbsp;<span class="k">F</span> ye (seçili yiyecek) &nbsp;&nbsp;<span class="k">Sağ tık</span> masa: 3×3 · fırın: pişirme</p>
+    <p class="row">🏜️ Çöl · ❄️ Kar biyomu · 🌧️ Yağmur/kar · 🔥 Cevheri fırında pişir — keşfet!</p>
     <p class="row">Koyun/inek/domuz/tavuk bul, gece zombi ve iskelet gelir — avlan, et topla!</p>
     <button class="vcx-play" id="vcx-play">▶ OYNA</button>
     <div class="vcx-row">
@@ -1974,15 +2258,13 @@ select.vcx-input{cursor:pointer;min-width:110px}
   // görüş mesafesi seçici (mevcut değeri göster, değişince uygula)
   const renderSel = document.getElementById("vcx-render") as HTMLSelectElement | null;
   if (renderSel) {
-    const cur = (window as unknown as { __vcxRender?: () => number }).__vcxRender?.();
-    renderSel.value = String(cur ?? 5);
+    renderSel.value = String(renderRadius); // doğrudan modül değeri (global'lar henüz atanmamış olabilir)
     renderSel.addEventListener("change", () => {
       (window as unknown as { __vcxSetRender?: (n: number) => void }).__vcxSetRender?.(Number(renderSel.value));
     });
   }
   const seedInfo = document.getElementById("vcx-seed-info");
   if (seedInfo) {
-    const s = (window as unknown as { __vcxSeed?: () => number }).__vcxSeed?.();
-    seedInfo.textContent = `Seed: ${s ?? "—"} · 💾 Otomatik kayıt (25 sn)`;
+    seedInfo.textContent = `Seed: ${worldSeed} · 💾 Otomatik kayıt (25 sn)`;
   }
 }
