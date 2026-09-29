@@ -28,6 +28,7 @@ const GAME_TITLES: Record<string, string> = {
   fighter: "Dövüş Arenası",
   fighting: "Neon Rivals",
   "lets-world": "Let's World",
+  "yilan-arena": "Yılan Arena",
 };
 
 function ProfileContent() {

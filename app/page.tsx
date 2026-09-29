@@ -170,6 +170,17 @@ const GAMES = [
     route: "/games/akil-kupu",
     status: "playable" as const,
   },
+  {
+    id: "yilan-arena",
+    title: "Yılan Arena",
+    subtitle: "Neon Yılan Oyunu",
+    emoji: "🐍",
+    artClass: "art-18",
+    description:
+      "Neon yılan arenasında klasik yılan oyunu! Elmaları ye (+10), altın elmayı kap (+50 ve 6 sn hayalet modu), her elmada hızlan ve rekoru kır. Oklar/WASD veya kaydırma ile yönlendir; mobilde ekran butonları.",
+    route: "/games/yilan-arena",
+    status: "playable" as const,
+  },
 ];
 
 export default function Home() {

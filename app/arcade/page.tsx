@@ -128,6 +128,12 @@ const GAMES: ArcadeGame[] = [
     description: "Küçük mavi yaratık Bloop ile çayırı geç, grump'ları ez, tüm paraları topla ve boss Gloom'u yenerek Altın Yıldız'ı kazan.",
     art: "linear-gradient(135deg,#6fc3e8 0%,#5cb874 100%)",
   },
+  {
+    id: "yilan-arena", title: "Yılan Arena", emoji: "🐍", category: "Arcade",
+    tags: ["Neon", "Klasik", "Dokunmatik"], route: "/games/yilan-arena", pop: 88, isNew: true,
+    description: "Neon yılan arenasında klasik yılan: elmalar, altın elma + hayalet modu, hızlanma ve rekor takibi. Oklar/WASD veya kaydırma; mobilde ekran butonları.",
+    art: "linear-gradient(135deg,#34d399 0%,#0891b2 100%)",
+  },
 ];
 
 const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade"];
