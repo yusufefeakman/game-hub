@@ -1,7 +1,8 @@
 /* =====================================================================
    YILAN ARENA — Game Engine
-   Neon yılan arenasında klasik yılan oyunu: elmalar ye, hızlan, altın
-   elmayı kap ve kısa süreliğine hayalet ol (duvarlar/dışarı geçebilirsin).
+   Neon yılan arenasında klasik yılan oyunu: elmalar ye, hızlan, nadir
+   yıldız meyveyi kap, altın elmayı kap ve kısa süreliğine hayalet ol
+   (duvarlar/dışarı geçebilirsin).
    Tüm grafikler canvas üzerinde prosedürel; sesler Web Audio API ile
    sentezlenir. Dış varlık yok. Mobil uyumlu (kaydırma + ekran butonları).
 
@@ -22,9 +23,10 @@ const COLS = 32;
 const ROWS = 18;
 const CELL = 30;
 
-const BASE_TICK = 150;   // ms / adım
-const MIN_TICK = 75;     // en hızlı adım
+const BASE_TICK = 185;   // ms / adım
+const MIN_TICK = 105;    // en hızlı adım
 const GOLD_LIFE = 6;     // sn — altın elma sahnede kalma süresi
+const STAR_LIFE = 5;     // sn — yıldız meyve sahnede kalma süresi
 const GHOST_TIME = 6;    // sn — altın elma sonrası hayalet modu
 
 const REC_KEY = "yilan-arena-best";
@@ -59,6 +61,7 @@ const AudioSys = {
   },
   eat() { this.tone("square", 420, 760, 0.09, 0.4); },
   gold() { this.tone("triangle", 520, 900, 0.12, 0.5); this.tone("triangle", 780, 1300, 0.14, 0.4, 0.09); },
+  star() { this.tone("triangle", 880, 1560, 0.1, 0.4); this.tone("sine", 1320, 2100, 0.12, 0.3, 0.08); },
   die() { this.tone("sawtooth", 300, 60, 0.5, 0.5); },
   click() { this.tone("square", 240, 240, 0.05, 0.25); },
 };
@@ -66,7 +69,7 @@ const AudioSys = {
 /* ================= 2. TYPES ================= */
 type Phase = "menu" | "playing" | "paused" | "over";
 interface Cell { x: number; y: number; }
-interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; }
+interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; size: number; }
 
 /* ================= 3. PUBLIC API ================= */
 export function startGame(canvas: HTMLCanvasElement): () => void {
@@ -85,6 +88,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   let applesEaten = 0;
   let gold: Cell | null = null;
   let goldTimer = 0;
+  let star: Cell | null = null;   // nadir bonus yıldız meyve
+  let starTimer = 0;
   let ghost = 0;      // kalan hayalet süresi (sn)
   let tickMs = BASE_TICK;
   let acc = 0;
@@ -155,7 +160,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       <h1>🐍 YILAN ARENA</h1>
       <h2>Neon yılan arenasında klasik yılan oyunu</h2>
       <p><b>Oklar / WASD</b> yön · <b>Space</b> başlat · <b>P</b> duraklat · <b>M</b> ses</p>
-      <p>🍎 elma +10 · ✨ altın elma +50 ve <b>hayalet modu</b> (6 sn duvarlardan geç!)</p>
+      <p>🍎 elma +10 · ⭐ yıldız meyve +5 · ✨ altın elma +50 ve <b>hayalet modu</b> (6 sn duvarlardan geç!)</p>
       <p>Her elmada hızlan — rekoru kır!</p>
       <button class="yla-play" id="yla-play">▶ OYNA</button>
       <p class="yla-rec">Rekor: ${best}</p>`;
@@ -182,7 +187,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     dir = { x: 1, y: 0 };
     queuedDir = [];
     grow = 0; score = 0; applesEaten = 0;
-    gold = null; goldTimer = 0; ghost = 0;
+    gold = null; goldTimer = 0; ghost = 0; star = null; starTimer = 0;
     tickMs = BASE_TICK; acc = 0; particles = []; newRecord = false;
     spawnFood();
     scoreEl.textContent = "Skor: 0";
@@ -194,16 +199,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     let c: Cell;
     do {
       c = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
-    } while (snake.some((s) => s.x === c.x && s.y === c.y) || (gold && gold.x === c.x && gold.y === c.y));
+    } while (snake.some((s) => s.x === c.x && s.y === c.y) || (gold && gold.x === c.x && gold.y === c.y) || (star && star.x === c.x && star.y === c.y));
     return c;
   }
   let food: Cell = { x: 20, y: 9 };
   function spawnFood() { food = freeCell(); }
 
-  function burst(cx: number, cy: number, color: string, n = 14) {
+  function burst(cx: number, cy: number, colors: string[], n = 14) {
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 160;
-      particles.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.5, max: 0.5, color });
+      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 180;
+      const life = 0.4 + Math.random() * 0.5;
+      particles.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 24, life, max: life, color: colors[i % colors.length], size: 2 + Math.random() * 3 });
     }
   }
 
@@ -293,18 +299,26 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
     if (nx === food.x && ny === food.y) {
       score += 10; applesEaten += 1; grow += 1;
-      burst((food.x + 0.5) * CELL, (food.y + 0.5) * CELL, "#ff5d5d");
+      burst((food.x + 0.5) * CELL, (food.y + 0.5) * CELL, ["#ff5d5d", "#ff9a9a", "#ffd23f"], 16);
       AudioSys.eat();
       spawnFood();
       if (applesEaten % 7 === 0 && !gold) { gold = freeCell(); goldTimer = GOLD_LIFE; }
-      tickMs = Math.max(MIN_TICK, BASE_TICK - Math.floor(score / 100) * 6);
+      if (applesEaten % 5 === 0 && !star) { star = freeCell(); starTimer = STAR_LIFE; }
+      tickMs = Math.max(MIN_TICK, BASE_TICK - Math.floor(score / 100) * 5);
       scoreEl.textContent = `Skor: ${score}`;
       speedEl.textContent = `Hız ${Math.min(10, 1 + Math.floor(score / 100))}`;
     }
     if (gold && nx === gold.x && ny === gold.y) {
       score += 50; grow += 2; ghost = GHOST_TIME; gold = null;
-      burst((nx + 0.5) * CELL, (ny + 0.5) * CELL, "#ffd23f", 22);
+      burst((nx + 0.5) * CELL, (ny + 0.5) * CELL, ["#ffd23f", "#fff7cf", "#ffb347"], 22);
       AudioSys.gold();
+      scoreEl.textContent = `Skor: ${score}`;
+      speedEl.textContent = `Hız ${Math.min(10, 1 + Math.floor(score / 100))}`;
+    }
+    if (star && nx === star.x && ny === star.y) {
+      score += 5; star = null;
+      burst((nx + 0.5) * CELL, (ny + 0.5) * CELL, ["#c084fc", "#e9d5ff", "#f0abfc"], 18);
+      AudioSys.star();
       scoreEl.textContent = `Skor: ${score}`;
       speedEl.textContent = `Hız ${Math.min(10, 1 + Math.floor(score / 100))}`;
     }
@@ -314,7 +328,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     phase = "over";
     AudioSys.die();
     const head = snake[0];
-    burst((head.x + 0.5) * CELL, (head.y + 0.5) * CELL, "#ff5d5d", 30);
+    burst((head.x + 0.5) * CELL, (head.y + 0.5) * CELL, ["#ff5d5d", "#ff9a9a", "#ff8a3d"], 34);
     if (score > best) {
       best = score; newRecord = true;
       try { localStorage.setItem(REC_KEY, String(best)); } catch { /* yok */ }
@@ -327,86 +341,169 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function draw(dt: number) {
     g.fillStyle = "#05060f";
     g.fillRect(0, 0, W, H);
-    // grid
-    g.strokeStyle = "rgba(255,255,255,0.045)";
+    const t = performance.now() / 1000;
+    // canlı grid — hafif kayan, nefes alan çizgiler
+    const shift = (t * 4) % CELL;
+    const gridA = 0.04 + Math.sin(t * 1.2) * 0.018;
+    g.strokeStyle = `rgba(52,211,153,${gridA.toFixed(3)})`;
     g.lineWidth = 1;
     g.beginPath();
-    for (let x = 0; x <= COLS; x++) { g.moveTo(x * CELL + 0.5, 0); g.lineTo(x * CELL + 0.5, H); }
-    for (let y = 0; y <= ROWS; y++) { g.moveTo(0, y * CELL + 0.5); g.lineTo(W, y * CELL + 0.5); }
+    for (let x = -1; x <= COLS; x++) { const px = x * CELL + shift + 0.5; g.moveTo(px, 0); g.lineTo(px, H); }
+    for (let y = -1; y <= ROWS; y++) { const py = y * CELL + shift * 0.5 + 0.5; g.moveTo(0, py); g.lineTo(W, py); }
     g.stroke();
-    // arena kenarı
+    // arena kenarı — nabız gibi parlayan çerçeve
     g.strokeStyle = ghost > 0 ? "rgba(56,189,248,.8)" : "rgba(52,211,153,.5)";
     g.lineWidth = 3;
     g.shadowColor = ghost > 0 ? "#38bdf8" : "#34d399";
-    g.shadowBlur = 14;
+    g.shadowBlur = 14 + Math.sin(t * 2) * 4;
     g.strokeRect(2, 2, W - 4, H - 4);
     g.shadowBlur = 0;
-
-    const t = performance.now() / 1000;
-    // yem (elma)
+    // yem (elma) — gövde degrade, kıvrık sap ve yaprak detayı
     const pulse = 1 + Math.sin(t * 5) * 0.12;
     g.save();
     g.translate((food.x + 0.5) * CELL, (food.y + 0.5) * CELL);
     g.scale(pulse, pulse);
-    g.shadowColor = "#ff5d5d"; g.shadowBlur = 16;
-    g.fillStyle = "#ff5d5d";
+    g.shadowColor = "#ff5d5d"; g.shadowBlur = 18;
+    const ag = g.createRadialGradient(-3, -1, 2, 0, 2, 11);
+    ag.addColorStop(0, "#ff9a9a"); ag.addColorStop(0.55, "#ff5d5d"); ag.addColorStop(1, "#d92f2f");
+    g.fillStyle = ag;
     g.beginPath(); g.arc(0, 2, 9, 0, Math.PI * 2); g.fill();
     g.shadowBlur = 0;
-    g.fillStyle = "#7a2f2f"; g.fillRect(-1, -10, 2, 5);
-    g.fillStyle = "#4c9a45"; g.fillRect(1, -9, 5, 3);
+    g.strokeStyle = "#7a4a2f"; g.lineWidth = 2; g.lineCap = "round";
+    g.beginPath(); g.moveTo(0, -6); g.quadraticCurveTo(1, -10, 2, -12); g.stroke();
+    const leaf = g.createLinearGradient(2, -12, 9, -9);
+    leaf.addColorStop(0, "#6fe06a"); leaf.addColorStop(1, "#3f8f3a");
+    g.fillStyle = leaf;
+    g.beginPath(); g.moveTo(2, -11); g.quadraticCurveTo(7, -14, 10, -10); g.quadraticCurveTo(6, -8, 2, -11); g.fill();
+    g.fillStyle = "rgba(255,255,255,.7)";
+    g.beginPath(); g.arc(-3, 0, 2.2, 0, Math.PI * 2); g.fill();
     g.restore();
 
-    // altın elma (yanıp söner, süresi azalınca titrer)
+    // altın elma (yanıp söner, süresi azalınca titrer) + dönen kıvılcımlar
     if (gold) {
       const blink = goldTimer < 2 ? (Math.sin(t * 14) > 0 ? 1 : 0.25) : 1;
       g.save();
       g.globalAlpha = blink;
       g.translate((gold.x + 0.5) * CELL, (gold.y + 0.5) * CELL);
       g.rotate(Math.sin(t * 3) * 0.2);
-      g.shadowColor = "#ffd23f"; g.shadowBlur = 20;
-      g.fillStyle = "#ffd23f";
+      g.shadowColor = "#ffd23f"; g.shadowBlur = 22;
+      const gg = g.createRadialGradient(-2, -2, 1, 0, 0, 12);
+      gg.addColorStop(0, "#fff7cf"); gg.addColorStop(1, "#e8a80f");
+      g.fillStyle = gg;
       g.beginPath();
       g.moveTo(0, -11); g.lineTo(9, 0); g.lineTo(0, 11); g.lineTo(-9, 0); g.closePath(); g.fill();
       g.shadowBlur = 0;
       g.fillStyle = "#fff7cf"; g.fillRect(-2, -4, 4, 4);
       g.restore();
+      g.save();
+      g.translate((gold.x + 0.5) * CELL, (gold.y + 0.5) * CELL);
+      g.fillStyle = "#fff7cf";
+      for (let i = 0; i < 3; i++) {
+        const a = t * 2.4 + (i * Math.PI * 2) / 3;
+        const r = 13 + Math.sin(t * 6 + i) * 2;
+        g.globalAlpha = 0.5 + Math.sin(t * 8 + i * 2) * 0.4;
+        g.beginPath(); g.arc(Math.cos(a) * r, Math.sin(a) * r, 1.6, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
     }
 
-    // yılan
+    // yıldız meyve — nadir bonus (+5), mor parıltı ve kıvılcımlar
+    if (star) {
+      const blink = starTimer < 1.5 ? (Math.sin(t * 16) > 0 ? 1 : 0.3) : 1;
+      g.save();
+      g.globalAlpha = blink;
+      g.translate((star.x + 0.5) * CELL, (star.y + 0.5) * CELL);
+      const sp = 1 + Math.sin(t * 6) * 0.1;
+      g.scale(sp, sp);
+      g.rotate(t * 0.8);
+      g.shadowColor = "#c084fc"; g.shadowBlur = 20;
+      const sg = g.createRadialGradient(0, 0, 1, 0, 0, 12);
+      sg.addColorStop(0, "#f0abfc"); sg.addColorStop(1, "#7c3aed");
+      g.fillStyle = sg;
+      g.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
+        g.lineTo(Math.cos(a) * 12, Math.sin(a) * 12);
+        g.lineTo(Math.cos(a + Math.PI / 5) * 5, Math.sin(a + Math.PI / 5) * 5);
+      }
+      g.closePath(); g.fill();
+      g.shadowBlur = 0;
+      g.fillStyle = "#fdf4ff";
+      g.beginPath(); g.arc(0, 0, 2.5, 0, Math.PI * 2); g.fill();
+      g.restore();
+      g.save();
+      g.translate((star.x + 0.5) * CELL, (star.y + 0.5) * CELL);
+      g.fillStyle = "#e9d5ff";
+      for (let i = 0; i < 4; i++) {
+        const a = -t * 3 + (i * Math.PI) / 2;
+        g.globalAlpha = 0.35 + Math.sin(t * 7 + i * 1.7) * 0.35;
+        g.beginPath(); g.arc(Math.cos(a) * 15, Math.sin(a) * 15, 1.4, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+
+    // yılan — baştan kuyruğa degrade gövde, hayalet modunda titreşen parıltı
     const ghostOn = ghost > 0;
     for (let i = snake.length - 1; i >= 0; i--) {
       const s = snake[i];
       const k = i / Math.max(1, snake.length - 1);
       const hue = ghostOn ? 195 : 152 - k * 24;
-      g.fillStyle = `hsl(${hue}, 85%, ${ghostOn ? 62 : 52 - k * 14}%)`;
+      const lum = ghostOn ? 62 : 52 - k * 14;
+      g.globalAlpha = ghostOn ? 0.55 + Math.sin(t * 8 - i * 0.7) * 0.2 : 1;
+      g.fillStyle = `hsl(${hue}, 85%, ${lum}%)`;
       g.shadowColor = ghostOn ? "#38bdf8" : "#34d399";
-      g.shadowBlur = i === 0 ? 18 : 10;
+      g.shadowBlur = i === 0 ? 20 : 10;
       const inset = i === 0 ? 2 : 3 + k * 2;
       g.beginPath();
       g.roundRect(s.x * CELL + inset, s.y * CELL + inset, CELL - inset * 2, CELL - inset * 2, 7);
       g.fill();
+      if (!ghostOn) { // üst parlama çizgisi — gövdeye hacim katar
+        g.shadowBlur = 0;
+        g.fillStyle = `hsla(${hue}, 90%, ${Math.min(80, lum + 24)}%, .45)`;
+        g.fillRect(s.x * CELL + inset + 3, s.y * CELL + inset + 2, CELL - inset * 2 - 6, 3);
+      }
     }
+    g.globalAlpha = 1;
     g.shadowBlur = 0;
-    // gözler (snake boşsa atla — ilk kare güvenliği)
+    // baş detayları (snake boşsa atla — ilk kare güvenliği)
     if (snake.length) {
       const head = snake[0];
-      const ex = head.x * CELL + CELL / 2 + dir.x * 6, ey = head.y * CELL + CELL / 2 + dir.y * 6;
+      const cx = head.x * CELL + CELL / 2, cy = head.y * CELL + CELL / 2;
+      // çatallı dil — yönünde ara sıra titrer
+      const flick = Math.max(0, Math.sin(t * 7));
+      if (flick > 0.15) {
+        g.strokeStyle = "#ff5d7a"; g.lineWidth = 2; g.lineCap = "round";
+        const bx = cx + dir.x * 6, by = cy + dir.y * 6;
+        const tx = cx + dir.x * 12, ty = cy + dir.y * 12;
+        g.beginPath();
+        g.moveTo(bx, by); g.lineTo(tx, ty);
+        g.moveTo(tx, ty); g.lineTo(tx + dir.y * 3 - dir.x * 2, ty + dir.x * 3 - dir.y * 2);
+        g.moveTo(tx, ty); g.lineTo(tx - dir.y * 3 - dir.x * 2, ty - dir.x * 3 - dir.y * 2);
+        g.stroke();
+      }
+      // gözler — beyaz sklera + bebek
+      const ex = cx + dir.x * 6, ey = cy + dir.y * 6;
+      g.fillStyle = "#f8fefc";
+      g.beginPath(); g.arc(ex - dir.y * 5, ey - dir.x * 5, 3.4, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(ex + dir.y * 5, ey + dir.x * 5, 3.4, 0, Math.PI * 2); g.fill();
       g.fillStyle = "#04121a";
-      g.beginPath(); g.arc(ex - dir.y * 5, ey - dir.x * 5, 3, 0, Math.PI * 2); g.fill();
-      g.beginPath(); g.arc(ex + dir.y * 5, ey + dir.x * 5, 3, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(ex - dir.y * 5 + dir.x * 1.4, ey - dir.x * 5 + dir.y * 1.4, 1.7, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(ex + dir.y * 5 + dir.x * 1.4, ey + dir.x * 5 + dir.y * 1.4, 1.7, 0, Math.PI * 2); g.fill();
     }
 
-    // parçacıklar
+    // parçacıklar — küçülen, hafif yerçekimli parıltılar
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.life -= dt;
       if (p.life <= 0) { particles.splice(i, 1); continue; }
+      p.vx *= 0.96; p.vy = p.vy * 0.96 + 70 * dt;
       p.x += p.vx * dt; p.y += p.vy * dt;
-      g.globalAlpha = p.life / p.max;
+      const k = p.life / p.max;
+      g.globalAlpha = k * 0.9;
       g.fillStyle = p.color;
-      g.fillRect(p.x - 2, p.y - 2, 4, 4);
-      g.globalAlpha = 1;
+      g.beginPath(); g.arc(p.x, p.y, Math.max(0.5, p.size * k), 0, Math.PI * 2); g.fill();
     }
+    g.globalAlpha = 1;
 
     // hayalet süresi göstergesi
     if (ghostOn) {
@@ -426,6 +523,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       while (acc >= tickMs) { acc -= tickMs; step(); }
       if (ghost > 0) ghost = Math.max(0, ghost - dt);
       if (gold) { goldTimer -= dt; if (goldTimer <= 0) gold = null; }
+      if (star) { starTimer -= dt; if (starTimer <= 0) star = null; }
     }
     draw(dt);
     raf = requestAnimationFrame(loop);
