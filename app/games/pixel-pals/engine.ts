@@ -21,14 +21,14 @@ const H = 540;
 const PIXEL_SCALE = 2;
 
 // Physics tuning (pixels, seconds)
-const GRAVITY = 2300; // px/s^2
-const MAX_FALL = 1150; // terminal velocity
-const MOVE_ACCEL = 2600; // ground acceleration
-const AIR_ACCEL = 1700; // air acceleration
-const FRICTION = 2400; // ground friction when no input
+const GRAVITY = 2500; // px/s^2 — raised with MAX_SPEED so jump arcs stay snappy, not floaty
+const MAX_FALL = 1250; // terminal velocity
+const MOVE_ACCEL = 4200; // ground acceleration
+const AIR_ACCEL = 2600; // air acceleration
+const FRICTION = 3000; // ground friction when no input (snappy stop / turn-around)
 const AIR_DRAG = 300;
-const MAX_SPEED = 330; // px/s
-const JUMP_VEL = -760; // initial jump velocity
+const MAX_SPEED = 460; // px/s
+const JUMP_VEL = -820; // initial jump velocity (apex ~134px, airtime ~0.66s at the new speed)
 const JUMP_CUT = 0.45; // velocity multiplier when jump released early
 const COYOTE_TIME = 0.09; // seconds of grace after leaving a ledge
 const JUMP_BUFFER = 0.12; // seconds jump input is remembered
@@ -40,7 +40,7 @@ const LEVEL_TIME = 180; // seconds
 
 // Power-ups, bats & combo scoring
 const POWER_TIME = 8; // seconds each power-up lasts
-const DOUBLE_JUMP_VEL = -660; // extra (bird-wing) jump velocity
+const DOUBLE_JUMP_VEL = -700; // extra (bird-wing) jump velocity (kept in step with JUMP_VEL)
 const MAGNET_RADIUS = 190; // coin magnet pull radius
 const BAT_SPEED = 85; // bat horizontal drift speed (toward the player)
 const COMBO_WINDOW = 1.5; // seconds between stomps to keep a combo alive
@@ -1002,8 +1002,6 @@ const game = {
     // Snap the camera to the low-res pixel grid so tiles and sprites render
     // on whole pixels (removes sub-pixel shimmer while the camera eases).
     this.camX = Math.round(this.camX / PIXEL_SCALE) * PIXEL_SCALE;
-
-    updateHUD();
   },
 };
 
@@ -1043,93 +1041,319 @@ let ctx: CanvasRenderingContext2D;
 
 function rnd(i: number) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 
-function drawSky() {
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, C.skyTop);
-  grad.addColorStop(1, C.skyBot);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
+/* Pre-rendered background layers. Every layer is painted once into its own
+   low-res canvas (same PIXEL_SCALE convention as the main buffer) and then
+   blitted with integer PIXEL_SCALE offsets each frame. That gives a rich
+   multi-layer parallax — sky/sun (static) -> clouds (0.35) -> far hills
+   with trees (0.5) -> near hills (0.7) -> foreground bushes (1.2) — at
+   near-zero per-frame cost. */
+const STRIP_W = W * 2; // logical width of the wrapping parallax strips
+
+function makeLayer(w: number, h: number, paint: (g: CanvasRenderingContext2D) => void) {
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(w / PIXEL_SCALE);
+  cv.height = Math.round(h / PIXEL_SCALE);
+  const g = cv.getContext("2d")!;
+  g.imageSmoothingEnabled = false;
+  g.scale(1 / PIXEL_SCALE, 1 / PIXEL_SCALE);
+  paint(g);
+  return cv;
 }
-function drawClouds(camX: number) {
-  ctx.fillStyle = C.cloud;
-  for (let i = 0; i < 14; i++) {
-    const cx = ((i * 420 + rnd(i) * 200) - camX * 0.3) % (LEVEL_W * 0.5);
-    const x = ((cx % (W + 300)) + (W + 300)) % (W + 300) - 150;
-    const y = 40 + rnd(i + 40) * 120;
-    const s = 0.7 + rnd(i + 80) * 0.8;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 46 * s, 18 * s, 0, 0, Math.PI * 2);
-    ctx.ellipse(x + 30 * s, y - 10 * s, 30 * s, 15 * s, 0, 0, Math.PI * 2);
-    ctx.ellipse(x - 30 * s, y - 6 * s, 26 * s, 13 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
+
+let skyLayer: HTMLCanvasElement | null = null;
+let cloudsLayer: HTMLCanvasElement | null = null;
+let hillsFarLayer: HTMLCanvasElement | null = null;
+let hillsNearLayer: HTMLCanvasElement | null = null;
+let bushesLayer: HTMLCanvasElement | null = null;
+
+function buildBackgroundLayers() {
+  if (skyLayer) return;
+  skyLayer = makeLayer(W, H, (g) => {
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#4fb3e0");
+    grad.addColorStop(0.55, C.skyTop);
+    grad.addColorStop(1, C.skyBot);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+    // Sun with a soft halo and short pixel rays.
+    const sx = 760, sy = 92;
+    g.fillStyle = "rgba(255,236,140,0.35)";
+    g.beginPath(); g.arc(sx, sy, 52, 0, Math.PI * 2); g.fill();
+    g.fillStyle = C.star;
+    g.beginPath(); g.arc(sx, sy, 30, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#fff8e1";
+    g.beginPath(); g.arc(sx - 8, sy - 8, 12, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "rgba(255,224,102,0.5)"; g.lineWidth = 3;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(sx + Math.cos(a) * 38, sy + Math.sin(a) * 38);
+      g.lineTo(sx + Math.cos(a) * 46, sy + Math.sin(a) * 46);
+      g.stroke();
+    }
+    // A couple of distant birds gliding across the sky.
+    g.strokeStyle = "rgba(70,90,110,0.55)"; g.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const bx = 120 + i * 260 + rnd(i + 11) * 90, by = 70 + rnd(i + 21) * 90;
+      g.beginPath();
+      g.moveTo(bx - 8, by); g.lineTo(bx, by - 4); g.lineTo(bx + 8, by);
+      g.stroke();
+    }
+  });
+  cloudsLayer = makeLayer(STRIP_W, H, (g) => {
+    // Two bands of puffy clouds: tiny far ones and bigger shaded near ones.
+    for (let i = 0; i < 10; i++) {
+      const x = i * 192 + rnd(i) * 80, y = 26 + rnd(i + 40) * 60, s = 0.45 + rnd(i + 80) * 0.3;
+      g.fillStyle = "rgba(255,255,255,0.55)";
+      g.beginPath(); g.ellipse(x, y, 34 * s, 12 * s, 0, 0, Math.PI * 2); g.fill();
+    }
+    for (let i = 0; i < 6; i++) {
+      const x = i * 320 + 60 + rnd(i + 7) * 120, y = 70 + rnd(i + 47) * 90, s = 0.7 + rnd(i + 87) * 0.6;
+      g.fillStyle = C.cloud;
+      g.beginPath();
+      g.ellipse(x, y, 46 * s, 18 * s, 0, 0, Math.PI * 2);
+      g.ellipse(x + 30 * s, y - 10 * s, 30 * s, 15 * s, 0, 0, Math.PI * 2);
+      g.ellipse(x - 30 * s, y - 6 * s, 26 * s, 13 * s, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = "rgba(210,230,245,0.5)"; // shaded underbelly
+      g.beginPath(); g.ellipse(x, y + 8 * s, 40 * s, 8 * s, 0, 0, Math.PI * 2); g.fill();
+    }
+  });
+  hillsFarLayer = makeLayer(STRIP_W, H, (g) => {
+    // Rolling far hills dotted with tiny pine trees on the ridges.
+    for (let i = 0; i < 6; i++) {
+      const x = i * 320 + 160, r = 110 + rnd(i + 3) * 40;
+      g.fillStyle = C.hillFar;
+      g.beginPath(); g.arc(x, H - 56, r, Math.PI, 0); g.fill();
+      const spots = [-r * 0.45, 0, r * 0.4];
+      for (let t = 0; t < 3; t++) {
+        const dx = spots[t] + (rnd(i * 3 + t) - 0.5) * 14;
+        const tx = x + dx;
+        const ty = (H - 56) - Math.sqrt(Math.max(0, r * r - dx * dx));
+        const th = 16 + rnd(i * 7 + t) * 12;
+        g.fillStyle = "#3f8f5a";
+        g.beginPath(); g.moveTo(tx, ty - th); g.lineTo(tx - 6, ty - 2); g.lineTo(tx + 6, ty - 2);
+        g.closePath(); g.fill();
+        g.fillStyle = "#2f6b45";
+        g.fillRect(tx - 1, ty - 2, 2, 5);
+      }
+    }
+  });
+  hillsNearLayer = makeLayer(STRIP_W, H, (g) => {
+    // Closer, darker hills with sunlit caps and shrubs on the slopes.
+    for (let i = 0; i < 8; i++) {
+      const x = i * 240 + 120, r = 90 + rnd(i + 13) * 30;
+      g.fillStyle = C.hillNear;
+      g.beginPath(); g.arc(x, H - 36, r, Math.PI, 0); g.fill();
+      g.fillStyle = "rgba(255,255,255,0.12)"; // sunlit cap
+      g.beginPath(); g.arc(x - r * 0.25, H - 36 - r * 0.55, r * 0.35, Math.PI, 0); g.fill();
+      for (let b = 0; b < 4; b++) {
+        const bx = x - r * 0.7 + b * r * 0.45 + rnd(i * 4 + b) * 16;
+        const by = (H - 36) - Math.sqrt(Math.max(0, r * r - (bx - x) * (bx - x))) + 6 + rnd(i + b) * 10;
+        g.fillStyle = "#47a05f";
+        g.beginPath(); g.ellipse(bx, by, 10 + rnd(b + i) * 6, 6, 0, 0, Math.PI * 2); g.fill();
+      }
+    }
+  });
+  bushesLayer = makeLayer(STRIP_W, 120, (g) => {
+    // Foreground shrubs, grass tufts and flowers sitting just above the
+    // ground band; drawn behind the tiles so only their tops peek over.
+    const baseY = 116; // layer-local baseline
+    for (let i = 0; i < 24; i++) {
+      const x = i * 80 + rnd(i) * 40;
+      const kind = rnd(i + 5);
+      if (kind < 0.4) {
+        // Leafy bush with highlights.
+        g.fillStyle = "#3e8e53";
+        g.beginPath(); g.ellipse(x, baseY - 14, 20, 14, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#57b26b";
+        g.beginPath(); g.ellipse(x - 6, baseY - 20, 10, 8, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#2f6b45";
+        g.beginPath(); g.ellipse(x + 8, baseY - 8, 12, 7, 0, 0, Math.PI * 2); g.fill();
+      } else if (kind < 0.7) {
+        // Grass tuft.
+        g.strokeStyle = "#4fae64"; g.lineWidth = 2;
+        for (let b = -2; b <= 2; b++) {
+          g.beginPath(); g.moveTo(x + b * 3, baseY); g.lineTo(x + b * 4, baseY - 14 + Math.abs(b) * 3); g.stroke();
+        }
+      } else {
+        // A little flower cluster.
+        const col = ["#ff8fb3", "#fff176", "#ffffff"][Math.floor(rnd(i + 9) * 3)];
+        for (let f = 0; f < 3; f++) {
+          const fx = x + (f - 1) * 9, fy = baseY - 10 - rnd(i + f) * 8;
+          g.strokeStyle = "#4fae64"; g.lineWidth = 2;
+          g.beginPath(); g.moveTo(fx, baseY); g.lineTo(fx, fy); g.stroke();
+          g.fillStyle = col;
+          g.beginPath(); g.arc(fx, fy, 3.5, 0, Math.PI * 2); g.fill();
+          g.fillStyle = "#ffd23f";
+          g.beginPath(); g.arc(fx, fy, 1.5, 0, Math.PI * 2); g.fill();
+        }
+      }
+    }
+  });
+}
+
+function blitLayer(img: HTMLCanvasElement, camX: number, factor: number, y: number) {
+  // Round the scroll offset to PIXEL_SCALE multiples so the strip blits with
+  // 1:1 pixels (no resampling) onto the low-res buffer.
+  const off = Math.round((camX * factor) / PIXEL_SCALE) * PIXEL_SCALE % STRIP_W;
+  ctx.drawImage(img, -off, y, STRIP_W, img.height * PIXEL_SCALE);
+  ctx.drawImage(img, STRIP_W - off, y, STRIP_W, img.height * PIXEL_SCALE);
+}
+
+function drawBackground(camX: number) {
+  buildBackgroundLayers();
+  ctx.drawImage(skyLayer!, 0, 0, W, H);
+  blitLayer(cloudsLayer!, camX, 0.35, 0);
+  blitLayer(hillsFarLayer!, camX, 0.5, 0);
+  blitLayer(hillsNearLayer!, camX, 0.7, 0);
+  blitLayer(bushesLayer!, camX, 1.2, H - 120);
+}
+/* Tile art is pre-rendered once into low-res TILE-sized canvases. Ground
+   tiles get dirt-speckle variants, exposed top tiles get grass tufts and
+   flowers poking above the tile, and bricks/stone get subtle shading. A
+   deterministic hash of (col, row) picks the variant at draw time. */
+const TOP_PAD = 20; // extra canvas height above ground-top tiles for tufts/flowers
+
+let groundTopArt: HTMLCanvasElement[] = [];
+let groundBodyArt: HTMLCanvasElement[] = [];
+let brickArt: HTMLCanvasElement[] = [];
+let stoneArt: HTMLCanvasElement[] = [];
+let questionArt: HTMLCanvasElement | null = null;
+let pipeTopArt: HTMLCanvasElement | null = null;
+let pipeBodyArt: HTMLCanvasElement | null = null;
+
+function paintGroundTop(g: CanvasRenderingContext2D, seed: number) {
+  const y0 = TOP_PAD; // the tile itself sits below the tuft padding
+  g.fillStyle = C.groundBody; g.fillRect(0, y0, TILE, TILE);
+  g.fillStyle = C.groundTop; g.fillRect(0, y0, TILE, 10);
+  g.fillStyle = "#7fd483"; g.fillRect(0, y0, TILE, 3); // sunlit grass edge
+  g.fillStyle = "#4f9e58"; g.fillRect(0, y0 + 8, TILE, 2); // grass underside shade
+  g.fillStyle = C.groundDark;
+  g.fillRect(6 + (seed % 2) * 10, y0 + 18, 8, 6);
+  g.fillRect(22 + ((seed + 1) % 3) * 5, y0 + 26, 7, 5);
+  // Grass tufts poking above the tile.
+  g.strokeStyle = "#3f8f5a"; g.lineWidth = 2;
+  const tuftX = 10 + seed * 7;
+  for (let b = -1; b <= 1; b++) {
+    g.beginPath();
+    g.moveTo(tuftX + b * 3, y0 + 2);
+    g.lineTo(tuftX + b * 5, y0 - 10 + Math.abs(b) * 4);
+    g.stroke();
+  }
+  if (seed === 1 || seed === 3) {
+    // A flower beside the tuft (pink / yellow alternating).
+    const fx = tuftX + 14, fy = y0 - 8;
+    g.strokeStyle = "#3f8f5a";
+    g.beginPath(); g.moveTo(fx, y0 + 1); g.lineTo(fx, fy); g.stroke();
+    g.fillStyle = seed === 1 ? "#ff8fb3" : "#fff176";
+    g.beginPath(); g.arc(fx, fy, 4, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#ffd23f";
+    g.beginPath(); g.arc(fx, fy, 1.8, 0, Math.PI * 2); g.fill();
   }
 }
-function drawHills(camX: number) {
-  ctx.fillStyle = C.hillFar;
-  for (let i = 0; i < 30; i++) {
-    const x = i * 380 - (camX * 0.5) % 380 - 190;
-    ctx.beginPath();
-    ctx.arc(x, H - 60, 150 + rnd(i) * 60, Math.PI, 0);
-    ctx.fill();
+function paintGroundBody(g: CanvasRenderingContext2D, seed: number) {
+  g.fillStyle = C.groundBody; g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle = C.groundDark;
+  g.fillRect(4 + seed * 7, 12, 8, 6);
+  g.fillRect(26 - seed * 4, 24, 7, 5);
+  g.fillRect(12 + (seed % 2) * 12, 32, 6, 4);
+  if (seed === 2) { // a small pebble embedded in the dirt
+    g.fillStyle = C.stone; g.fillRect(18, 16, 6, 5);
+    g.fillStyle = C.stoneDark; g.fillRect(18, 20, 6, 2);
   }
-  ctx.fillStyle = C.hillNear;
-  for (let i = 0; i < 24; i++) {
-    const x = i * 460 - (camX * 0.7) % 460 - 230;
-    ctx.beginPath();
-    ctx.arc(x, H - 40, 110 + rnd(i + 3) * 50, Math.PI, 0);
-    ctx.fill();
+  g.fillStyle = "rgba(0,0,0,0.08)"; g.fillRect(0, TILE - 3, TILE, 3); // depth shade
+}
+function paintBrick(g: CanvasRenderingContext2D, seed: number) {
+  g.fillStyle = C.brick; g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle = C.brickDark;
+  g.fillRect(0, 18, TILE, 3);
+  g.fillRect(18 + (seed % 2) * 4, 0, 3, 18);
+  g.fillRect(9 + (seed % 3) * 2, 21, 3, 19);
+  g.fillRect(27, 21, 3, 19);
+  g.fillStyle = C.brickLight; g.fillRect(0, 0, TILE, 3);
+  g.fillStyle = "rgba(0,0,0,0.12)"; g.fillRect(0, TILE - 2, TILE, 2);
+  g.fillStyle = "rgba(255,255,255,0.18)"; // chipped highlight speck
+  g.fillRect(4 + seed * 8, 8, 3, 3);
+}
+function paintStone(g: CanvasRenderingContext2D, seed: number) {
+  g.fillStyle = C.stone; g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle = C.stoneDark;
+  g.fillRect(0, TILE - 4, TILE, 4); g.fillRect(TILE - 4, 0, 4, TILE);
+  g.fillStyle = "rgba(255,255,255,0.25)";
+  g.fillRect(0, 0, TILE, 4); g.fillRect(0, 0, 4, TILE);
+  g.fillStyle = "rgba(107,118,132,0.5)"; // speckle pits
+  g.fillRect(8 + seed * 6, 12, 3, 3); g.fillRect(22, 20 + seed * 3, 4, 3);
+  if (seed === 1) { // hairline crack
+    g.fillStyle = C.stoneDark;
+    g.fillRect(16, 6, 2, 8); g.fillRect(18, 14, 2, 6); g.fillRect(20, 20, 2, 6);
   }
 }
-function drawTile(t: number, x: number, y: number) {
-  switch (t) {
-    case 1:
-      ctx.fillStyle = C.groundBody; ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = C.groundTop; ctx.fillRect(x, y, TILE, 10);
-      ctx.fillStyle = C.groundDark;
-      ctx.fillRect(x + 6, y + 18, 8, 6); ctx.fillRect(x + 24, y + 26, 7, 5);
-      break;
-    case 2:
-      ctx.fillStyle = C.brick; ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = C.brickDark;
-      ctx.fillRect(x, y + 18, TILE, 3); ctx.fillRect(x + 18, y, 3, 18);
-      ctx.fillRect(x + 9, y + 21, 3, 19); ctx.fillRect(x + 27, y + 21, 3, 19);
-      ctx.fillStyle = C.brickLight; ctx.fillRect(x, y, TILE, 3);
-      break;
-    case 3:
-      ctx.fillStyle = C.question; ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = C.questionDark; ctx.fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
-      ctx.fillStyle = C.question; ctx.fillRect(x + 5, y + 5, TILE - 10, TILE - 10);
-      ctx.fillStyle = C.questionDark;
-      ctx.font = "bold 22px monospace";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("?", x + TILE / 2, y + TILE / 2 + 1);
-      break;
-    case 4:
-      ctx.fillStyle = C.stone; ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = C.stoneDark;
-      ctx.fillRect(x, y + TILE - 4, TILE, 4); ctx.fillRect(x + TILE - 4, y, 4, TILE);
-      ctx.fillStyle = "rgba(255,255,255,0.25)";
-      ctx.fillRect(x, y, TILE, 4); ctx.fillRect(x, y, 4, TILE);
-      break;
-    case 5:
-      ctx.fillStyle = C.pipe; ctx.fillRect(x - 4, y, TILE + 8, TILE);
-      ctx.fillStyle = C.pipeDark; ctx.fillRect(x - 4, y + TILE - 6, TILE + 8, 6);
-      ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.fillRect(x + 2, y + 4, 8, TILE - 10);
-      break;
-    case 6:
-      ctx.fillStyle = C.pipe; ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = C.pipeDark; ctx.fillRect(x + TILE - 8, y, 8, TILE);
-      ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.fillRect(x + 4, y, 8, TILE);
-      break;
-  }
+function paintQuestion(g: CanvasRenderingContext2D) {
+  g.fillStyle = C.question; g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle = C.questionDark; g.fillRect(2, 2, TILE - 4, TILE - 4);
+  g.fillStyle = C.question; g.fillRect(5, 5, TILE - 10, TILE - 10);
+  g.fillStyle = C.questionDark;
+  g.font = "bold 22px monospace";
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText("?", TILE / 2, TILE / 2 + 1);
+  g.fillStyle = "rgba(255,255,255,0.35)"; // corner rivets
+  g.fillRect(4, 4, 3, 3); g.fillRect(TILE - 7, 4, 3, 3);
+  g.fillRect(4, TILE - 7, 3, 3); g.fillRect(TILE - 7, TILE - 7, 3, 3);
 }
+function paintPipeTop(g: CanvasRenderingContext2D) {
+  const x0 = 4; // the lip overhangs the tile by 4px on each side
+  g.fillStyle = C.pipe; g.fillRect(x0 - 4, 0, TILE + 8, TILE);
+  g.fillStyle = C.pipeDark; g.fillRect(x0 - 4, TILE - 6, TILE + 8, 6);
+  g.fillStyle = "#63c795"; g.fillRect(x0 - 4, 0, TILE + 8, 4); // rim highlight
+  g.fillStyle = "rgba(255,255,255,0.3)"; g.fillRect(x0 + 2, 4, 8, TILE - 10);
+}
+function paintPipeBody(g: CanvasRenderingContext2D) {
+  g.fillStyle = C.pipe; g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle = C.pipeDark; g.fillRect(TILE - 8, 0, 8, TILE);
+  g.fillStyle = "rgba(255,255,255,0.3)"; g.fillRect(4, 0, 8, TILE);
+  g.fillStyle = "rgba(46,125,84,0.5)"; g.fillRect(0, 0, 3, TILE); // left seam shade
+}
+
+function buildTileArt() {
+  if (questionArt) return;
+  const mk = (paint: (g: CanvasRenderingContext2D, seed: number) => void, seed = 0, w = TILE, h = TILE) =>
+    makeLayer(w, h, (g) => paint(g, seed));
+  for (let s = 0; s < 4; s++) groundTopArt.push(mk(paintGroundTop, s, TILE, TILE + TOP_PAD));
+  for (let s = 0; s < 3; s++) groundBodyArt.push(mk(paintGroundBody, s));
+  for (let s = 0; s < 3; s++) brickArt.push(mk(paintBrick, s));
+  for (let s = 0; s < 3; s++) stoneArt.push(mk(paintStone, s));
+  questionArt = mk(paintQuestion);
+  pipeTopArt = mk(paintPipeTop, 0, TILE + 8, TILE);
+  pipeBodyArt = mk(paintPipeBody);
+}
+
 function drawTiles() {
+  buildTileArt();
   const c0 = Math.max(0, Math.floor(game.camX / TILE) - 1);
   const c1 = Math.min(LEVEL_COLS - 1, c0 + Math.ceil(W / TILE) + 2);
   for (let r = 0; r < Level.rows; r++) {
     for (let c = c0; c <= c1; c++) {
       const t = Level.grid[r][c];
-      if (t) drawTile(t, c * TILE - game.camX, r * TILE);
+      if (!t) continue;
+      const x = c * TILE - game.camX, y = r * TILE;
+      if (t === 1) {
+        // Ground: tiles whose top face is exposed get the grass variant.
+        const top = Level.tileAt(c, r - 1) === 0;
+        const pool = top ? groundTopArt : groundBodyArt;
+        const img = pool[Math.floor(rnd(c * 31 + r * 17) * pool.length)];
+        ctx.drawImage(img, x, top ? y - TOP_PAD : y, TILE, top ? TILE + TOP_PAD : TILE);
+      } else if (t === 2) {
+        ctx.drawImage(brickArt[Math.floor(rnd(c * 13 + r * 29) * brickArt.length)], x, y, TILE, TILE);
+      } else if (t === 3) {
+        ctx.drawImage(questionArt!, x, y, TILE, TILE);
+      } else if (t === 4) {
+        ctx.drawImage(stoneArt[Math.floor(rnd(c * 23 + r * 11) * stoneArt.length)], x, y, TILE, TILE);
+      } else if (t === 5) {
+        ctx.drawImage(pipeTopArt!, x - 4, y, TILE + 8, TILE);
+      } else if (t === 6) {
+        ctx.drawImage(pipeBodyArt!, x, y, TILE, TILE);
+      }
     }
   }
 }
@@ -1145,8 +1369,20 @@ function drawCoins() {
     ctx.beginPath(); ctx.ellipse(x, c.y, rw + 1.5, 10.5, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = C.coin;
     ctx.beginPath(); ctx.ellipse(x, c.y, rw, 9, 0, 0, Math.PI * 2); ctx.fill();
+    if (rw > 4) { // inner rim ring when the coin faces the camera
+      ctx.strokeStyle = C.coinDark; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(x, c.y, rw * 0.55, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Specular highlight sliding across the face as the coin spins.
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.beginPath(); ctx.ellipse(x - rw * 0.3, c.y - 3, rw * 0.3, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    // A 4-point sparkle twinkles near the rim, phase-offset per coin.
+    const sp = Math.sin(t * 3.5 + c.x * 0.11);
+    if (sp > 0.86) {
+      const s = (sp - 0.86) / 0.14; // 0..1 twinkle fade
+      ctx.fillStyle = `rgba(255,255,255,${0.4 + s * 0.6})`;
+      drawStar(x + rw + 4, c.y - 8, 4, 3 + s * 3, 1.2);
+    }
   }
 }
 function drawPowerups() {
@@ -1248,6 +1484,12 @@ function drawEnemies() {
       ctx.closePath(); ctx.fill();
       ctx.fillStyle = C.bat;
       ctx.beginPath(); ctx.ellipse(bx, by, e.w / 2 - 6, e.h / 2, 0, 0, Math.PI * 2); ctx.fill();
+      // Wing membrane ribs + a lighter belly for a bit more bat character.
+      ctx.strokeStyle = C.batDark; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(bx - 8, by); ctx.lineTo(bx - 20, by - 6 - flap * 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx + 8, by); ctx.lineTo(bx + 20, by - 6 - flap * 4); ctx.stroke();
+      ctx.fillStyle = "#b39ddb";
+      ctx.beginPath(); ctx.ellipse(bx, by + 3, e.w / 2 - 10, e.h / 2 - 6, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.batDark;
       ctx.beginPath(); ctx.moveTo(bx - 8, e.y + 4); ctx.lineTo(bx - 12, e.y - 6); ctx.lineTo(bx - 3, e.y + 2); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(bx + 8, e.y + 4); ctx.lineTo(bx + 12, e.y - 6); ctx.lineTo(bx + 3, e.y + 2); ctx.closePath(); ctx.fill();
@@ -1262,6 +1504,15 @@ function drawEnemies() {
       ctx.beginPath(); ctx.ellipse(x + e.w / 2, e.y + e.h / 2 + bob, e.w / 2, e.h / 2 - 2, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.enemyDark;
       ctx.beginPath(); ctx.ellipse(x + e.w / 2, e.y + e.h - 6, e.w / 2 - 4, 6, 0, 0, Math.PI); ctx.fill();
+      // Sunlit top highlight, freckle spots and shuffling feet.
+      ctx.fillStyle = "rgba(255,255,255,0.25)";
+      ctx.beginPath(); ctx.ellipse(x + e.w / 2 - 4, e.y + 6 + bob, e.w / 2 - 8, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = C.enemyDark;
+      ctx.beginPath(); ctx.arc(x + e.w / 2 - 9, e.y + 24 + bob, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + e.w / 2 + 9, e.y + 24 + bob, 2.5, 0, Math.PI * 2); ctx.fill();
+      const step = Math.sin(game.time * 10 + e.x * 0.1) * 3;
+      ctx.fillRect(x + 6 + step, e.y + e.h - 3, 8, 3);
+      ctx.fillRect(x + e.w - 14 - step, e.y + e.h - 3, 8, 3);
       const ex = e.vx > 0 ? 4 : -4;
       ctx.fillStyle = "#fff";
       ctx.beginPath(); ctx.arc(x + e.w / 2 - 7 + ex, e.y + 12 + bob, 5, 0, Math.PI * 2); ctx.fill();
@@ -1286,6 +1537,11 @@ function drawEnemies() {
         ctx.lineTo(sx + Math.cos(a + 0.5) * 4, sy + Math.sin(a + 0.5) * 4);
         ctx.closePath(); ctx.fill();
       }
+      ctx.fillStyle = "#ffcdd2"; // pale belly patch
+      ctx.beginPath(); ctx.ellipse(x + e.w / 2, e.y + e.h - 10 + bob, e.w / 2 - 8, 7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#b71c1c"; ctx.lineWidth = 2; // angry brows
+      ctx.beginPath(); ctx.moveTo(x + e.w / 2 - 10, e.y + 8 + bob); ctx.lineTo(x + e.w / 2 - 3, e.y + 11 + bob); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + e.w / 2 + 10, e.y + 8 + bob); ctx.lineTo(x + e.w / 2 + 3, e.y + 11 + bob); ctx.stroke();
       ctx.fillStyle = "#fff";
       ctx.beginPath(); ctx.arc(x + e.w / 2 - 6, e.y + 14 + bob, 4.5, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(x + e.w / 2 + 6, e.y + 14 + bob, 4.5, 0, Math.PI * 2); ctx.fill();
@@ -1319,6 +1575,13 @@ function drawBoss() {
   ctx.arc(x + b.w * 0.25, b.y + b.h * 0.3 + bob, b.w * 0.28, 0, Math.PI * 2);
   ctx.arc(x + b.w * 0.75, b.y + b.h * 0.3 + bob, b.w * 0.28, 0, Math.PI * 2);
   ctx.fill();
+  if (!flash) {
+    ctx.fillStyle = "rgba(255,255,255,0.18)"; // sunlit top highlight
+    ctx.beginPath(); ctx.ellipse(x + b.w / 2 - 10, b.y + 18 + bob, b.w / 2 - 20, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = C.bossDark; // chest spots
+    ctx.beginPath(); ctx.arc(x + b.w / 2 - 14, b.y + 62 + bob, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + b.w / 2 + 10, b.y + 66 + bob, 4, 0, Math.PI * 2); ctx.fill();
+  }
   ctx.fillStyle = flash ? "#ddd" : C.bossDark;
   ctx.beginPath(); ctx.ellipse(x + b.w / 2, b.y + b.h - 14 + bob, b.w / 2 - 8, 12, 0, 0, Math.PI); ctx.fill();
   const ex = b.facing * 6;
@@ -1372,6 +1635,14 @@ function drawPlayer() {
   const footR = x + PLAYER_W - 15 - runPhase * 4;
   ctx.fillRect(footL, y + PLAYER_H - 7, 10, 7);
   ctx.fillRect(footR, y + PLAYER_H - 7, 10, 7);
+  ctx.fillStyle = C.playerBelly; // toe highlights
+  ctx.fillRect(footL + 2, y + PLAYER_H - 7, 6, 2);
+  ctx.fillRect(footR + 2, y + PLAYER_H - 7, 6, 2);
+
+  // Little arm nubs that swing while running (drawn behind the body).
+  ctx.fillStyle = C.playerDark;
+  ctx.beginPath(); ctx.arc(x + 2, y + 24 + runPhase * 3, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + PLAYER_W - 2, y + 24 - runPhase * 3, 4, 0, Math.PI * 2); ctx.fill();
 
   if (p.powerDJ > 0) {
     // Bird wings appear behind Bloop while Double Jump is active.
@@ -1385,6 +1656,11 @@ function drawPlayer() {
     ctx.closePath(); ctx.fill();
   }
 
+  // Rim shading: a darker ellipse nudged down so its edge reads as shadow
+  // along the bottom of the body — same palette, just more volume.
+  ctx.fillStyle = C.playerDark;
+  ctx.beginPath(); ctx.ellipse(cx, y + PLAYER_H / 2 + 6, PLAYER_W / 2 - 1, PLAYER_H / 2 - 3, 0, 0, Math.PI * 2); ctx.fill();
+
   ctx.fillStyle = C.player;
   ctx.beginPath();
   ctx.ellipse(cx, y + PLAYER_H / 2 + 4, PLAYER_W / 2 - 2, PLAYER_H / 2 - 4, 0, 0, Math.PI * 2);
@@ -1393,11 +1669,15 @@ function drawPlayer() {
   ctx.beginPath();
   ctx.ellipse(cx, y + PLAYER_H / 2 + 9, PLAYER_W / 2 - 9, PLAYER_H / 2 - 12, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.3)"; // sunlit shine on the upper-left flank
+  ctx.beginPath(); ctx.ellipse(cx - 9, y + 10, 6, 3.5, -0.4, 0, Math.PI * 2); ctx.fill();
 
   ctx.fillStyle = "#66bb6a";
   ctx.beginPath();
   ctx.ellipse(cx + p.facing * 2, y - 4, 5, 9, p.facing * 0.4, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = "#2e7d32"; ctx.lineWidth = 1.5; // leaf vein
+  ctx.beginPath(); ctx.moveTo(cx + p.facing * 1, y + 3); ctx.lineTo(cx + p.facing * 5, y - 10); ctx.stroke();
 
   const ex = p.facing * 5;
   ctx.fillStyle = "#fff";
@@ -1507,9 +1787,7 @@ function drawParticles() {
   ctx.globalAlpha = 1;
 }
 function render() {
-  drawSky();
-  drawClouds(game.camX);
-  drawHills(game.camX);
+  drawBackground(game.camX);
   drawTiles();
   drawMovingPlatforms();
   drawCheckpoints();
@@ -1690,10 +1968,20 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   let raf = 0;
   let lastTime = 0;
+  let acc = 0;
+  // Fixed-step accumulator: real elapsed time is simulated in fixed 1/60 s
+  // steps. The old dt clamp (Math.min(0.033, ...)) made the whole game run in
+  // slow motion whenever the frame rate dipped below ~30 fps — held keys
+  // moved slower than intended. Stepping keeps movement true to real time AND
+  // keeps collisions reliable at the higher MAX_SPEED (max ~8px per step,
+  // well under TILE, so no tunnelling through walls).
+  const STEP = 1 / 60;
   const loop = (ts: number) => {
-    const dt = Math.min(0.033, (ts - lastTime) / 1000 || 0.016);
+    const frame = Math.min(0.25, (ts - lastTime) / 1000 || 0.016);
     lastTime = ts;
-    game.update(dt);
+    acc = Math.min(0.2, acc + frame); // cap catch-up after a long stall (hidden tab)
+    while (acc >= STEP) { game.update(STEP); acc -= STEP; }
+    if (game.state === "playing") updateHUD(); // refresh the HUD once per frame, not per step
     render();
     // Integer-upscale the pixel buffer onto the visible canvas (nearest-neighbour).
     screenCtx.drawImage(off, 0, 0, W, H);
