@@ -138,7 +138,7 @@ const GAMES: ArcadeGame[] = [
 
 const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade"];
 const FAV_TAB = "❤️ Favorilerim";
-const LS = { favs: "arcade_favs", recent: "arcade_recent", plays: "arcade_plays" };
+const LS = { favs: "arcade_favs", recent: "arcade_recent", plays: "arcade_plays", ratings: "arcade_ratings" };
 
 /** GitHub Pages bu repoyu /game-hub/ altında sunar; iframe/standalone
  *  linkleri için basePath'i çalışma anında tespit ediyoruz. */
@@ -172,10 +172,11 @@ function normalizeTr(s: string): string {
 export default function ArcadePage() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<string>("Tümü");
-  const [sort, setSort] = useState<"pop" | "new" | "az">("pop");
+  const [sort, setSort] = useState<"pop" | "new" | "az" | "rate">("pop");
   const [favs, setFavs] = useState<string[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
   const [plays, setPlays] = useState<Record<string, number>>({});
+  const [ratings, setRatings] = useState<Record<string, { sum: number; count: number; mine: number }>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const [slide, setSlide] = useState(0);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -186,6 +187,7 @@ export default function ArcadePage() {
       setFavs(JSON.parse(localStorage.getItem(LS.favs) || "[]") as string[]);
       setRecent(JSON.parse(localStorage.getItem(LS.recent) || "[]") as string[]);
       setPlays(JSON.parse(localStorage.getItem(LS.plays) || "{}") as Record<string, number>);
+      setRatings(JSON.parse(localStorage.getItem(LS.ratings) || "{}") as Record<string, { sum: number; count: number; mine: number }>);
     } catch { /* localStorage kapalı olabilir */ }
   }, []);
 
@@ -197,6 +199,27 @@ export default function ArcadePage() {
     setFavs((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
       persist(LS.favs, next);
+      return next;
+    });
+  }, [persist]);
+
+  /* --- puanlama: pop'tan türeyen taban puan + kullanıcının yıldızları --- */
+  const avgOf = useCallback((g: ArcadeGame) => {
+    const base = 4 + Math.max(0, Math.min(0.8, ((g.pop - 76) / 19) * 0.8));
+    const baseVotes = g.pop * 37;
+    const r = ratings[g.id];
+    if (!r || r.count === 0) return { avg: base, votes: baseVotes, mine: 0 };
+    return { avg: (baseVotes * base + r.sum) / (baseVotes + r.count), votes: baseVotes + r.count, mine: r.mine };
+  }, [ratings]);
+
+  const rate = useCallback((id: string, stars: number) => {
+    setRatings((prev) => {
+      const cur = prev[id] ?? { sum: 0, count: 0, mine: 0 };
+      const newMine = cur.mine === stars ? 0 : stars; // aynı yıldıza tekrar bas → puanı kaldır
+      const sum = cur.sum - cur.mine + newMine;
+      const count = cur.count + (cur.mine === 0 && newMine > 0 ? 1 : 0);
+      const next = { ...prev, [id]: { sum, count, mine: newMine } };
+      persist(LS.ratings, next);
       return next;
     });
   }, [persist]);
@@ -258,9 +281,10 @@ export default function ArcadePage() {
     list = [...list];
     if (sort === "az") list.sort((a, b) => a.title.localeCompare(b.title, "tr"));
     else if (sort === "new") list.sort((a, b) => Number(!!b.isNew) - Number(!!a.isNew) || b.pop - a.pop);
+    else if (sort === "rate") list.sort((a, b) => avgOf(b).avg - avgOf(a).avg || b.pop - a.pop);
     else list.sort((a, b) => score(b) - score(a));
     return list;
-  }, [q, tab, sort, favs, score]);
+  }, [q, tab, sort, favs, score, avgOf]);
 
   /* Filtre/arama aktifken vitrin satırları (Son Oynadıkların/Trend/Yeni)
      gizlenir — portal yalnızca sonuç listesini gösterir, böylece pillin
@@ -288,6 +312,7 @@ export default function ArcadePage() {
   function Card({ g, wide }: { g: ArcadeGame; wide?: boolean }) {
     const fav = favs.includes(g.id);
     const mine = plays[g.id] ?? 0;
+    const { avg, votes, mine: myStars } = avgOf(g);
     return (
       <div
         className={`arc-card${wide ? " wide" : ""}`}
@@ -317,6 +342,14 @@ export default function ArcadePage() {
           <div className="arc-sub">
             <span>{g.category}</span>
             <span>▶ {formatPlays(g.pop * 137 + mine * 9)}</span>
+          </div>
+          <div className="arc-stars" onClick={(e) => e.stopPropagation()}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} type="button" className={myStars >= n ? "on" : ""}
+                aria-label={`${n} yıldız ver`} title={`${n} yıldız`}
+                onClick={(e) => { e.stopPropagation(); rate(g.id, n); }}>★</button>
+            ))}
+            <span className="avg">⭐ {avg.toFixed(1)} · {formatPlays(votes)}</span>
           </div>
         </div>
       </div>
@@ -433,10 +466,11 @@ export default function ArcadePage() {
         <div className="arc-row-head">
           <h2>🎯 {tab === "Tümü" ? "Tüm Oyunlar" : tab}</h2>
           <span className="arc-sub">{filtered.length} sonuç</span>
-          <select className="arc-sort" value={sort} onChange={(e) => setSort(e.target.value as "pop" | "new" | "az")} aria-label="Sıralama">
+          <select className="arc-sort" value={sort} onChange={(e) => setSort(e.target.value as "pop" | "new" | "az" | "rate")} aria-label="Sıralama">
             <option value="pop">Popülerlik</option>
             <option value="new">Yenilik</option>
             <option value="az">A → Z</option>
+            <option value="rate">Puan ⭐</option>
           </select>
         </div>
 
@@ -493,6 +527,7 @@ export default function ArcadePage() {
                 <span className="arc-tag">{open.category}</span>
                 {open.tags.map((t) => <span className="arc-tag" key={t}>{t}</span>)}
                 <span className="arc-tag">▶ {formatPlays(open.pop * 137 + (plays[open.id] ?? 0) * 9)} oynanma</span>
+                <span className="arc-tag">⭐ {avgOf(open).avg.toFixed(1)} ({formatPlays(avgOf(open).votes)} oy)</span>
                 {open.standalone && (
                   <a className="arc-tag link" href={withBase(open.standalone)} target="_blank" rel="noreferrer">
                     📱 tek dosya sürüm

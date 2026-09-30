@@ -1002,3 +1002,11 @@ main {
   .arc-modal-top .arc-btn { padding: 8px 10px; font-size: 12px; }
   .arc-modal-info { max-height: 42%; }
 }
+
+/* --- kart yıldız puanlama --- */
+.arc-stars{display:flex;gap:1px;align-items:center;margin-top:2px}
+.arc-stars button{background:none;border:none;cursor:pointer;font-size:13px;line-height:1;padding:0 1px;
+  color:#5b6b7d;transition:transform .06s,color .1s}
+.arc-stars button:hover{transform:scale(1.25);color:#ffd23f}
+.arc-stars button.on{color:#ffd23f;text-shadow:0 0 6px rgba(255,210,63,.6)}
+.arc-stars .avg{color:#9fb6cc;margin-left:5px;font-size:11px;font-weight:700}
