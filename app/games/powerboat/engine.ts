@@ -51,15 +51,22 @@ const AudioSys = {
     try {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.45;
-      this.master.connect(this.ctx.destination);
-      // Continuous engine hum (sawtooth through lowpass, pitch follows speed)
+      this.master.gain.value = 0.4;
+      // Gentle master lowpass takes the harsh edge off all synthesized sounds
+      const masterTone = this.ctx.createBiquadFilter();
+      masterTone.type = "lowpass";
+      masterTone.frequency.value = 6500;
+      masterTone.Q.value = 0.3;
+      this.master.connect(masterTone);
+      masterTone.connect(this.ctx.destination);
+      // Continuous engine hum (sawtooth through gentle lowpass, pitch follows speed)
       this.engineOsc = this.ctx.createOscillator();
       this.engineOsc.type = "sawtooth";
       this.engineOsc.frequency.value = 55;
       this.engineFilter = this.ctx.createBiquadFilter();
       this.engineFilter.type = "lowpass";
-      this.engineFilter.frequency.value = 300;
+      this.engineFilter.frequency.value = 240;
+      this.engineFilter.Q.value = 0.4;
       this.engineGain = this.ctx.createGain();
       this.engineGain.gain.value = 0.0;
       this.engineOsc.connect(this.engineFilter);
@@ -74,8 +81,8 @@ const AudioSys = {
     const t = this.ctx.currentTime;
     const f = 50 + speed01 * 160 + (boosting ? 40 : 0);
     this.engineOsc.frequency.setTargetAtTime(f, t, 0.08);
-    this.engineFilter.frequency.setTargetAtTime(250 + speed01 * 900, t, 0.08);
-    this.engineGain.gain.setTargetAtTime(this.muted ? 0 : 0.05 + speed01 * 0.12, t, 0.1);
+    this.engineFilter.frequency.setTargetAtTime(200 + speed01 * 550, t, 0.08);
+    this.engineGain.gain.setTargetAtTime(this.muted ? 0 : 0.035 + speed01 * 0.085, t, 0.1);
   },
   stopEngine() { if (this.engineGain) this.engineGain.gain.setTargetAtTime(0, this.ctx!.currentTime, 0.1); },
   tone(type: OscillatorType, f0: number, f1: number, dur: number, vol = 0.5, delay = 0) {
@@ -108,20 +115,122 @@ const AudioSys = {
     src.connect(filter); filter.connect(g); g.connect(this.master!);
     src.start(t);
   },
-  crash() { this.noise(0.4, 0.6, 0, 500); this.tone("sawtooth", 120, 40, 0.4, 0.5); },
+  crash() { this.noise(0.4, 0.45, 0, 420); this.tone("sawtooth", 120, 40, 0.4, 0.35); },
   splash() { this.noise(0.35, 0.45, 0, 900); },
   checkpoint() { this.tone("square", 660, 660, 0.1, 0.35); this.tone("square", 880, 880, 0.16, 0.35, 0.1); },
   boost() { this.tone("sawtooth", 200, 700, 0.3, 0.3); this.noise(0.25, 0.25, 0, 2000); },
   ring() { this.tone("sine", 880, 1320, 0.22, 0.4); this.tone("sine", 1320, 1760, 0.28, 0.3, 0.09); },
   oil() { this.noise(0.5, 0.35, 0, 240); this.tone("sine", 90, 55, 0.4, 0.25); },
   overtake() { this.tone("square", 520, 780, 0.16, 0.3); this.tone("square", 780, 1040, 0.18, 0.28, 0.1); },
-  mine() { this.noise(0.6, 0.7, 0, 300); this.tone("sine", 80, 30, 0.6, 0.6); },
+  mine() { this.noise(0.6, 0.5, 0, 260); this.tone("sine", 80, 30, 0.6, 0.45); },
   gameover() { [330, 262, 196, 131].forEach((f, i) => this.tone("triangle", f, f, 0.35, 0.4, i * 0.28)); },
   victory() { [523, 659, 784, 1047, 784, 1047, 1319, 1568].forEach((f, i) => this.tone("square", f, f, 0.18, 0.32, i * 0.13)); },
   setMuted(m: boolean) {
     this.muted = m;
-    if (this.master) this.master.gain.value = m ? 0 : 0.45;
+    if (this.master) this.master.gain.value = m ? 0 : 0.4; // also silences music (shared master)
     if (m) this.stopEngine();
+  },
+};
+
+/* ================= 2.5 PIRATE MUSIC (synthesized sea shanty) =================
+   32-bar loop at 112 BPM: bouncy square/triangle melody, triangle bass on
+   beats 1 & 3, stomping noise percussion on every beat. Lookahead scheduler
+   keeps timing tight; runs only while the race is live. */
+const MusicSys = {
+  ctx: null as AudioContext | null,
+  bus: null as GainNode | null,
+  noiseBuf: null as AudioBuffer | null,
+  timer: 0,
+  step: 0,
+  nextTime: 0,
+  BPM: 112,
+  // One melody note per beat, 32 bars (128 steps). 0 = rest. (D-minor shanty)
+  melody: [
+    294, 294, 262, 294, 220, 0, 294, 0, 294, 294, 262, 294, 440, 294, 0, 0,
+    294, 294, 262, 294, 220, 0, 294, 0, 350, 294, 262, 294, 220, 294, 0, 0,
+    440, 440, 350, 440, 294, 0, 440, 0, 440, 440, 350, 440, 587, 440, 0, 0,
+    440, 440, 350, 440, 294, 0, 440, 0, 350, 440, 350, 440, 294, 0, 0, 0,
+    294, 294, 262, 294, 220, 0, 294, 0, 294, 294, 262, 294, 440, 294, 0, 0,
+    294, 294, 262, 294, 220, 0, 294, 0, 350, 294, 262, 294, 220, 294, 0, 0,
+    440, 440, 350, 440, 294, 0, 440, 0, 440, 440, 350, 440, 587, 440, 0, 0,
+    440, 440, 350, 440, 294, 0, 440, 0, 350, 440, 350, 440, 220, 294, 0, 0,
+  ],
+  // Bass root per bar (beats 1 & 3 alternate root / fifth). 32 bars.
+  bass: [
+    73, 110, 73, 110, 73, 110, 73, 110, 73, 110, 73, 110, 73, 110, 73, 110,
+    73, 110, 73, 110, 73, 110, 73, 110, 73, 110, 73, 110, 73, 110, 73, 110,
+  ],
+  init() {
+    this.ctx = AudioSys.ctx;
+    if (!this.ctx || this.bus || !AudioSys.master) return;
+    try {
+      this.bus = this.ctx.createGain();
+      this.bus.gain.value = 0.18; // modest music level so SFX stay audible
+      this.bus.connect(AudioSys.master);
+      // One shared noise buffer for all percussion hits
+      const len = Math.floor(this.ctx.sampleRate * 0.2);
+      this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    } catch { this.ctx = null; this.bus = null; }
+  },
+  note(freq: number, t: number, dur: number, type: OscillatorType, vol: number) {
+    if (!this.ctx || !this.bus) return;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(g); g.connect(this.bus);
+    osc.start(t); osc.stop(t + dur + 0.02);
+  },
+  perc(t: number, low: boolean) {
+    if (!this.ctx || !this.bus || !this.noiseBuf) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = low ? 130 : 1100;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(low ? 0.5 : 0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + (low ? 0.16 : 0.09));
+    src.connect(filter); filter.connect(g); g.connect(this.bus);
+    src.start(t); src.stop(t + 0.2);
+  },
+  tick() {
+    if (!this.ctx || !this.bus || this.timer === 0) return;
+    const beat = 60 / this.BPM;
+    while (this.nextTime < this.ctx.currentTime + 0.7) {
+      const s = this.step % 128;
+      const f = this.melody[s];
+      if (f > 0) this.note(f, this.nextTime, beat * 0.85, s < 64 ? "triangle" : "square", 0.16);
+      const bar = s >> 2;
+      if (s % 4 === 0) this.note(this.bass[bar], this.nextTime, beat * 1.6, "triangle", 0.2);
+      else if (s % 4 === 2) this.note(this.bass[bar] * 1.5, this.nextTime, beat * 1.6, "triangle", 0.16);
+      this.perc(this.nextTime, s % 2 === 0);
+      this.nextTime += beat;
+      this.step++;
+    }
+  },
+  start() {
+    this.init();
+    if (!this.ctx || !this.bus || this.timer !== 0) return;
+    this.step = 0;
+    this.nextTime = this.ctx.currentTime + 0.08;
+    this.bus.gain.setTargetAtTime(0.18, this.ctx.currentTime, 0.05);
+    this.timer = window.setInterval(() => this.tick(), 200);
+    this.tick();
+  },
+  stop() {
+    if (this.timer !== 0) { clearInterval(this.timer); this.timer = 0; }
+    if (this.ctx && this.bus) this.bus.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+  },
+  dispose() {
+    this.stop();
+    if (this.bus) { this.bus.disconnect(); this.bus = null; }
+    this.ctx = null; this.noiseBuf = null;
   },
 };
 
@@ -212,6 +321,139 @@ interface Rival {
   progress: number;      // checkpoints passed + fraction of current segment
 }
 
+/* --- Level definitions: gates, hazards, rings, oils, islands & static mood ---
+   Gates: [x, z, angle (travel direction into the gate), type, gap].
+   Barriers: [x, z, axis, range, speed, width]. Ramps: [x, z, angle, len]. */
+interface LevelDef {
+  name: string;
+  start: [number, number]; startHeading: number;
+  gates: [number, number, number, Checkpoint["type"], number][];
+  rocks: [number, number, number][];
+  mines: [number, number][];
+  debris: [number, number, boolean][];
+  barriers: [number, number, "x" | "z", number, number, number][];
+  whirlpools: [number, number, number][];
+  ramps: [number, number, number, number][];
+  rings: [number, number][];
+  oils: [number, number][];
+  islands: [number, number, number][];
+  mood: {
+    zenith: number; horizon: number; shallow: number; deep: number; fog: number;
+    waveAmp: number; cloudTint: number; cloudOpacity: number; cloudCount: number;
+    hemiSky: number; hemiGround: number; hemiInt: number; sunColor: number; sunInt: number; sunDisc: number;
+  };
+}
+
+const LEVELS: LevelDef[] = [
+  { // L1 — Sunny Bay: the classic serpentine sprint
+    name: "Sunny Bay", start: [0, -160], startHeading: 0,
+    gates: [
+      [0, -124, 0, "gate", 18], [0, -88, 0, "gate", 16], [25, -62, 0.767, "gate", 14],
+      [50, -38, 0.767, "gate", 14], [62, -2, 0.322, "gate", 13], [50, 32, -0.322, "narrow", 10],
+      [25, 56, -0.803, "gate", 14], [0, 80, -0.803, "gate", 14], [-25, 104, -0.803, "narrow", 10],
+      [-50, 128, -0.803, "gate", 14], [-22, 150, 0.906, "ramp", 16], [0, 176, 0.646, "finish", 20],
+    ],
+    rocks: [
+      [88, -12, 3], [96, -28, 2.5], [84, -32, 3.5], [92, 4, 2.5],
+      [-88, 10, 3], [-96, -6, 2.5], [-84, -14, 3.5], [-92, 24, 2.5],
+      [18, -150, 3], [26, -138, 2.5], [14, -132, 3], [22, -158, 2.5],
+    ],
+    mines: [
+      [74, -12], [82, 2], [70, 10], [78, -22], [68, -20],
+      [-12, 110], [-5, 122], [-18, 118], [-22, 90], [-38, 104],
+    ],
+    debris: [
+      [32, -78, true], [40, -68, false], [42, -58, true], [50, -66, false], [24, -92, true],
+      [-24, 72, true], [-32, 84, false], [-36, 96, true], [-44, 102, false], [-4, 66, true],
+    ],
+    barriers: [[56, 15, "x", 8, 1.4, 12], [-37.5, 116, "x", 10, 1.6, 12]],
+    whirlpools: [[20, -10, 12], [-15, 60, 10], [-8, 140, 11]],
+    ramps: [[56, -20, 0.322, 12], [-22, 150, 0.906, 16]],
+    rings: [[0, -142], [0, -106], [12.5, -75], [37.5, -50], [37.5, 44], [12.5, 68], [-12.5, 92], [-36, 139], [-11, 163]],
+    oils: [[24, -82], [44, 10], [24, 74], [-28, 124], [-24, 168]],
+    islands: [[-280, -260, 40], [300, -200, 55], [-250, 280, 45], [280, 260, 60], [0, -320, 50]],
+    mood: {
+      zenith: 0x1e5fb8, horizon: 0xf0d9b0, shallow: 0x2a88b8, deep: 0x0a3a63, fog: 0x88bbee,
+      waveAmp: 1, cloudTint: 0xffffff, cloudOpacity: 0.75, cloudCount: 8,
+      hemiSky: 0xbfe3ff, hemiGround: 0x2a5a7a, hemiInt: 0.75, sunColor: 0xfff2d0, sunInt: 1.2, sunDisc: 0xfff3b0,
+    },
+  },
+  { // L2 — Adalar Kanalı: tighter S-curve threading between islands,
+    // narrower lanes, more rock clusters
+    name: "Adalar Kanalı", start: [0, -176], startHeading: 0,
+    gates: [
+      [0, -150, 0, "gate", 16], [0, -112, 0, "gate", 12], [26, -84, 0.748, "narrow", 10],
+      [34, -40, 0.18, "gate", 12], [14, -6, -0.536, "narrow", 10], [-18, 26, -0.785, "gate", 12],
+      [-38, 66, -0.464, "narrow", 10], [-24, 104, 0.354, "gate", 12], [6, 132, 0.816, "gate", 12],
+      [32, 158, 0.785, "narrow", 10], [18, 186, -0.464, "ramp", 14], [0, 208, -0.688, "finish", 18],
+    ],
+    rocks: [
+      [92, -20, 3], [100, -36, 2.5], [88, -42, 3.5], [96, -8, 2.5],
+      [-92, 20, 3], [-100, 4, 2.5], [-88, -4, 3.5], [-96, 34, 2.5],
+      [52, -60, 2.5], [60, -48, 3], [48, -46, 2.5],
+      [-60, 150, 3], [-52, 162, 2.5], [-64, 140, 2.5],
+      [20, -166, 3], [28, -154, 2.5], [16, -146, 3],
+    ],
+    mines: [
+      [52, -18], [60, -4], [48, 8], [56, -28], [44, -26],
+      [-58, 80], [-52, 94], [-64, 88], [-48, 70], [-60, 64],
+    ],
+    debris: [
+      [44, -74, true], [52, -64, false], [58, -54, true], [40, -92, false], [24, -104, true],
+      [-52, 58, true], [-60, 70, false], [-66, 82, true], [-74, 90, false], [-44, 52, true],
+    ],
+    barriers: [[30, -70, "x", 8, 1.4, 12], [-31, 85, "x", 9, 1.5, 12]],
+    whirlpools: [[54, 20, 10], [-52, 120, 10], [10, 168, 10]],
+    ramps: [[18, 186, -0.464, 14]],
+    rings: [[0, -163], [0, -131], [13, -98], [30, -52], [24, -23], [-28, 46], [-9, 118], [19, 145], [25, 172]],
+    oils: [[-26, -96], [40, -24], [-40, 44], [16, 110], [44, 170]],
+    islands: [
+      [-280, -260, 40], [300, -200, 55], [-250, 280, 45], [280, 260, 60], [0, -320, 50],
+      [-270, -40, 34], [272, 60, 36], [-264, 120, 28], [274, -120, 30],
+    ],
+    mood: {
+      zenith: 0x2a6fc8, horizon: 0xf0d9b0, shallow: 0x2a88b8, deep: 0x0a3a63, fog: 0x88bbee,
+      waveAmp: 1.15, cloudTint: 0xffffff, cloudOpacity: 0.7, cloudCount: 9,
+      hemiSky: 0xbfe3ff, hemiGround: 0x2a5a7a, hemiInt: 0.75, sunColor: 0xfff2d0, sunInt: 1.2, sunDisc: 0xfff3b0,
+    },
+  },
+  { // L3 — Fırtına Kanalı: longer storm loop, heavy seas, more mines & debris
+    name: "Fırtına Kanalı", start: [0, -170], startHeading: 0,
+    gates: [
+      [0, -140, 0, "gate", 16], [30, -110, 0.785, "gate", 14], [60, -80, 0.785, "gate", 14],
+      [84, -40, 0.54, "narrow", 12], [88, 4, 0.09, "gate", 12], [70, 44, -0.42, "narrow", 10],
+      [34, 70, -0.95, "gate", 12], [-6, 88, -1.19, "gate", 12], [-48, 104, -1.21, "narrow", 10],
+      [-84, 130, -0.95, "gate", 14], [-50, 160, 0.85, "ramp", 16], [-14, 186, 0.95, "finish", 18],
+    ],
+    rocks: [
+      [150, -6, 3], [158, -20, 2.5], [146, -26, 3.5], [154, 8, 2.5],
+      [-150, 60, 3], [-158, 46, 2.5], [-146, 74, 3.5], [-154, 36, 2.5],
+      [20, -180, 3], [28, -168, 2.5], [14, -162, 3],
+    ],
+    mines: [
+      [104, -14], [112, 0], [100, 10], [108, -26], [98, -32], [114, -8],
+      [-70, 84], [-62, 96], [-78, 92], [-84, 72], [-58, 74],
+      [-34, 140], [-26, 150], [-42, 148],
+    ],
+    debris: [
+      [120, -40, true], [128, -28, false], [116, -18, true], [124, -52, false], [110, -8, true],
+      [-104, 96, true], [-112, 108, false], [-98, 116, true], [-108, 84, false], [-92, 74, true],
+      [44, -118, true], [54, -102, false], [60, -94, true], [56, -122, false], [66, -108, true],
+    ],
+    barriers: [[86, -18, "z", 8, 1.5, 12], [-27, 96, "x", 8, 1.6, 12]],
+    whirlpools: [[46, -132, 10], [-20, 52, 10], [-64, 176, 10]],
+    ramps: [[78, -46, 0.54, 12], [-50, 160, 0.85, 16]],
+    rings: [[0, -155], [15, -125], [45, -95], [72, -60], [87, 24], [52, 57], [14, 79], [-66, 117], [-32, 173]],
+    oils: [[-24, -120], [100, -46], [104, 20], [-90, 120], [-6, 156]],
+    islands: [[-280, -260, 40], [300, -200, 55], [-250, 280, 45], [280, 260, 60], [0, -320, 50]],
+    mood: {
+      zenith: 0x1a2438, horizon: 0x4a5a72, shallow: 0x1c4a63, deep: 0x06223a, fog: 0x3a4a5e,
+      waveAmp: 1.7, cloudTint: 0x556070, cloudOpacity: 0.85, cloudCount: 12,
+      hemiSky: 0x6a7a9a, hemiGround: 0x1a2a3a, hemiInt: 0.55, sunColor: 0xb0bccf, sunInt: 0.7, sunDisc: 0x99aabb,
+    },
+  },
+];
+
 const Course = {
   checkpoints: [] as Checkpoint[],
   rocks: [] as Rock[],
@@ -223,13 +465,35 @@ const Course = {
   boostRings: [] as BoostRing[],
   oils: [] as OilSlick[],
   current: 0,          // index of next checkpoint to pass
-  build(scene: THREE.Scene) {
+  geos: [] as THREE.BufferGeometry[], // course-owned geos/mats (disposed on rebuild)
+  mats: [] as THREE.Material[],
+  clear(scene: THREE.Scene) {
+    // Tear down the previous course: remove meshes, dispose owned geos/mats
+    for (const cp of this.checkpoints) scene.remove(cp.postL, cp.postR, cp.ring);
+    for (const r of this.rocks) scene.remove(r.mesh);
+    for (const m of this.mines) scene.remove(m.mesh);
+    for (const d of this.debris) scene.remove(d.mesh);
+    for (const b of this.barriers) scene.remove(b.group);
+    for (const w of this.whirlpools) scene.remove(w.mesh);
+    for (const r of this.ramps) scene.remove(r.mesh);
+    for (const r of this.boostRings) scene.remove(r.mesh);
+    for (const o of this.oils) scene.remove(o.mesh);
+    for (const g of this.geos) g.dispose();
+    for (const m of this.mats) m.dispose();
+    this.geos.length = 0; this.mats.length = 0;
+    this.checkpoints.length = 0; this.rocks.length = 0; this.mines.length = 0;
+    this.debris.length = 0; this.barriers.length = 0; this.whirlpools.length = 0;
+    this.ramps.length = 0; this.boostRings.length = 0; this.oils.length = 0;
+  },
+  build(scene: THREE.Scene, def: LevelDef) {
     const postMat = new THREE.MeshLambertMaterial({ color: 0xffcc00 });
     const postMat2 = new THREE.MeshLambertMaterial({ color: 0xff4444 });
     const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+    this.mats.push(postMat, postMat2, ringMat);
 
     const mkGate = (x: number, z: number, angle: number, type: Checkpoint["type"], gap = 14) => {
       const postGeo = new THREE.CylinderGeometry(0.6, 0.8, 8, 8);
+      this.geos.push(postGeo);
       const postL = new THREE.Mesh(postGeo, type === "finish" ? postMat2 : postMat);
       const postR = new THREE.Mesh(postGeo, type === "finish" ? postMat2 : postMat);
       const half = gap / 2;
@@ -239,6 +503,7 @@ const Course = {
       scene.add(postL, postR);
       // glowing ring
       const ring = new THREE.Mesh(new THREE.TorusGeometry(gap / 2, 0.35, 8, 24), ringMat);
+      this.geos.push(ring.geometry);
       ring.position.set(x, 1.2, z);
       ring.rotation.x = -Math.PI / 2;
       ring.rotation.z = angle;
@@ -246,27 +511,19 @@ const Course = {
       this.checkpoints.push({ x, z, angle, type, passed: false, postL, postR, ring });
     };
 
-    // --- Course layout (snaking S-curve through the arena) ---
-    // Start at south, head north, weave east/west, finish at north with big ramp.
-    mkGate(0, 150, 0, "gate", 18);        // CP1
-    mkGate(45, 95, Math.PI / 2, "gate", 16);   // CP2 (turn east)
-    mkGate(70, 20, 0, "gate", 14);        // CP3
-    mkGate(30, -50, -Math.PI / 2, "narrow", 10); // CP4 narrow passage
-    mkGate(-30, -80, 0, "gate", 14);      // CP5
-    mkGate(-70, -20, Math.PI / 2, "gate", 13);  // CP6
-    mkGate(-45, 55, 0, "narrow", 9);      // CP7 narrow
-    mkGate(0, 105, Math.PI, "ramp", 16);  // CP8 = final ramp gate
-    mkGate(0, 175, 0, "finish", 20);      // FINISH (after big jump)
+    // --- Course layout: gates come from the level definition ---
+    // Gates are spaced so the "missed gate" penalty only fires when the boat
+    // genuinely overshoots a gate instead of passing it. angle = travel
+    // direction toward the gate.
+    for (const [x, z, angle, type, gap] of def.gates) mkGate(x, z, angle, type, gap);
 
-    // --- Rocks (static collision) ---
+    // --- Rocks (static collision) — grouped in deliberate clusters, each
+    // well clear of the racing line, gates and rings ---
     const rockMat = new THREE.MeshLambertMaterial({ color: 0x5a5a6a });
-    const rockSpots: [number, number, number][] = [
-      [20, 120, 3], [-25, 70, 2.5], [55, 55, 3.5], [10, 10, 2.5],
-      [-15, -20, 3], [50, -70, 2.5], [-55, -50, 3], [-20, 30, 2.5],
-      [15, -90, 3], [-60, 10, 2.5], [35, 130, 2.5], [-35, 110, 3],
-    ];
-    for (const [x, z, r] of rockSpots) {
+    this.mats.push(rockMat);
+    for (const [x, z, r] of def.rocks) {
       const geo = new THREE.DodecahedronGeometry(r, 0);
+      this.geos.push(geo);
       const mesh = new THREE.Mesh(geo, rockMat);
       mesh.position.set(x, r * 0.4, z);
       mesh.rotation.set(Math.random(), Math.random(), Math.random());
@@ -274,23 +531,25 @@ const Course = {
       this.rocks.push({ mesh, x, z, r: r + 1 });
     }
 
-    // --- Mines (floating, pulsing red) ---
+    // --- Mines (floating, pulsing red) — tight minefields inside the course
+    // bends; tempting shortcut lines, easy to spot ---
     const mineMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
     const mineLightMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
-    const mineSpots: [number, number][] = [
-      [30, 80], [-10, 40], [60, 30], [20, -30], [-40, -60],
-      [-60, 0], [-30, 70], [10, 140], [-50, 90], [40, -10],
-    ];
-    for (const [x, z] of mineSpots) {
+    const mineBodyGeo = new THREE.SphereGeometry(0.9, 8, 8);
+    const mineLightGeo = new THREE.SphereGeometry(0.3, 6, 6);
+    const mineSpikeGeo = new THREE.ConeGeometry(0.15, 0.5, 4);
+    this.mats.push(mineMat, mineLightMat);
+    this.geos.push(mineBodyGeo, mineLightGeo, mineSpikeGeo);
+    for (const [x, z] of def.mines) {
       const group = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.SphereGeometry(0.9, 8, 8), mineMat);
+      const body = new THREE.Mesh(mineBodyGeo, mineMat);
       group.add(body);
-      const light = new THREE.Mesh(new THREE.SphereGeometry(0.3, 6, 6), mineLightMat);
+      const light = new THREE.Mesh(mineLightGeo, mineLightMat);
       light.position.y = 1.1;
       group.add(light);
       // spikes
       for (let i = 0; i < 6; i++) {
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.5, 4), mineMat);
+        const spike = new THREE.Mesh(mineSpikeGeo, mineMat);
         const a = (i / 6) * Math.PI * 2;
         spike.position.set(Math.cos(a) * 0.9, Math.sin(a) * 0.9, 0);
         spike.lookAt(new THREE.Vector3(Math.cos(a) * 2, Math.sin(a) * 2, 0));
@@ -301,52 +560,52 @@ const Course = {
       this.mines.push({ mesh: group, x, z, r: 2.2, alive: true, blinkT: Math.random() * 3 });
     }
 
-    // --- Floating debris (wooden crates / barrels) ---
+    // --- Floating debris (wooden crates / barrels) — flotillas adrift
+    // just off the racing line, with clear gaps to steer through ---
     const crateMat = new THREE.MeshLambertMaterial({ color: 0x8a6a3a });
     const barrelMat = new THREE.MeshLambertMaterial({ color: 0x666677 });
-    const debrisSpots: [number, number, boolean][] = [
-      [15, 100, true], [-20, 85, false], [50, 70, true], [35, 20, false],
-      [0, -60, true], [-45, -30, false], [-55, 40, true], [-10, 60, false],
-      [25, 155, true], [-40, 130, false],
-    ];
-    for (const [x, z, isCrate] of debrisSpots) {
+    const crateGeo = new THREE.BoxGeometry(2.2, 1.6, 2.2);
+    const barrelGeo = new THREE.CylinderGeometry(0.9, 0.9, 2, 8);
+    this.mats.push(crateMat, barrelMat);
+    this.geos.push(crateGeo, barrelGeo);
+    for (const [x, z, isCrate] of def.debris) {
       const mesh = isCrate
-        ? new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 2.2), crateMat)
-        : new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 2, 8), barrelMat);
+        ? new THREE.Mesh(crateGeo, crateMat)
+        : new THREE.Mesh(barrelGeo, barrelMat);
       mesh.position.set(x, 0.6, z);
       mesh.rotation.y = Math.random() * Math.PI;
       scene.add(mesh);
       this.debris.push({ mesh, x, z, r: 2, bobT: Math.random() * 5 });
     }
 
-    // --- Moving barriers (slide across the path) ---
+    // --- Moving barriers (slide across the path) — placed on open stretches
+    // between gates so they are visible early and dodgeable ---
     const barrierMat = new THREE.MeshLambertMaterial({ color: 0xcc3333 });
+    const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+    this.mats.push(barrierMat, stripeMat);
     const mkBarrier = (x: number, z: number, axis: "x" | "z", range: number, speed: number, w: number) => {
       const group = new THREE.Group();
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(axis === "x" ? w : 1.2, 2.5, axis === "z" ? w : 1.2), barrierMat);
+      const barGeo = new THREE.BoxGeometry(axis === "x" ? w : 1.2, 2.5, axis === "z" ? w : 1.2);
+      const bar = new THREE.Mesh(barGeo, barrierMat);
       group.add(bar);
       // warning stripes
-      const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(axis === "x" ? w : 1.3, 0.5, axis === "z" ? w : 1.3), stripeMat);
+      const stripeGeo = new THREE.BoxGeometry(axis === "x" ? w : 1.3, 0.5, axis === "z" ? w : 1.3);
+      const stripe = new THREE.Mesh(stripeGeo, stripeMat);
       stripe.position.y = 0.8;
       group.add(stripe);
+      this.geos.push(barGeo, stripeGeo);
       group.position.set(x, 1.2, z);
       scene.add(group);
       this.barriers.push({ group, x, z, axis, range, speed, t: Math.random() * 10, w });
     };
-    mkBarrier(45, 60, "x", 20, 1.2, 18);
-    mkBarrier(-30, -55, "z", 18, 1.5, 16);
-    mkBarrier(-70, 10, "x", 16, 1.8, 14);
-    mkBarrier(0, 80, "z", 22, 2.0, 20);
-    mkBarrier(0, 125, "x", 24, 2.2, 22);
+    for (const [x, z, axis, range, speed, w] of def.barriers) mkBarrier(x, z, axis, range, speed, w);
 
-    // --- Whirlpools (pull the boat in) ---
+    // --- Whirlpools (pull the boat in) — side eddies beside the racing line ---
     const whirlMat = new THREE.MeshBasicMaterial({ color: 0x2244aa, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
-    const whirlSpots: [number, number, number][] = [
-      [10, -10, 12], [-40, 20, 10], [55, -40, 11],
-    ];
-    for (const [x, z, r] of whirlSpots) {
+    this.mats.push(whirlMat);
+    for (const [x, z, r] of def.whirlpools) {
       const mesh = new THREE.Mesh(new THREE.RingGeometry(r * 0.3, r, 24), whirlMat);
+      this.geos.push(mesh.geometry);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(x, 0.15, z);
       scene.add(mesh);
@@ -355,8 +614,10 @@ const Course = {
 
     // --- Ramps (launch the boat) ---
     const rampMat = new THREE.MeshLambertMaterial({ color: 0x44aacc });
+    this.mats.push(rampMat);
     const mkRamp = (x: number, z: number, angle: number, len: number) => {
       const geo = new THREE.BoxGeometry(10, 0.5, len);
+      this.geos.push(geo);
       const mesh = new THREE.Mesh(geo, rampMat);
       mesh.position.set(x, 0.5, z);
       mesh.rotation.y = angle;
@@ -364,18 +625,15 @@ const Course = {
       scene.add(mesh);
       this.ramps.push({ x, z, angle, mesh, len });
     };
-    mkRamp(30, -50, -Math.PI / 2, 12);   // mid-course ramp
-    mkRamp(0, 105, Math.PI, 16);         // FINAL BIG RAMP (dramatic jump)
+    for (const [x, z, angle, len] of def.ramps) mkRamp(x, z, angle, len);
 
     // --- Boost rings (glowing hoops between gates; refill nitro when passed) ---
-    // Placed at segment midpoints, offset clear of rocks/mines/whirlpools.
+    // Centered on the racing line at segment midpoints, clear of ramps/barriers.
     const ringGeo = new THREE.TorusGeometry(5.5, 0.5, 8, 24);
-    const ringSpots: [number, number][] = [
-      [0, 40], [22, 122], [62, 62], [50, -15], [-8, -68],
-      [-48, -45], [-52, 12], [-12, 95], [-8, 140],
-    ];
-    for (const [x, z] of ringSpots) {
+    this.geos.push(ringGeo);
+    for (const [x, z] of def.rings) {
       const mat = new THREE.MeshBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+      this.mats.push(mat);
       const mesh = new THREE.Mesh(ringGeo, mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(x, 0.6, z);
@@ -383,13 +641,13 @@ const Course = {
       this.boostRings.push({ mesh, x, z, r: 5.5, cooldown: 0, pulse: 0 });
     }
 
-    // --- Oil slicks (dark patches that steal steering grip) ---
+    // --- Oil slicks (dark patches that steal steering grip) — clearly
+    // visible side traps ~12 units off the racing line, never blocking a lane ---
     const slickGeo = new THREE.CircleGeometry(6, 20);
-    const slickSpots: [number, number][] = [
-      [12, 105], [75, 32], [-24, -68], [-68, -12], [-38, 40],
-    ];
-    for (const [x, z] of slickSpots) {
+    this.geos.push(slickGeo);
+    for (const [x, z] of def.oils) {
       const mat = new THREE.MeshBasicMaterial({ color: 0x14100a, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+      this.mats.push(mat);
       const mesh = new THREE.Mesh(slickGeo, mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(x, 0.14, z);
@@ -405,6 +663,18 @@ const Course = {
     this.current = 0;
   },
 };
+
+/* Rebuild the scene course for a level: clear the old course objects, build
+   the new one, move the start line and restyle the world (ocean/sky/lights). */
+function buildCourse(scene: THREE.Scene, level: number) {
+  const def = LEVELS[level - 1];
+  Course.clear(scene);
+  Course.build(scene, def);
+  START_POS.x = def.start[0];
+  START_POS.z = def.start[1];
+  applyMood(scene, def.mood);
+  rebuildEnvironment(scene, level);
+}
 
 /* ================= 5. BOAT ================= */
 const Boat = {
@@ -425,6 +695,11 @@ const Boat = {
   cabin: null as THREE.Mesh | null,
   nitroGlow: null as THREE.Mesh | null,
   flameGeo: null as THREE.BufferGeometry | null, // shared boost-flame geometry
+  wakeGeo: null as THREE.CircleGeometry | null,  // shared wake-ring geometry
+  sprayGeo: null as THREE.SphereGeometry | null, // shared spray-particle geometry
+  wakePool: [] as THREE.Mesh[],   // pre-built wake meshes (recycled, no churn)
+  sprayPool: [] as THREE.Mesh[],  // pre-built spray meshes
+  flamePool: [] as THREE.Mesh[],  // pre-built flame meshes
   wakeTrail: [] as THREE.Mesh[],
   sprayParticles: [] as { mesh: THREE.Mesh; vel: THREE.Vector3; life: number }[],
   flameParticles: [] as { mesh: THREE.Mesh; vel: THREE.Vector3; life: number }[],
@@ -535,6 +810,33 @@ const Boat = {
     prop.position.set(0, 0.35, -3.95);
     g.add(prop);
 
+    // --- Railings (thin stanchion lines along the deck edges + bow rail) ---
+    const railMat = new THREE.MeshLambertMaterial({ color: 0xdfe6ee });
+    const railGeo = new THREE.BoxGeometry(0.08, 0.08, 6.6);
+    const railL = new THREE.Mesh(railGeo, railMat);
+    railL.position.set(-1.12, 1.16, 0.1);
+    const railR = railL.clone();
+    railR.position.x = 1.12;
+    g.add(railL, railR);
+    const bowRail = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.08), railMat);
+    bowRail.position.set(0, 1.2, 2.9);
+    g.add(bowRail);
+    // Stanchions
+    const stGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 4);
+    for (const sz of [-2.6, -0.9, 0.9, 2.4]) {
+      const sL = new THREE.Mesh(stGeo, railMat); sL.position.set(-1.12, 0.9, sz);
+      const sR = new THREE.Mesh(stGeo, railMat); sR.position.set(1.12, 0.9, sz);
+      g.add(sL, sR);
+    }
+
+    // --- Flag on a stern pole (fluttering pennant) ---
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 4), railMat);
+    pole.position.set(0.55, 1.5, -3.2);
+    g.add(pole);
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.42, 0.04), new THREE.MeshLambertMaterial({ color: 0xdd2233 }));
+    flag.position.set(0.9, 2.15, -3.2);
+    g.add(flag);
+
     // --- Nitro glow (visible when boosting) ---
     const glowMat = new THREE.MeshBasicMaterial({ color: 0x33ccff, transparent: true, opacity: 0 });
     const glow = new THREE.Mesh(new THREE.ConeGeometry(0.7, 2.2, 8), glowMat);
@@ -543,8 +845,25 @@ const Boat = {
     this.nitroGlow = glow;
     g.add(glow);
 
-    // Shared geometry for boost flame particles (one geo, many meshes)
+    // Shared geometries for particles (one geo, pooled meshes — no per-frame churn)
     this.flameGeo = new THREE.SphereGeometry(0.22, 6, 6);
+    this.wakeGeo = new THREE.CircleGeometry(0.6, 6);
+    this.sprayGeo = new THREE.SphereGeometry(0.18, 4, 4);
+    for (let i = 0; i < 40; i++) {
+      const m = new THREE.Mesh(this.wakeGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
+      m.rotation.x = -Math.PI / 2; m.visible = false; scene.add(m);
+      this.wakePool.push(m);
+    }
+    for (let i = 0; i < 60; i++) {
+      const m = new THREE.Mesh(this.sprayGeo, new THREE.MeshBasicMaterial({ color: 0xcceeff, transparent: true, opacity: 0 }));
+      m.visible = false; scene.add(m);
+      this.sprayPool.push(m);
+    }
+    for (let i = 0; i < 70; i++) {
+      const m = new THREE.Mesh(this.flameGeo, new THREE.MeshBasicMaterial({ color: 0x33ccff, transparent: true, opacity: 0 }));
+      m.visible = false; scene.add(m);
+      this.flamePool.push(m);
+    }
 
     scene.add(g);
     this.syncVisual();
@@ -558,15 +877,16 @@ const Boat = {
     this.group.rotation.z = roll;
     this.group.rotation.x = pitch;
   },
-  reset() {
-    this.pos.set(0, 0, -160);
+  reset(keepHealth = false) {
+    const def = LEVELS[game.level - 1];
+    this.pos.set(def.start[0], 0, def.start[1]);
     this.vel.set(0, 0, 0);
-    this.heading = 0;
+    this.heading = def.startHeading;
     this.speed = 0;
     this.vy = 0;
     this.airborne = false;
     this.airTime = 0;
-    this.health = 100;
+    if (!keepHealth) this.health = 100; // health carries over between levels
     this.boostEnergy = 100;
     this.invuln = 2;
     this.slippery = 0;
@@ -574,7 +894,7 @@ const Boat = {
   },
   damage(amount: number, source: string) {
     if (this.invuln > 0) return;
-    this.health -= amount;
+    this.health -= amount * DIFFICULTIES[game.difficulty].damage;
     this.invuln = 1.2;
     AudioSys.crash();
     game.addPenalty(source === "mine" ? CRASH_PENALTY : CRASH_PENALTY);
@@ -595,7 +915,7 @@ const Boat = {
     if (Input.throttle) {
       this.speed += accel * dt;
       if (boosting) {
-        this.boostEnergy = Math.max(0, this.boostEnergy - BOOST_DRAIN * dt);
+        this.boostEnergy = Math.max(0, this.boostEnergy - BOOST_DRAIN * DIFFICULTIES[game.difficulty].boost * dt);
         if (this.boostEnergy <= 0) AudioSys.boost();
       }
     } else {
@@ -701,18 +1021,21 @@ const Boat = {
       }
     }
 
-    // --- Boost flame particles (polish: trail behind the stern) ---
+    // --- Boost flame particles (polish: trail behind the stern, pooled meshes) ---
     if (boosting && Input.throttle && this.speed > 5 && this.flameGeo) {
       for (let i = 0; i < 2; i++) {
-        const mesh = new THREE.Mesh(this.flameGeo, new THREE.MeshBasicMaterial({
-          color: Math.random() < 0.5 ? 0x33ccff : 0xffaa33, transparent: true, opacity: 0.9,
-        }));
+        const mesh = this.flamePool.pop();
+        if (!mesh) break;
+        const mat = mesh.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(Math.random() < 0.5 ? 0x33ccff : 0xffaa33);
+        mat.opacity = 0.9;
+        mesh.scale.setScalar(1);
+        mesh.visible = true;
         mesh.position.set(
           this.pos.x - dirX * 4.4 + (Math.random() - 0.5) * 0.8,
           this.pos.y + 0.6 + Math.random() * 0.4,
           this.pos.z - dirZ * 4.4 + (Math.random() - 0.5) * 0.8
         );
-        scene.add(mesh);
         this.flameParticles.push({
           mesh,
           vel: new THREE.Vector3(
@@ -723,32 +1046,28 @@ const Boat = {
           life: 0.35 + Math.random() * 0.25,
         });
       }
-      if (this.flameParticles.length > 70) {
-        const old = this.flameParticles.shift()!;
-        scene.remove(old.mesh);
-      }
     }
 
-    // --- Wake trail ---
+    // --- Wake trail (pooled foam rings spreading behind the stern) ---
     if (this.speed > 5 && Math.random() < 0.6) {
-      const wake = new THREE.Mesh(
-        new THREE.CircleGeometry(0.5 + Math.random() * 0.5, 6),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })
-      );
-      wake.rotation.x = -Math.PI / 2;
-      wake.position.set(this.pos.x - dirX * 3.5, 0.12, this.pos.z - dirZ * 3.5);
-      scene.add(wake);
-      this.wakeTrail.push(wake);
-      if (this.wakeTrail.length > 40) {
-        const old = this.wakeTrail.shift()!;
-        scene.remove(old);
+      const wake = this.wakePool.pop();
+      if (wake) {
+        (wake.material as THREE.MeshBasicMaterial).opacity = 0.5;
+        wake.scale.setScalar(0.8 + Math.random() * 0.7);
+        wake.visible = true;
+        wake.position.set(this.pos.x - dirX * 3.5, 0.12, this.pos.z - dirZ * 3.5);
+        this.wakeTrail.push(wake);
       }
     }
     for (let i = this.wakeTrail.length - 1; i >= 0; i--) {
       const w = this.wakeTrail[i];
-      (w.material as THREE.MeshBasicMaterial).opacity -= dt * 0.5;
-      if ((w.material as THREE.MeshBasicMaterial).opacity <= 0) {
-        scene.remove(w);
+      const wm = w.material as THREE.MeshBasicMaterial;
+      wm.opacity -= dt * 0.5;
+      w.scale.multiplyScalar(1 + dt * 0.8); // foam spreads as it fades
+      if (wm.opacity <= 0) {
+        w.visible = false;
+        w.scale.setScalar(1);
+        this.wakePool.push(w);
         this.wakeTrail.splice(i, 1);
       }
     }
@@ -760,7 +1079,9 @@ const Boat = {
       p.mesh.position.addScaledVector(p.vel, dt);
       (p.mesh.material as THREE.MeshBasicMaterial).opacity = p.life;
       if (p.life <= 0) {
-        scene.remove(p.mesh);
+        p.mesh.visible = false;
+        p.mesh.scale.setScalar(1);
+        this.sprayPool.push(p.mesh);
         this.sprayParticles.splice(i, 1);
       }
     }
@@ -773,7 +1094,9 @@ const Boat = {
       (p.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, p.life * 2.5);
       p.mesh.scale.setScalar(Math.max(0.2, p.life * 2));
       if (p.life <= 0) {
-        scene.remove(p.mesh);
+        p.mesh.visible = false;
+        p.mesh.scale.setScalar(1);
+        this.flamePool.push(p.mesh);
         this.flameParticles.splice(i, 1);
       }
     }
@@ -785,12 +1108,12 @@ const Boat = {
 
 function spawnSpray(x: number, y: number, z: number, n: number) {
   for (let i = 0; i < n; i++) {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.15 + Math.random() * 0.2, 4, 4),
-      new THREE.MeshBasicMaterial({ color: 0xcceeff, transparent: true, opacity: 1 })
-    );
-    mesh.position.set(x, y, z);
-    scene.add(mesh);
+    const mesh = Boat.sprayPool.pop();
+    if (!mesh) return; // pool exhausted: cap the spray, no allocation churn
+    mesh.visible = true;
+    mesh.scale.setScalar(0.8 + Math.random() * 0.8);
+    (mesh.material as THREE.MeshBasicMaterial).opacity = 1;
+    mesh.position.set(x, y, z); // pooled meshes are already in the scene (hidden)
     Boat.sprayParticles.push({
       mesh,
       vel: new THREE.Vector3((Math.random() - 0.5) * 8, 4 + Math.random() * 6, (Math.random() - 0.5) * 8),
@@ -804,8 +1127,8 @@ function spawnSpray(x: number, y: number, z: number, n: number) {
    accelerate, and bleed speed through sharp turns. Progress =
    checkpoints passed + fraction of the current segment, used to
    compute the player's race position (P1/P2/...). */
-const START_POS = { x: 0, z: -160 }; // matches Boat.reset() start position
-const RIVAL_OFFSETS: [number, number][] = [[-7, -162], [7, -164], [14, -166]];
+const START_POS = { x: 0, z: -160 }; // start line, moved by buildCourse per level
+const RIVAL_OFFSETS: [number, number][] = [[-7, -2], [7, -4], [14, -6]]; // relative to START_POS
 const RIVAL_COLORS = [0xcc2244, 0xffaa22, 0x9944dd];
 const RIVAL_CSS = ["#cc2244", "#ffaa22", "#9944dd"];
 
@@ -816,10 +1139,17 @@ const Rivals = {
     // Reuse the player hull geometry; only the paint differs per rival.
     const hullGeo = Boat.hull!.geometry;
     const cabinGeo = new THREE.BoxGeometry(1.3, 0.9, 2.2);
+    const roofGeo = new THREE.BoxGeometry(1.4, 0.1, 2.3);
     const stripeGeo = new THREE.BoxGeometry(0.5, 0.06, 7.2);
     const motorGeo = new THREE.BoxGeometry(0.9, 0.9, 0.5);
+    const propGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.15, 8);
+    const wsGeo = new THREE.BoxGeometry(1.2, 0.7, 0.08);
+    const railGeo = new THREE.BoxGeometry(0.08, 0.08, 6.6);
+    const flagGeo = new THREE.BoxGeometry(0.7, 0.42, 0.04);
     const darkMat = new THREE.MeshLambertMaterial({ color: 0x1a2230 });
     const deckMat = new THREE.MeshLambertMaterial({ color: 0xf2f4f8 });
+    const glassMat = new THREE.MeshLambertMaterial({ color: 0x9fdcff, transparent: true, opacity: 0.55 });
+    const propMat = new THREE.MeshLambertMaterial({ color: 0x888899 });
 
     for (let i = 0; i < RIVAL_COUNT; i++) {
       const g = new THREE.Group();
@@ -830,27 +1160,48 @@ const Rivals = {
       const cabin = new THREE.Mesh(cabinGeo, darkMat);
       cabin.position.set(0, 1.9, -0.6);
       g.add(cabin);
+      // Cabin roof tinted with the rival's paint color
+      const roof = new THREE.Mesh(roofGeo, hullMat);
+      roof.position.set(0, 2.4, -0.6);
+      g.add(roof);
+      const ws = new THREE.Mesh(wsGeo, glassMat);
+      ws.position.set(0, 2.0, 0.62);
+      ws.rotation.x = -0.5;
+      g.add(ws);
       const stripe = new THREE.Mesh(stripeGeo, deckMat);
       stripe.position.set(0, 1.72, 0.2);
       g.add(stripe);
       const motor = new THREE.Mesh(motorGeo, darkMat);
       motor.position.set(0, 0.7, -3.7);
       g.add(motor);
+      const prop = new THREE.Mesh(propGeo, propMat);
+      prop.rotation.x = Math.PI / 2;
+      prop.position.set(0, 0.35, -3.95);
+      g.add(prop);
+      const railL = new THREE.Mesh(railGeo, deckMat);
+      railL.position.set(-1.12, 1.16, 0.1);
+      const railR = railL.clone();
+      railR.position.x = 1.12;
+      g.add(railL, railR);
+      const flag = new THREE.Mesh(flagGeo, hullMat);
+      flag.position.set(0.9, 2.15, -3.2);
+      g.add(flag);
       scene.add(g);
       this.boats.push({
         group: g,
-        pos: new THREE.Vector3(RIVAL_OFFSETS[i][0], 0, RIVAL_OFFSETS[i][1]),
-        heading: 0, speed: 0, waypoint: 0,
+        pos: new THREE.Vector3(START_POS.x + RIVAL_OFFSETS[i][0], 0, START_POS.z + RIVAL_OFFSETS[i][1]),
+        heading: LEVELS[game.level - 1].startHeading, speed: 0, waypoint: 0,
         skill: 0.9 + i * 0.06, finished: false, progress: 0,
       });
     }
   },
 
   reset() {
+    const def = LEVELS[game.level - 1];
     for (let i = 0; i < this.boats.length; i++) {
       const r = this.boats[i];
-      r.pos.set(RIVAL_OFFSETS[i][0], 0, RIVAL_OFFSETS[i][1]);
-      r.heading = 0; r.speed = 0; r.waypoint = 0;
+      r.pos.set(START_POS.x + RIVAL_OFFSETS[i][0], 0, START_POS.z + RIVAL_OFFSETS[i][1]);
+      r.heading = def.startHeading; r.speed = 0; r.waypoint = 0;
       r.finished = false; r.progress = 0;
       r.group.position.copy(r.pos);
       r.group.rotation.set(0, 0, 0);
@@ -859,6 +1210,7 @@ const Rivals = {
 
   update(dt: number, waveH: (x: number, z: number) => number) {
     if (game.state !== "playing") return;
+    const rivalMult = DIFFICULTIES[game.difficulty].rival; // difficulty scales AI speed/skill
     for (const r of this.boats) {
       const cp = Course.checkpoints[Math.min(r.waypoint, Course.checkpoints.length - 1)];
       const dx = cp.x - r.pos.x, dz = cp.z - r.pos.z;
@@ -877,11 +1229,11 @@ const Rivals = {
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         steer = Math.max(-1, Math.min(1, diff * 2.5));
-        r.heading += steer * TURN_RATE * 0.85 * r.skill * dt;
-        r.speed += RIVAL_ACCEL * dt;
+        r.heading += steer * TURN_RATE * 0.85 * r.skill * rivalMult * dt;
+        r.speed += RIVAL_ACCEL * rivalMult * dt;
         // Bleed speed through sharp turns so gates stay passable
         if (Math.abs(diff) > 0.7) r.speed *= (1 - 1.1 * dt);
-        r.speed = Math.min(r.speed, RIVAL_MAX_SPEED * r.skill);
+        r.speed = Math.min(r.speed, RIVAL_MAX_SPEED * r.skill * rivalMult);
       } else {
         r.speed *= (1 - DRAG * dt); // drifting past the finish line
       }
@@ -942,26 +1294,70 @@ let oceanMat: THREE.MeshPhongMaterial;
 const OCEAN_SEGS = 60;
 const OCEAN_SIZE = ARENA * 2.4;
 
+// Canvas texture: subtle wave ripples + scattered sun glints (procedural)
+function makeOceanTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, 256, 256);
+  // Soft diagonal ripple streaks
+  g.strokeStyle = "rgba(210,230,255,0.5)";
+  g.lineWidth = 2;
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + 20, y - 12, x + 42, y - 4);
+    g.stroke();
+  }
+  // Sun glints: tiny bright sparkles
+  g.fillStyle = "rgba(255,255,240,0.85)";
+  for (let i = 0; i < 70; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256, s = 1 + Math.random() * 2;
+    g.fillRect(x, y, s, s);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 6);
+  return tex;
+}
+
 function buildOcean(scene: THREE.Scene) {
   oceanGeo = new THREE.PlaneGeometry(OCEAN_SIZE, OCEAN_SIZE, OCEAN_SEGS, OCEAN_SEGS);
+  // Depth color gradient: shallow teal inside the arena, deep blue toward the rim
+  const colors: number[] = [];
+  const pos = oceanGeo.attributes.position;
+  const deep = new THREE.Color(0x0a3a63), shallow = new THREE.Color(0x2a88b8);
+  const col = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i);
+    const d = Math.min(1, Math.sqrt(x * x + y * y) / (ARENA * 1.2));
+    col.copy(shallow).lerp(deep, d * d);
+    colors.push(col.r, col.g, col.b);
+  }
+  oceanGeo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   oceanMat = new THREE.MeshPhongMaterial({
-    color: 0x1a6699,
-    specular: 0x88ccff,
-    shininess: 90,
+    vertexColors: true,
+    map: makeOceanTexture(),
+    specular: 0x9fdcff,
+    shininess: 60,
     transparent: true,
-    opacity: 0.92,
+    opacity: 0.94,
     side: THREE.DoubleSide,
   });
   const ocean = new THREE.Mesh(oceanGeo, oceanMat);
   ocean.rotation.x = -Math.PI / 2;
   scene.add(ocean);
 }
-// Simple analytical wave height (sum of sines) — used for both visual & physics
+// Simple analytical wave height (sum of sines) — used for both visual & physics.
+// waveAmp scales the sea state per level (storm levels run bigger waves).
+let waveAmp = 1;
 function waveH(x: number, z: number, t: number) {
   return (
-    Math.sin(x * 0.08 + t * 1.2) * 0.5 +
+    (Math.sin(x * 0.08 + t * 1.2) * 0.5 +
     Math.sin(z * 0.1 + t * 0.9) * 0.4 +
-    Math.sin((x + z) * 0.05 + t * 1.6) * 0.3
+    Math.sin((x + z) * 0.05 + t * 1.6) * 0.3) * waveAmp
   );
 }
 function updateOcean(t: number) {
@@ -975,49 +1371,175 @@ function updateOcean(t: number) {
   oceanGeo.computeVertexNormals();
 }
 
-/* ================= 7. ENVIRONMENT (islands, birds, sky) ================= */
+/* ================= 7. ENVIRONMENT (islands, birds, sky, clouds) ================= */
 let birds: { mesh: THREE.Group; angle: number; radius: number; speed: number; y: number }[] = [];
-function buildEnvironment(scene: THREE.Scene) {
-  // Sky dome (gradient via large sphere with vertex colors)
+let clouds: THREE.Sprite[] = [];
+let envGroup: THREE.Group;                    // all level scenery lives here (rebuilt per level)
+let envGeos: THREE.BufferGeometry[] = [];     // env-owned geos/mats (disposed on rebuild)
+let envMats: THREE.Material[] = [];
+let cloudTex: THREE.CanvasTexture | null = null; // shared cloud texture (built once)
+let hemiLight: THREE.HemisphereLight;         // recolored by applyMood per level
+let sunLight: THREE.DirectionalLight;
+
+// Canvas texture: soft blobby cloud (procedural)
+function makeCloudTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(64, 64, 8, 64, 64, 60);
+  grad.addColorStop(0, "rgba(255,255,255,0.9)");
+  grad.addColorStop(0.55, "rgba(250,252,255,0.45)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  // Three overlapping blobs for a puffy silhouette
+  for (const [bx, by, br] of [[52, 66, 34], [78, 58, 30], [64, 78, 26]] as [number, number, number][]) {
+    const rg = g.createRadialGradient(bx, by, 2, bx, by, br);
+    rg.addColorStop(0, "rgba(255,255,255,0.85)");
+    rg.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = rg;
+    g.beginPath(); g.arc(bx, by, br, 0, Math.PI * 2); g.fill();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+/* Restyle the world for a level's mood: sky dome colors, ocean depth gradient,
+   fog, lights & wave amplitude. Static per level (no day cycle). */
+function applyMood(scene: THREE.Scene, mood: LevelDef["mood"]) {
+  waveAmp = mood.waveAmp;
+  // Recolor the ocean depth gradient (shallow teal → deep blue, darker in storms)
+  const pos = oceanGeo.attributes.position;
+  const colors = oceanGeo.getAttribute("color") as THREE.BufferAttribute;
+  const deep = new THREE.Color(mood.deep), shallow = new THREE.Color(mood.shallow);
+  const col = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i);
+    const d = Math.min(1, Math.sqrt(x * x + y * y) / (ARENA * 1.2));
+    col.copy(shallow).lerp(deep, d * d);
+    colors.setXYZ(i, col.r, col.g, col.b);
+  }
+  colors.needsUpdate = true;
+  if (scene.fog) (scene.fog as THREE.Fog).color.setHex(mood.fog);
+  hemiLight.color.setHex(mood.hemiSky);
+  hemiLight.groundColor.setHex(mood.hemiGround);
+  hemiLight.intensity = mood.hemiInt;
+  sunLight.color.setHex(mood.sunColor);
+  sunLight.intensity = mood.sunInt;
+}
+
+function rebuildEnvironment(scene: THREE.Scene, level: number) {
+  const def = LEVELS[level - 1];
+  const mood = def.mood;
+  // Tear down the previous scenery (dispose only env-owned geos/mats)
+  for (const c of envGroup.children) envGroup.remove(c);
+  for (const g of envGeos) g.dispose();
+  for (const m of envMats) m.dispose();
+  envGeos.length = 0; envMats.length = 0;
+  birds.length = 0; clouds.length = 0;
+
+  // Sky dome (gradient via large sphere with vertex colors: horizon → zenith)
   const skyGeo = new THREE.SphereGeometry(500, 16, 12);
   const skyColors: number[] = [];
   const pos = skyGeo.attributes.position;
+  const zenith = new THREE.Color(mood.zenith), horizon = new THREE.Color(mood.horizon);
+  const col = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i) / 500; // -1..1
-    const r = 0.4 + (1 - Math.abs(y)) * 0.2;
-    const g = 0.6 + (1 - Math.abs(y)) * 0.25;
-    const b = 0.9 + y * 0.1;
-    skyColors.push(r, g, Math.min(1, b));
+    col.copy(horizon).lerp(zenith, Math.max(0, Math.min(1, y * 1.4 + 0.1)));
+    skyColors.push(col.r, col.g, col.b);
   }
   skyGeo.setAttribute("color", new THREE.Float32BufferAttribute(skyColors, 3));
   const skyMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide });
-  scene.add(new THREE.Mesh(skyGeo, skyMat));
+  envGroup.add(new THREE.Mesh(skyGeo, skyMat));
+  envGeos.push(skyGeo); envMats.push(skyMat);
 
-  // Sun
-  const sun = new THREE.Mesh(new THREE.SphereGeometry(12, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffee88 }));
-  sun.position.set(150, 120, -200);
-  scene.add(sun);
+  // Sun disc + soft additive halo (dimmer behind storm clouds)
+  const sunPos = new THREE.Vector3(150, 120, -200);
+  const sunGeo = new THREE.SphereGeometry(12, 12, 12);
+  const sunMat = new THREE.MeshBasicMaterial({ color: mood.sunDisc });
+  const sun = new THREE.Mesh(sunGeo, sunMat);
+  sun.position.copy(sunPos);
+  envGroup.add(sun);
+  const haloGeo = new THREE.SphereGeometry(20, 12, 12);
+  const haloMat = new THREE.MeshBasicMaterial({ color: mood.sunDisc, transparent: true, opacity: mood.sunInt < 1 ? 0.12 : 0.28, blending: THREE.AdditiveBlending, depthWrite: false });
+  const halo = new THREE.Mesh(haloGeo, haloMat);
+  halo.position.copy(sunPos);
+  envGroup.add(halo);
+  envGeos.push(sunGeo, haloGeo); envMats.push(sunMat, haloMat);
 
-  // Distant islands
-  const islandMat = new THREE.MeshLambertMaterial({ color: 0x3a7a4a });
-  const sandMat = new THREE.MeshLambertMaterial({ color: 0xd4c088 });
-  const islandSpots: [number, number, number][] = [
-    [-280, -260, 40], [300, -200, 55], [-250, 280, 45], [280, 260, 60], [0, -320, 50],
-  ];
-  for (const [x, z, r] of islandSpots) {
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.3, 6, 10), sandMat);
-    base.position.set(x, 2, z);
-    scene.add(base);
-    const hill = new THREE.Mesh(new THREE.ConeGeometry(r * 0.7, r * 0.8, 8), islandMat);
-    hill.position.set(x, 6 + r * 0.3, z);
-    scene.add(hill);
+  // Drifting cloud sprites (shared texture, gentle eastward drift; gloomier in storms)
+  if (!cloudTex) cloudTex = makeCloudTexture();
+  for (let i = 0; i < mood.cloudCount; i++) {
+    const mat = new THREE.SpriteMaterial({ map: cloudTex, color: mood.cloudTint, transparent: true, opacity: mood.cloudOpacity, depthWrite: false });
+    envMats.push(mat);
+    const sp = new THREE.Sprite(mat);
+    sp.scale.set(60 + Math.random() * 50, 22 + Math.random() * 16, 1);
+    sp.position.set(-380 + Math.random() * 760, 70 + Math.random() * 90, -300 + Math.random() * 500);
+    envGroup.add(sp);
+    clouds.push(sp);
   }
 
-  // Birds (simple V-shapes circling)
+  // Distant islands: sand base + green hill + surf ring + palms + rocks
+  const islandMat = new THREE.MeshLambertMaterial({ color: 0x3a7a4a });
+  const sandMat = new THREE.MeshLambertMaterial({ color: 0xd4c088 });
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5a38 });
+  const frondMat = new THREE.MeshLambertMaterial({ color: 0x2f8a44 });
+  const rockMat = new THREE.MeshLambertMaterial({ color: 0x6a6a78 });
+  const surfMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+  const trunkGeo = new THREE.CylinderGeometry(0.5, 0.8, 7, 6);
+  const frondGeo = new THREE.ConeGeometry(0.55, 3.6, 4);
+  const isRockGeo = new THREE.DodecahedronGeometry(2.2, 0);
+  envMats.push(islandMat, sandMat, trunkMat, frondMat, rockMat, surfMat);
+  envGeos.push(trunkGeo, frondGeo, isRockGeo);
+  for (const [x, z, r] of def.islands) {
+    const baseGeo = new THREE.CylinderGeometry(r, r * 1.3, 6, 10);
+    const hillGeo = new THREE.ConeGeometry(r * 0.7, r * 0.8, 8);
+    const surfGeo = new THREE.RingGeometry(r * 1.02, r * 1.22, 24);
+    envGeos.push(baseGeo, hillGeo, surfGeo);
+    const base = new THREE.Mesh(baseGeo, sandMat);
+    base.position.set(x, 2, z);
+    envGroup.add(base);
+    const hill = new THREE.Mesh(hillGeo, islandMat);
+    hill.position.set(x, 6 + r * 0.3, z);
+    envGroup.add(hill);
+    // Surf ring: white foam band hugging the shoreline
+    const surf = new THREE.Mesh(surfGeo, surfMat);
+    surf.rotation.x = -Math.PI / 2;
+    surf.position.set(x, 0.3, z);
+    envGroup.add(surf);
+    // Palms (trunk + 5 fronds), rocks on the beach
+    for (let p = 0; p < 2; p++) {
+      const a = Math.random() * Math.PI * 2;
+      const px = x + Math.cos(a) * r * 0.55, pz = z + Math.sin(a) * r * 0.55;
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.set(px, 6.5, pz);
+      trunk.rotation.z = (Math.random() - 0.5) * 0.3;
+      envGroup.add(trunk);
+      for (let f = 0; f < 5; f++) {
+        const fr = new THREE.Mesh(frondGeo, frondMat);
+        const fa = (f / 5) * Math.PI * 2;
+        fr.position.set(px + Math.cos(fa) * 1.1, 10.2, pz + Math.sin(fa) * 1.1);
+        fr.rotation.set(Math.cos(fa) * 1.25, 0, -Math.sin(fa) * 1.25);
+        envGroup.add(fr);
+      }
+    }
+    for (let k = 0; k < 2; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const rk = new THREE.Mesh(isRockGeo, rockMat);
+      rk.position.set(x + Math.cos(a) * r * 0.8, 1.2, z + Math.sin(a) * r * 0.8);
+      rk.rotation.set(Math.random(), Math.random(), Math.random());
+      rk.scale.setScalar(0.6 + Math.random() * 0.8);
+      envGroup.add(rk);
+    }
+  }
+
+  // Birds (simple V-shapes circling; fewer in the storm)
   const birdMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-  for (let i = 0; i < 6; i++) {
+  envMats.push(birdMat);
+  const wingGeo = new THREE.BoxGeometry(1.5, 0.05, 0.4);
+  envGeos.push(wingGeo);
+  const birdCount = level === 3 ? 3 : 6;
+  for (let i = 0; i < birdCount; i++) {
     const g = new THREE.Group();
-    const wingGeo = new THREE.BoxGeometry(1.5, 0.05, 0.4);
     const w1 = new THREE.Mesh(wingGeo, birdMat);
     w1.position.x = 0.7;
     const w2 = new THREE.Mesh(wingGeo, birdMat);
@@ -1025,8 +1547,14 @@ function buildEnvironment(scene: THREE.Scene) {
     g.add(w1, w2);
     const radius = 60 + Math.random() * 80;
     g.position.set(Math.cos(i) * radius, 40 + Math.random() * 20, Math.sin(i) * radius);
-    scene.add(g);
+    envGroup.add(g);
     birds.push({ mesh: g, angle: i, radius, speed: 0.15 + Math.random() * 0.1, y: 40 + Math.random() * 20 });
+  }
+}
+function updateClouds(dt: number) {
+  for (const c of clouds) {
+    c.position.x += dt * 3.5;
+    if (c.position.x > 420) c.position.x = -420;
   }
 }
 function updateBirds(dt: number) {
@@ -1046,6 +1574,15 @@ function updateBirds(dt: number) {
 /* ================= 8. GAME STATE ================= */
 type GameState = "start" | "playing" | "paused" | "gameover" | "victory";
 
+/* Difficulty modes: rival speed/skill, damage taken, penalty time & boost drain. */
+type DifficultyKey = "easy" | "normal" | "hard";
+const DIFFICULTIES: Record<DifficultyKey, { label: string; rival: number; damage: number; penalty: number; boost: number }> = {
+  easy: { label: "KOLAY", rival: 0.85, damage: 0.6, penalty: 0.6, boost: 0.7 },
+  normal: { label: "NORMAL", rival: 1.0, damage: 1.0, penalty: 1.0, boost: 1.0 },
+  hard: { label: "ZOR", rival: 1.15, damage: 1.4, penalty: 1.4, boost: 1.3 },
+};
+let levelBannerTimer = 0; // pending "next level" banner (cleared on stop)
+
 const game = {
   state: "start" as GameState,
   time: 0,
@@ -1054,10 +1591,14 @@ const game = {
   totalCheckpoints: 0,
   boostFlash: 0,
   position: 1,           // race position (1 = P1)
+  difficulty: "normal" as DifficultyKey, // chosen on the start screen
+  level: 1,              // current level (1..LEVELS.length)
 
   startGame() {
     AudioSys.init(); AudioSys.resume();
+    MusicSys.start(); // pirate shanty loops while the race is live
     this.time = 0; this.penalty = 0; this.checkpointsPassed = 0;
+    buildCourse(scene, this.level); // rebuild the current level fresh
     this.totalCheckpoints = Course.checkpoints.length;
     this.position = 1;
     Boat.reset();
@@ -1069,8 +1610,8 @@ const game = {
   },
   restart() { this.startGame(); },
   togglePause() {
-    if (this.state === "playing") { this.state = "paused"; show("pb-screen-pause"); }
-    else if (this.state === "paused") { this.state = "playing"; hide("pb-screen-pause"); }
+    if (this.state === "playing") { this.state = "paused"; MusicSys.stop(); show("pb-screen-pause"); }
+    else if (this.state === "paused") { this.state = "playing"; MusicSys.start(); hide("pb-screen-pause"); }
   },
   toggleMute() {
     AudioSys.init();
@@ -1079,7 +1620,7 @@ const game = {
     if (btn) btn.innerHTML = AudioSys.muted ? "&#128263;" : "&#128266;";
   },
   addPenalty(sec: number) {
-    this.penalty += sec;
+    this.penalty += sec * DIFFICULTIES[this.difficulty].penalty;
     updateHUD();
   },
   resetBoatSafe() {
@@ -1091,8 +1632,9 @@ const game = {
       Boat.pos.z = cp.z - Math.cos(cp.angle) * back;
       Boat.heading = cp.angle;
     } else {
-      Boat.pos.set(0, 0, -160);
-      Boat.heading = 0;
+      const def = LEVELS[this.level - 1];
+      Boat.pos.set(def.start[0], 0, def.start[1]);
+      Boat.heading = def.startHeading;
     }
     Boat.vel.set(0, 0, 0);
     Boat.speed = 0;
@@ -1104,14 +1646,41 @@ const game = {
   gameOver() {
     this.state = "gameover";
     AudioSys.stopEngine();
+    MusicSys.stop();
     AudioSys.gameover();
     const el = document.getElementById("pb-stats");
     if (el) el.innerHTML = `Süre: ${(this.time + this.penalty).toFixed(1)}s &nbsp; Kontrol Noktası: ${this.checkpointsPassed}/${this.totalCheckpoints}`;
     show("pb-screen-gameover");
   },
+  levelComplete() {
+    // Finished a race: advance to the next level, or take the overall victory
+    if (this.level < LEVELS.length) {
+      AudioSys.victory();
+      showToast("BÖLÜM " + this.level + " TAMAMLANDI");
+      levelBannerTimer = window.setTimeout(() => {
+        levelBannerTimer = 0;
+        this.advanceLevel();
+      }, 1600);
+    } else {
+      this.victory();
+    }
+  },
+  advanceLevel() {
+    this.level++;
+    buildCourse(scene, this.level); // fresh course + mood for the new level
+    this.time = 0; this.penalty = 0; this.checkpointsPassed = 0;
+    this.totalCheckpoints = Course.checkpoints.length;
+    this.position = 1;
+    Boat.reset(true); // health & difficulty carry over between levels
+    Course.reset();
+    Rivals.reset();
+    showToast("BÖLÜM " + this.level + " — " + LEVELS[this.level - 1].name);
+    updateHUD();
+  },
   victory() {
     this.state = "victory";
     AudioSys.stopEngine();
+    MusicSys.stop();
     AudioSys.victory();
     const total = this.time + this.penalty;
     const el = document.getElementById("pb-stats-v");
@@ -1207,7 +1776,7 @@ const game = {
         Course.current++;
         AudioSys.checkpoint();
         if (Course.current >= Course.checkpoints.length) {
-          this.victory();
+          this.levelComplete();
         }
         updateHUD();
       }
@@ -1222,7 +1791,7 @@ const game = {
         if (dot < -10) {
           this.addPenalty(MISS_PENALTY);
           this.resetBoatSafe();
-          showToast("KONTROL NOKTASI KAÇTI! -" + MISS_PENALTY + "s");
+          showToast("KONTROL NOKTASI KAÇTI! -" + (MISS_PENALTY * DIFFICULTIES[this.difficulty].penalty).toFixed(1) + "s");
         }
       }
     }
@@ -1338,18 +1907,21 @@ function updateCamera(dt: number) {
 
 /* ================= 10. HUD & OVERLAYS ================= */
 const OVERLAY_CSS = `
-.pb-hud { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:flex-start; padding:10px 14px; pointer-events:none; z-index:5; font-family:'Courier New',monospace; }
-.pb-hud-box { background:rgba(0,0,0,0.5); border:2px solid rgba(0,200,255,0.5); border-radius:8px; color:#fff; font-size:14px; font-weight:bold; padding:6px 12px; letter-spacing:1px; text-shadow:1px 1px 0 #000; display:flex; flex-direction:column; gap:4px; }
-.pb-bar { width:130px; height:10px; background:rgba(255,255,255,0.2); border-radius:5px; overflow:hidden; }
-.pb-bar-fill { height:100%; transition:width 0.15s; }
+.pb-hud { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:flex-start; padding:12px 16px; pointer-events:none; z-index:5; font-family:'Courier New',monospace; }
+.pb-hud-box { background:rgba(0,0,0,0.5); border:2px solid rgba(0,200,255,0.5); border-radius:8px; color:#fff; font-size:14px; font-weight:bold; padding:8px 12px; letter-spacing:1px; text-shadow:1px 1px 0 #000; display:flex; flex-direction:column; gap:6px; }
+.pb-hud-row { display:flex; align-items:center; gap:8px; min-height:16px; }
+.pb-hud-label { width:52px; flex:none; color:#88ccff; }
+.pb-hud-val { min-width:52px; }
+.pb-bar { width:130px; height:10px; background:rgba(255,255,255,0.2); border-radius:5px; overflow:hidden; flex:none; }
+.pb-bar-fill { height:100%; transition:width 0.15s; display:block; }
 .pb-hp-fill { background:linear-gradient(90deg,#ff3333,#ff7755); }
 .pb-boost-fill { background:linear-gradient(90deg,#00ccff,#66ffff); }
-.pb-speedo { position:absolute; bottom:18px; right:18px; width:110px; height:110px; z-index:5; pointer-events:none; }
+.pb-speedo { position:absolute; bottom:18px; right:18px; width:130px; height:130px; background:rgba(0,20,40,0.7); border:2px solid rgba(0,200,255,0.5); border-radius:8px; box-shadow:0 0 0 2px rgba(0,0,0,0.35); z-index:5; pointer-events:none; box-sizing:border-box; padding:8px; }
 .pb-speedo svg { width:100%; height:100%; }
 .pb-speedo .spd-num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'Courier New',monospace; font-size:26px; font-weight:bold; color:#fff; text-shadow:2px 2px 0 #000; }
 .pb-speedo .spd-unit { position:absolute; bottom:22px; left:0; right:0; text-align:center; font-size:10px; color:#88ccff; font-family:'Courier New',monospace; }
-.pb-minimap { position:absolute; bottom:18px; left:18px; width:130px; height:130px; background:rgba(0,20,40,0.7); border:2px solid rgba(0,200,255,0.5); border-radius:8px; z-index:5; pointer-events:none; }
-.pb-mute { pointer-events:auto; cursor:pointer; background:rgba(0,0,0,0.5); border:2px solid rgba(255,255,255,0.6); border-radius:8px; color:#fff; font-size:16px; width:40px; height:36px; }
+.pb-minimap { position:absolute; bottom:18px; left:18px; width:130px; height:130px; background:rgba(0,20,40,0.7); border:2px solid rgba(0,200,255,0.5); border-radius:8px; box-shadow:0 0 0 2px rgba(0,0,0,0.35); z-index:5; pointer-events:none; box-sizing:border-box; }
+.pb-mute { pointer-events:auto; cursor:pointer; background:rgba(0,0,0,0.5); border:2px solid rgba(0,200,255,0.5); border-radius:8px; color:#fff; font-size:16px; width:40px; height:36px; }
 .pb-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,10,25,0.88); color:#fff; z-index:10; text-align:center; font-family:'Courier New',monospace; }
 .pb-overlay.hidden { display:none; }
 .pb-overlay h1 { font-size:clamp(30px,7vw,58px); letter-spacing:4px; color:#00ddff; text-shadow:3px 3px 0 #004466,6px 6px 0 rgba(0,0,0,0.5); margin-bottom:12px; }
@@ -1359,6 +1931,10 @@ const OVERLAY_CSS = `
 .pb-overlay .big-btn:active { transform:translateY(4px); box-shadow:0 1px 0 #004466; }
 .pb-overlay .keys { margin-top:18px; font-size:13px; color:#88aacc; line-height:2; }
 .pb-overlay .keys b { color:#00ddff; }
+.pb-diffrow { display:flex; gap:12px; margin-top:16px; }
+.pb-diff-btn { font-family:inherit; font-size:clamp(13px,2.2vw,16px); font-weight:bold; padding:10px 22px; background:linear-gradient(#335577,#223344); color:#cfe8ff; border:2px solid rgba(0,200,255,0.4); border-radius:10px; cursor:pointer; box-shadow:0 4px 0 #112233; letter-spacing:2px; }
+.pb-diff-btn.sel { background:linear-gradient(#00ccff,#0088cc); color:#fff; border-color:#fff; box-shadow:0 4px 0 #004466; }
+.pb-diff-btn:active { transform:translateY(3px); box-shadow:0 1px 0 #112233; }
 .pb-stats { font-size:clamp(15px,2.6vw,20px); color:#ffdd44; margin:8px 0; }
 .pb-toast { position:absolute; top:20%; left:0; right:0; text-align:center; font-family:'Courier New',monospace; font-size:clamp(20px,4vw,36px); font-weight:bold; color:#00ffcc; text-shadow:3px 3px 0 #000; z-index:6; pointer-events:none; opacity:0; transition:opacity 0.3s; letter-spacing:3px; }
 .pb-toast.show { opacity:1; }
@@ -1383,13 +1959,15 @@ function buildOverlayUI(container: HTMLElement) {
   hud.className = "pb-hud";
   hud.innerHTML = `
     <div class="pb-hud-box">
-      <span>SÜRE <span id="pb-time">0.0</span>s</span>
-      <span>KAPI <span id="pb-cp">0</span>/<span id="pb-cp-total">0</span></span>
-      <span>SIRA <span id="pb-pos">P1</span></span>
-      <span>CAN <span class="pb-bar"><span class="pb-bar-fill pb-hp-fill" id="pb-hp-fill" style="width:100%"></span></span></span>
-      <span>NİTRO <span class="pb-bar"><span class="pb-bar-fill pb-boost-fill" id="pb-boost-fill" style="width:100%"></span></span></span>
+      <div class="pb-hud-row"><span class="pb-hud-label">SÜRE</span><span class="pb-hud-val"><span id="pb-time">0.0</span>s</span></div>
+      <div class="pb-hud-row"><span class="pb-hud-label">KAPI</span><span class="pb-hud-val"><span id="pb-cp">0</span>/<span id="pb-cp-total">0</span></span></div>
+      <div class="pb-hud-row"><span class="pb-hud-label">SIRA</span><span class="pb-hud-val" id="pb-pos">P1</span></div>
+      <div class="pb-hud-row"><span class="pb-hud-label">BÖLÜM</span><span class="pb-hud-val" id="pb-level">1 — Sunny Bay</span></div>
+      <div class="pb-hud-row"><span class="pb-hud-label">ZORLUK</span><span class="pb-hud-val" id="pb-diff">NORMAL</span></div>
+      <div class="pb-hud-row"><span class="pb-hud-label">CAN</span><span class="pb-bar"><span class="pb-bar-fill pb-hp-fill" id="pb-hp-fill" style="width:100%"></span></span></div>
+      <div class="pb-hud-row"><span class="pb-hud-label">NİTRO</span><span class="pb-bar"><span class="pb-bar-fill pb-boost-fill" id="pb-boost-fill" style="width:100%"></span></span></div>
     </div>
-    <button id="pb-mute" class="pb-mute" title="Sesi kapat (M)">&#128266;</button>`;
+    <button id="pb-mute" class="pb-mute" title="Sesi ve müziği kapat (M)">&#128266;</button>`;
   container.appendChild(hud);
 
   // Speedometer (SVG arc)
@@ -1405,9 +1983,9 @@ function buildOverlayUI(container: HTMLElement) {
     <div class="spd-unit">km/sa</div>`;
   container.appendChild(speedo);
 
-  // Minimap
+  // Minimap (126px buffer inside the 130px border-box frame)
   const minimap = document.createElement("canvas");
-  minimap.width = 130; minimap.height = 130;
+  minimap.width = 126; minimap.height = 126;
   minimap.className = "pb-minimap";
   container.appendChild(minimap);
   minimapCtx = minimap.getContext("2d");
@@ -1435,9 +2013,14 @@ function buildOverlayUI(container: HTMLElement) {
   mk("pb-screen-start", `
     <h1>SÜRAT TEKNESİ HÜCUMU</h1>
     <h2>Sürat Teknesi Engel Yarışı</h2>
-    <p>Okyanusta ilerle, mayınlardan ve kayalardan kaç, her kontrol kapısından geç.</p>
+    <p>Üç bölüm: Sunny Bay, Adalar Kanalı ve Fırtına Kanalı. Her kontrol kapısından geç, mayınlardan ve kayalardan kaç.</p>
     <p>Rakip tekneleri geç, parlak halkalardan geçerek nitrounu doldur, yağ lekelerinden kaç.</p>
     <p>Final rampasına dikkat — o atlayış efsanedir.</p>
+    <div class="pb-diffrow">
+      <button class="pb-diff-btn" id="pb-btn-diff-easy">KOLAY</button>
+      <button class="pb-diff-btn" id="pb-btn-diff-normal">NORMAL</button>
+      <button class="pb-diff-btn" id="pb-btn-diff-hard">ZOR</button>
+    </div>
     <button class="big-btn" id="pb-btn-start">YARIŞI BAŞLAT</button>
     <div class="keys">
       <b>W / &#8593;</b> gaz &nbsp; <b>S / &#8595;</b> fren &nbsp; <b>A D / &#8592; &#8594;</b> direksiyon<br>
@@ -1457,8 +2040,8 @@ function buildOverlayUI(container: HTMLElement) {
     <button class="big-btn" id="pb-btn-retry">TEKRAR DENE</button>`, true);
 
   mk("pb-screen-victory", `
-    <h1>BİTİŞ!</h1>
-    <p>Parkuru fethettin. O final atlayışı efsaneydi.</p>
+    <h1>ZAFER!</h1>
+    <p>Üç bölümü de bitirdin: Sunny Bay, Adalar Kanalı ve Fırtına Kanalı senin. O final atlayışı efsaneydi.</p>
     <div class="pb-stats" id="pb-stats-v"></div>
     <button class="big-btn" id="pb-btn-again">TEKRAR YARIŞ</button>`, true);
 
@@ -1477,11 +2060,23 @@ function buildOverlayUI(container: HTMLElement) {
   container.appendChild(touch);
 
   const on = (id: string, fn: () => void) => document.getElementById(id)?.addEventListener("click", fn);
-  on("pb-btn-start", () => game.startGame());
+  // Difficulty picker: highlight the selected mode (default NORMAL)
+  const pickDiff = (k: DifficultyKey) => {
+    game.difficulty = k;
+    for (const key of ["easy", "normal", "hard"] as DifficultyKey[]) {
+      document.getElementById("pb-btn-diff-" + key)?.classList.toggle("sel", key === k);
+    }
+    updateHUD();
+  };
+  on("pb-btn-diff-easy", () => pickDiff("easy"));
+  on("pb-btn-diff-normal", () => pickDiff("normal"));
+  on("pb-btn-diff-hard", () => pickDiff("hard"));
+  pickDiff(game.difficulty); // sync highlight with the stored difficulty
+  on("pb-btn-start", () => { game.level = 1; game.startGame(); }); // start screen resets to L1
   on("pb-btn-resume", () => game.togglePause());
   on("pb-btn-restart", () => game.restart());
-  on("pb-btn-retry", () => game.restart());
-  on("pb-btn-again", () => game.restart());
+  on("pb-btn-retry", () => game.restart()); // retry: current level, same difficulty
+  on("pb-btn-again", () => { game.level = 1; game.restart(); }); // full restart from L1
   on("pb-mute", () => game.toggleMute());
 }
 
@@ -1506,6 +2101,8 @@ function updateHUD() {
   set("pb-time", (game.time + game.penalty).toFixed(1));
   set("pb-cp", game.checkpointsPassed);
   set("pb-cp-total", game.totalCheckpoints);
+  set("pb-level", game.level + " — " + LEVELS[game.level - 1].name);
+  set("pb-diff", DIFFICULTIES[game.difficulty].label);
   updatePositionHUD();
   const hp = document.getElementById("pb-hp-fill");
   if (hp) hp.style.width = Math.max(0, Boat.health) + "%";
@@ -1527,12 +2124,19 @@ function updateHUD() {
 function drawMinimap() {
   if (!minimapCtx) return;
   const ctx = minimapCtx;
-  const S = 130;
+  const S = 126;
   const scale = S / (ARENA * 2);
   ctx.clearRect(0, 0, S, S);
   // Background
   ctx.fillStyle = "rgba(0,30,60,0.8)";
   ctx.fillRect(0, 0, S, S);
+  // Course line: start → gates in order (faint racing line)
+  ctx.strokeStyle = "rgba(0,200,255,0.3)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo((START_POS.x + ARENA) * scale, (START_POS.z + ARENA) * scale);
+  for (const cp of Course.checkpoints) ctx.lineTo((cp.x + ARENA) * scale, (cp.z + ARENA) * scale);
+  ctx.stroke();
   // Checkpoints
   for (let i = 0; i < Course.checkpoints.length; i++) {
     const cp = Course.checkpoints[i];
@@ -1596,6 +2200,8 @@ let renderer: THREE.WebGLRenderer;
 
 export function startGame(canvas: HTMLCanvasElement): () => void {
   canvasEl = canvas;
+  game.state = "start";
+  game.level = 1; // a fresh session always begins at L1
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x88bbee, 60, 320);
 
@@ -1604,16 +2210,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   renderer.setSize(canvas.width, canvas.height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-  // Lights
-  const ambient = new THREE.AmbientLight(0x8899bb, 0.9);
-  scene.add(ambient);
-  const sun = new THREE.DirectionalLight(0xffeecc, 1.4);
-  sun.position.set(100, 150, -100);
-  scene.add(sun);
+  // Lights: hemisphere sky/ground fill + one warm sun (low light count)
+  hemiLight = new THREE.HemisphereLight(0xbfe3ff, 0x2a5a7a, 0.75);
+  scene.add(hemiLight);
+  sunLight = new THREE.DirectionalLight(0xfff2d0, 1.2);
+  sunLight.position.set(150, 120, -200); // matches the visible sun disc
+  scene.add(sunLight);
 
+  envGroup = new THREE.Group(); // level scenery (sky/sun/clouds/islands/birds)
+  scene.add(envGroup);
   buildOcean(scene);
-  buildEnvironment(scene);
-  Course.build(scene);
+  buildCourse(scene, game.level); // course + per-level mood & scenery
   Boat.build(scene);
   Rivals.build(scene);
   Boat.reset();
@@ -1646,6 +2253,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const t = ts / 1000;
     updateOcean(t);
     updateBirds(dt);
+    updateClouds(dt);
     game.update(dt);
     if (game.state === "playing") updateCamera(dt);
     renderer.render(scene, camera);
@@ -1655,9 +2263,11 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   return () => {
     cancelAnimationFrame(raf);
+    if (levelBannerTimer !== 0) { clearTimeout(levelBannerTimer); levelBannerTimer = 0; }
     window.removeEventListener("resize", resize);
     Input.cleanup();
     AudioSys.stopEngine();
+    MusicSys.dispose(); // stop scheduler + release music nodes
     wrap.remove();
     renderer.dispose();
     canvasEl = null;
