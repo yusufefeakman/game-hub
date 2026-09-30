@@ -2,6 +2,7 @@
    POWERBOAT RUSH — 3D Speedboat Race (Three.js)
    Third-person chase cam, WASD/arrows steer, Space = nitro boost.
    Procedural ocean, wake, spray, islands, birds, full obstacle course.
+   Rival AI boats, nitro boost rings, and oil-slip hazards.
    All graphics procedural, all audio synthesized (Web Audio API).
 
    Public API:
@@ -29,6 +30,13 @@ const ROCK_DAMAGE = 26;
 const BARRIER_DAMAGE = 20;
 const WHIRL_PULL = 26;
 const BOAT_RADIUS = 2.2;
+const RIVAL_COUNT = 3;           // AI boats racing the same course
+const RIVAL_ACCEL = 21;          // AI thrust (slightly weaker than the player)
+const RIVAL_MAX_SPEED = 39;      // AI top speed (the player can out-run them)
+const RING_REFILL = 35;          // boost energy restored per ring pass
+const RING_COOLDOWN = 5;         // seconds before a ring recharges
+const OIL_SLIP_TIME = 1.8;       // seconds of reduced grip after an oil slick
+const GRIP_LOSS = 0.35;          // steering multiplier while slippery
 
 /* ================= 2. AUDIO (synthesized) ================= */
 const AudioSys = {
@@ -104,6 +112,9 @@ const AudioSys = {
   splash() { this.noise(0.35, 0.45, 0, 900); },
   checkpoint() { this.tone("square", 660, 660, 0.1, 0.35); this.tone("square", 880, 880, 0.16, 0.35, 0.1); },
   boost() { this.tone("sawtooth", 200, 700, 0.3, 0.3); this.noise(0.25, 0.25, 0, 2000); },
+  ring() { this.tone("sine", 880, 1320, 0.22, 0.4); this.tone("sine", 1320, 1760, 0.28, 0.3, 0.09); },
+  oil() { this.noise(0.5, 0.35, 0, 240); this.tone("sine", 90, 55, 0.4, 0.25); },
+  overtake() { this.tone("square", 520, 780, 0.16, 0.3); this.tone("square", 780, 1040, 0.18, 0.28, 0.1); },
   mine() { this.noise(0.6, 0.7, 0, 300); this.tone("sine", 80, 30, 0.6, 0.6); },
   gameover() { [330, 262, 196, 131].forEach((f, i) => this.tone("triangle", f, f, 0.35, 0.4, i * 0.28)); },
   victory() { [523, 659, 784, 1047, 784, 1047, 1319, 1568].forEach((f, i) => this.tone("square", f, f, 0.18, 0.32, i * 0.13)); },
@@ -191,6 +202,15 @@ interface Debris { mesh: THREE.Mesh; x: number; z: number; r: number; bobT: numb
 interface Barrier { group: THREE.Group; x: number; z: number; axis: "x" | "z"; range: number; speed: number; t: number; w: number; }
 interface Whirlpool { x: number; z: number; r: number; mesh: THREE.Mesh; }
 interface Ramp { x: number; z: number; angle: number; mesh: THREE.Mesh; len: number; }
+interface BoostRing { mesh: THREE.Mesh; x: number; z: number; r: number; cooldown: number; pulse: number; }
+interface OilSlick { mesh: THREE.Mesh; x: number; z: number; r: number; pulse: number; }
+interface Rival {
+  group: THREE.Group; pos: THREE.Vector3; heading: number; speed: number;
+  waypoint: number;      // index of the next checkpoint to reach
+  skill: number;         // per-rival speed/steering variance
+  finished: boolean;
+  progress: number;      // checkpoints passed + fraction of current segment
+}
 
 const Course = {
   checkpoints: [] as Checkpoint[],
@@ -200,6 +220,8 @@ const Course = {
   barriers: [] as Barrier[],
   whirlpools: [] as Whirlpool[],
   ramps: [] as Ramp[],
+  boostRings: [] as BoostRing[],
+  oils: [] as OilSlick[],
   current: 0,          // index of next checkpoint to pass
   build(scene: THREE.Scene) {
     const postMat = new THREE.MeshLambertMaterial({ color: 0xffcc00 });
@@ -344,10 +366,42 @@ const Course = {
     };
     mkRamp(30, -50, -Math.PI / 2, 12);   // mid-course ramp
     mkRamp(0, 105, Math.PI, 16);         // FINAL BIG RAMP (dramatic jump)
+
+    // --- Boost rings (glowing hoops between gates; refill nitro when passed) ---
+    // Placed at segment midpoints, offset clear of rocks/mines/whirlpools.
+    const ringGeo = new THREE.TorusGeometry(5.5, 0.5, 8, 24);
+    const ringSpots: [number, number][] = [
+      [0, 40], [22, 122], [62, 62], [50, -15], [-8, -68],
+      [-48, -45], [-52, 12], [-12, 95], [-8, 140],
+    ];
+    for (const [x, z] of ringSpots) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(ringGeo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(x, 0.6, z);
+      scene.add(mesh);
+      this.boostRings.push({ mesh, x, z, r: 5.5, cooldown: 0, pulse: 0 });
+    }
+
+    // --- Oil slicks (dark patches that steal steering grip) ---
+    const slickGeo = new THREE.CircleGeometry(6, 20);
+    const slickSpots: [number, number][] = [
+      [12, 105], [75, 32], [-24, -68], [-68, -12], [-38, 40],
+    ];
+    for (const [x, z] of slickSpots) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0x14100a, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(slickGeo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(x, 0.14, z);
+      scene.add(mesh);
+      this.oils.push({ mesh, x, z, r: 6, pulse: 0 });
+    }
   },
   reset() {
     for (const cp of this.checkpoints) cp.passed = false;
     for (const m of this.mines) { m.alive = true; (m.mesh.children[1] as THREE.Mesh).visible = true; }
+    for (const r of this.boostRings) { r.cooldown = 0; r.pulse = 0; r.mesh.scale.setScalar(1); }
+    for (const o of this.oils) { o.pulse = 0; o.mesh.scale.setScalar(1); }
     this.current = 0;
   },
 };
@@ -365,12 +419,15 @@ const Boat = {
   health: 100,
   boostEnergy: 100,
   invuln: 0,
+  slippery: 0,           // seconds of reduced grip left (oil slick)
   // visual refs
   hull: null as THREE.Mesh | null,
   cabin: null as THREE.Mesh | null,
   nitroGlow: null as THREE.Mesh | null,
+  flameGeo: null as THREE.BufferGeometry | null, // shared boost-flame geometry
   wakeTrail: [] as THREE.Mesh[],
   sprayParticles: [] as { mesh: THREE.Mesh; vel: THREE.Vector3; life: number }[],
+  flameParticles: [] as { mesh: THREE.Mesh; vel: THREE.Vector3; life: number }[],
 
   build(scene: THREE.Scene) {
     const g = this.group;
@@ -486,6 +543,9 @@ const Boat = {
     this.nitroGlow = glow;
     g.add(glow);
 
+    // Shared geometry for boost flame particles (one geo, many meshes)
+    this.flameGeo = new THREE.SphereGeometry(0.22, 6, 6);
+
     scene.add(g);
     this.syncVisual();
   },
@@ -509,6 +569,7 @@ const Boat = {
     this.health = 100;
     this.boostEnergy = 100;
     this.invuln = 2;
+    this.slippery = 0;
     this.syncVisual();
   },
   damage(amount: number, source: string) {
@@ -555,9 +616,15 @@ const Boat = {
 
     // --- Steering (more effective at speed) ---
     const turnEff = TURN_EFF_MIN + (1 - TURN_EFF_MIN) * Math.min(1, this.speed / (MAX_SPEED * 0.5));
+    // Oil slick: steering barely bites while slippery, plus a slack wobble
+    const grip = this.slippery > 0 ? GRIP_LOSS : 1;
+    if (this.slippery > 0) {
+      this.slippery -= dt;
+      this.heading += (Math.random() - 0.5) * 0.9 * dt * Math.min(1, this.speed / MAX_SPEED);
+    }
     // heading 0 = +Z (north), forward dir = (sin h, cos h). Pressing D
     // (steer=+1) swings the bow toward +X (east) = DECREASING heading.
-    this.heading -= Input.steer * TURN_RATE * turnEff * dt * (this.speed > 1 ? 1 : 0);
+    this.heading -= Input.steer * TURN_RATE * turnEff * grip * dt * (this.speed > 1 ? 1 : 0);
 
     // --- Move forward ---
     const dirX = Math.sin(this.heading), dirZ = Math.cos(this.heading);
@@ -634,6 +701,34 @@ const Boat = {
       }
     }
 
+    // --- Boost flame particles (polish: trail behind the stern) ---
+    if (boosting && Input.throttle && this.speed > 5 && this.flameGeo) {
+      for (let i = 0; i < 2; i++) {
+        const mesh = new THREE.Mesh(this.flameGeo, new THREE.MeshBasicMaterial({
+          color: Math.random() < 0.5 ? 0x33ccff : 0xffaa33, transparent: true, opacity: 0.9,
+        }));
+        mesh.position.set(
+          this.pos.x - dirX * 4.4 + (Math.random() - 0.5) * 0.8,
+          this.pos.y + 0.6 + Math.random() * 0.4,
+          this.pos.z - dirZ * 4.4 + (Math.random() - 0.5) * 0.8
+        );
+        scene.add(mesh);
+        this.flameParticles.push({
+          mesh,
+          vel: new THREE.Vector3(
+            -dirX * (6 + this.speed * 0.25) + (Math.random() - 0.5) * 3,
+            2 + Math.random() * 3,
+            -dirZ * (6 + this.speed * 0.25) + (Math.random() - 0.5) * 3
+          ),
+          life: 0.35 + Math.random() * 0.25,
+        });
+      }
+      if (this.flameParticles.length > 70) {
+        const old = this.flameParticles.shift()!;
+        scene.remove(old.mesh);
+      }
+    }
+
     // --- Wake trail ---
     if (this.speed > 5 && Math.random() < 0.6) {
       const wake = new THREE.Mesh(
@@ -669,6 +764,19 @@ const Boat = {
         this.sprayParticles.splice(i, 1);
       }
     }
+    // Boost flame particles fade & shrink
+    for (let i = this.flameParticles.length - 1; i >= 0; i--) {
+      const p = this.flameParticles[i];
+      p.life -= dt;
+      p.vel.y -= 6 * dt;
+      p.mesh.position.addScaledVector(p.vel, dt);
+      (p.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, p.life * 2.5);
+      p.mesh.scale.setScalar(Math.max(0.2, p.life * 2));
+      if (p.life <= 0) {
+        scene.remove(p.mesh);
+        this.flameParticles.splice(i, 1);
+      }
+    }
 
     this.syncVisual();
     AudioSys.setEngine(this.speed / (MAX_SPEED * BOOST_MULT), boosting);
@@ -690,6 +798,143 @@ function spawnSpray(x: number, y: number, z: number, n: number) {
     });
   }
 }
+
+/* ================= 5.5 RIVAL AI BOATS =================
+   Simple waypoint racers: steer toward the next checkpoint gate,
+   accelerate, and bleed speed through sharp turns. Progress =
+   checkpoints passed + fraction of the current segment, used to
+   compute the player's race position (P1/P2/...). */
+const START_POS = { x: 0, z: -160 }; // matches Boat.reset() start position
+const RIVAL_OFFSETS: [number, number][] = [[-7, -162], [7, -164], [14, -166]];
+const RIVAL_COLORS = [0xcc2244, 0xffaa22, 0x9944dd];
+const RIVAL_CSS = ["#cc2244", "#ffaa22", "#9944dd"];
+
+const Rivals = {
+  boats: [] as Rival[],
+
+  build(scene: THREE.Scene) {
+    // Reuse the player hull geometry; only the paint differs per rival.
+    const hullGeo = Boat.hull!.geometry;
+    const cabinGeo = new THREE.BoxGeometry(1.3, 0.9, 2.2);
+    const stripeGeo = new THREE.BoxGeometry(0.5, 0.06, 7.2);
+    const motorGeo = new THREE.BoxGeometry(0.9, 0.9, 0.5);
+    const darkMat = new THREE.MeshLambertMaterial({ color: 0x1a2230 });
+    const deckMat = new THREE.MeshLambertMaterial({ color: 0xf2f4f8 });
+
+    for (let i = 0; i < RIVAL_COUNT; i++) {
+      const g = new THREE.Group();
+      const hullMat = new THREE.MeshLambertMaterial({ color: RIVAL_COLORS[i % RIVAL_COLORS.length], side: THREE.DoubleSide });
+      const hull = new THREE.Mesh(hullGeo, hullMat);
+      hull.position.y = 0.7;
+      g.add(hull);
+      const cabin = new THREE.Mesh(cabinGeo, darkMat);
+      cabin.position.set(0, 1.9, -0.6);
+      g.add(cabin);
+      const stripe = new THREE.Mesh(stripeGeo, deckMat);
+      stripe.position.set(0, 1.72, 0.2);
+      g.add(stripe);
+      const motor = new THREE.Mesh(motorGeo, darkMat);
+      motor.position.set(0, 0.7, -3.7);
+      g.add(motor);
+      scene.add(g);
+      this.boats.push({
+        group: g,
+        pos: new THREE.Vector3(RIVAL_OFFSETS[i][0], 0, RIVAL_OFFSETS[i][1]),
+        heading: 0, speed: 0, waypoint: 0,
+        skill: 0.9 + i * 0.06, finished: false, progress: 0,
+      });
+    }
+  },
+
+  reset() {
+    for (let i = 0; i < this.boats.length; i++) {
+      const r = this.boats[i];
+      r.pos.set(RIVAL_OFFSETS[i][0], 0, RIVAL_OFFSETS[i][1]);
+      r.heading = 0; r.speed = 0; r.waypoint = 0;
+      r.finished = false; r.progress = 0;
+      r.group.position.copy(r.pos);
+      r.group.rotation.set(0, 0, 0);
+    }
+  },
+
+  update(dt: number, waveH: (x: number, z: number) => number) {
+    if (game.state !== "playing") return;
+    for (const r of this.boats) {
+      const cp = Course.checkpoints[Math.min(r.waypoint, Course.checkpoints.length - 1)];
+      const dx = cp.x - r.pos.x, dz = cp.z - r.pos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      let steer = 0;
+
+      if (!r.finished) {
+        // Reached the gate: advance the waypoint
+        if (dist < 9) {
+          r.waypoint++;
+          if (r.waypoint >= Course.checkpoints.length) r.finished = true;
+        }
+        // Steer toward the target gate (heading 0 = +Z, dir = (sin h, cos h))
+        const target = Math.atan2(dx, dz);
+        let diff = target - r.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        steer = Math.max(-1, Math.min(1, diff * 2.5));
+        r.heading += steer * TURN_RATE * 0.85 * r.skill * dt;
+        r.speed += RIVAL_ACCEL * dt;
+        // Bleed speed through sharp turns so gates stay passable
+        if (Math.abs(diff) > 0.7) r.speed *= (1 - 1.1 * dt);
+        r.speed = Math.min(r.speed, RIVAL_MAX_SPEED * r.skill);
+      } else {
+        r.speed *= (1 - DRAG * dt); // drifting past the finish line
+      }
+      r.speed -= r.speed * DRAG * dt; // water drag
+      r.pos.x += Math.sin(r.heading) * r.speed * dt;
+      r.pos.z += Math.cos(r.heading) * r.speed * dt;
+      r.pos.y = waveH(r.pos.x, r.pos.z) * 0.5;
+
+      // Progress: checkpoints passed + fraction of the current segment
+      const prev = r.waypoint > 0 ? Course.checkpoints[Math.min(r.waypoint - 1, Course.checkpoints.length - 1)] : START_POS;
+      const segLen = Math.max(20, Math.sqrt((cp.x - prev.x) ** 2 + (cp.z - prev.z) ** 2));
+      const frac = r.finished ? 0 : Math.max(0, Math.min(1, 1 - dist / segLen));
+      r.progress = Math.min(r.waypoint, Course.checkpoints.length) + frac;
+
+      r.group.position.copy(r.pos);
+      r.group.rotation.y = r.heading;
+      r.group.rotation.z = -steer * Math.min(1, r.speed / MAX_SPEED) * 0.3;
+    }
+  },
+
+  playerProgress(): number {
+    const cp = Course.checkpoints[Math.min(Course.current, Course.checkpoints.length - 1)];
+    const prev = Course.current > 0 ? Course.checkpoints[Course.current - 1] : START_POS;
+    const segLen = Math.max(20, Math.sqrt((cp.x - prev.x) ** 2 + (cp.z - prev.z) ** 2));
+    const dist = Math.sqrt((Boat.pos.x - cp.x) ** 2 + (Boat.pos.z - cp.z) ** 2);
+    if (Course.current >= Course.checkpoints.length) return Course.checkpoints.length;
+    return Course.current + Math.max(0, Math.min(1, 1 - dist / segLen));
+  },
+
+  position(): number {
+    const pp = this.playerProgress();
+    let ahead = 0;
+    for (const r of this.boats) if (r.progress > pp) ahead++;
+    return 1 + ahead;
+  },
+
+  collide() {
+    // Rivals are racers, not hazards: soft push-out, no damage.
+    for (const r of this.boats) {
+      const dx = Boat.pos.x - r.pos.x, dz = Boat.pos.z - r.pos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const minDist = BOAT_RADIUS + 2.4;
+      if (dist < minDist && dist > 0.01) {
+        const push = (minDist - dist) / dist;
+        Boat.pos.x += dx * push;
+        Boat.pos.z += dz * push;
+        Boat.speed *= 0.55;
+        Boat.vel.set((dx / dist) * 3.5, 0, (dz / dist) * 3.5);
+        AudioSys.splash();
+      }
+    }
+  },
+};
 
 /* ================= 6. OCEAN ================= */
 let oceanGeo: THREE.PlaneGeometry;
@@ -808,13 +1053,16 @@ const game = {
   checkpointsPassed: 0,
   totalCheckpoints: 0,
   boostFlash: 0,
+  position: 1,           // race position (1 = P1)
 
   startGame() {
     AudioSys.init(); AudioSys.resume();
     this.time = 0; this.penalty = 0; this.checkpointsPassed = 0;
     this.totalCheckpoints = Course.checkpoints.length;
+    this.position = 1;
     Boat.reset();
     Course.reset();
+    Rivals.reset();
     this.state = "playing";
     hideAllScreens();
     updateHUD();
@@ -867,7 +1115,7 @@ const game = {
     AudioSys.victory();
     const total = this.time + this.penalty;
     const el = document.getElementById("pb-stats-v");
-    if (el) el.innerHTML = `Final Süre: ${total.toFixed(1)}s (ceza +${this.penalty.toFixed(1)}s)`;
+    if (el) el.innerHTML = `Final Süre: ${total.toFixed(1)}s (ceza +${this.penalty.toFixed(1)}s) &nbsp; Sıra: P${this.position}/${RIVAL_COUNT + 1}`;
     show("pb-screen-victory");
   },
   update(dt: number) {
@@ -1008,6 +1256,69 @@ const game = {
       mat.opacity = c.passed ? 0.15 : 0.35 + Math.sin(t * 4) * 0.2;
       mat.color.setHex(c.passed ? 0x44ff44 : (Course.current === Course.checkpoints.indexOf(c) ? 0x00ffcc : 0x4488aa));
     }
+
+    // --- Rival AI boats & race position ---
+    Rivals.update(dt, (x, z) => waveH(x, z, t));
+    Rivals.collide();
+    const pos = Rivals.position();
+    if (pos !== this.position) {
+      if (pos < this.position) {
+        AudioSys.overtake();
+        showToast("ÖNÜNE GEÇTİN! P" + pos);
+      }
+      this.position = pos;
+      updatePositionHUD();
+    }
+
+    // --- Boost rings (refill nitro when driven through) ---
+    for (const ring of Course.boostRings) {
+      if (ring.cooldown > 0) { ring.cooldown -= dt; continue; }
+      const dx = bp.x - ring.x, dz = bp.z - ring.z;
+      if (dx * dx + dz * dz < (ring.r + BOAT_RADIUS * 0.5) ** 2) {
+        ring.cooldown = RING_COOLDOWN;
+        ring.pulse = 1;
+        Boat.boostEnergy = Math.min(100, Boat.boostEnergy + RING_REFILL);
+        this.boostFlash = 0.5;
+        AudioSys.ring();
+        spawnSpray(ring.x, 1, ring.z, 8);
+        updateHUD();
+      }
+    }
+    // Boost ring visuals: pass pulse + recharge glow
+    for (const ring of Course.boostRings) {
+      const mat = ring.mesh.material as THREE.MeshBasicMaterial;
+      if (ring.pulse > 0) {
+        ring.pulse = Math.max(0, ring.pulse - dt * 2);
+        ring.mesh.scale.setScalar(1 + ring.pulse * 0.5);
+        mat.opacity = 0.3 + ring.pulse * 0.6;
+      } else {
+        ring.mesh.scale.setScalar(1);
+        mat.opacity = ring.cooldown > 0 ? 0.12 : 0.4 + Math.sin(t * 3 + ring.x * 0.1) * 0.15;
+      }
+    }
+
+    // --- Oil slicks (lose steering grip when driven over) ---
+    for (const o of Course.oils) {
+      const dx = bp.x - o.x, dz = bp.z - o.z;
+      if (dx * dx + dz * dz < (o.r + BOAT_RADIUS) ** 2) {
+        if (Boat.slippery <= 0) AudioSys.oil();
+        Boat.slippery = OIL_SLIP_TIME;
+        o.pulse = 1;
+      }
+    }
+    // Oil slick visuals: slow shimmer, ripple when hit
+    for (const o of Course.oils) {
+      const mat = o.mesh.material as THREE.MeshBasicMaterial;
+      if (o.pulse > 0) {
+        o.pulse = Math.max(0, o.pulse - dt * 1.5);
+        o.mesh.scale.setScalar(1 + o.pulse * 0.2);
+      } else o.mesh.scale.setScalar(1);
+      mat.opacity = 0.7 + Math.sin(t * 2 + o.x * 0.1) * 0.1 + o.pulse * 0.2;
+    }
+
+    // Ring-pass screen flash (decays with game.boostFlash)
+    const flashEl = document.getElementById("pb-flash");
+    if (flashEl) flashEl.style.opacity = String(Math.max(0, Math.min(0.7, this.boostFlash * 1.4)));
   },
 };
 
@@ -1051,6 +1362,7 @@ const OVERLAY_CSS = `
 .pb-stats { font-size:clamp(15px,2.6vw,20px); color:#ffdd44; margin:8px 0; }
 .pb-toast { position:absolute; top:20%; left:0; right:0; text-align:center; font-family:'Courier New',monospace; font-size:clamp(20px,4vw,36px); font-weight:bold; color:#00ffcc; text-shadow:3px 3px 0 #000; z-index:6; pointer-events:none; opacity:0; transition:opacity 0.3s; letter-spacing:3px; }
 .pb-toast.show { opacity:1; }
+.pb-flash { position:absolute; inset:0; background:radial-gradient(circle,rgba(0,255,200,0.35),rgba(0,120,255,0.15) 60%,transparent); z-index:6; pointer-events:none; opacity:0; }
 .pb-touch { position:absolute; bottom:0; left:0; right:0; display:none; justify-content:space-between; align-items:flex-end; padding:14px 16px; z-index:8; pointer-events:none; }
 body.touch .pb-touch { display:flex; }
 .pb-tbtn { pointer-events:auto; width:70px; height:70px; border-radius:50%; background:rgba(255,255,255,0.15); border:3px solid rgba(255,255,255,0.5); color:#fff; font-size:26px; font-weight:bold; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; }
@@ -1073,6 +1385,7 @@ function buildOverlayUI(container: HTMLElement) {
     <div class="pb-hud-box">
       <span>SÜRE <span id="pb-time">0.0</span>s</span>
       <span>KAPI <span id="pb-cp">0</span>/<span id="pb-cp-total">0</span></span>
+      <span>SIRA <span id="pb-pos">P1</span></span>
       <span>CAN <span class="pb-bar"><span class="pb-bar-fill pb-hp-fill" id="pb-hp-fill" style="width:100%"></span></span></span>
       <span>NİTRO <span class="pb-bar"><span class="pb-bar-fill pb-boost-fill" id="pb-boost-fill" style="width:100%"></span></span></span>
     </div>
@@ -1104,6 +1417,12 @@ function buildOverlayUI(container: HTMLElement) {
   toast.id = "pb-toast";
   container.appendChild(toast);
 
+  // Ring-pass flash overlay
+  const flash = document.createElement("div");
+  flash.className = "pb-flash";
+  flash.id = "pb-flash";
+  container.appendChild(flash);
+
   const mk = (id: string, inner: string, hidden = false) => {
     const el = document.createElement("div");
     el.className = "pb-overlay" + (hidden ? " hidden" : "");
@@ -1117,6 +1436,7 @@ function buildOverlayUI(container: HTMLElement) {
     <h1>SÜRAT TEKNESİ HÜCUMU</h1>
     <h2>Sürat Teknesi Engel Yarışı</h2>
     <p>Okyanusta ilerle, mayınlardan ve kayalardan kaç, her kontrol kapısından geç.</p>
+    <p>Rakip tekneleri geç, parlak halkalardan geçerek nitrounu doldur, yağ lekelerinden kaç.</p>
     <p>Final rampasına dikkat — o atlayış efsanedir.</p>
     <button class="big-btn" id="pb-btn-start">YARIŞI BAŞLAT</button>
     <div class="keys">
@@ -1177,11 +1497,16 @@ function showToast(text: string) {
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 1500);
 }
+function updatePositionHUD() {
+  const el = document.getElementById("pb-pos");
+  if (el) el.textContent = "P" + game.position + "/" + (RIVAL_COUNT + 1);
+}
 function updateHUD() {
   const set = (id: string, v: string | number) => { const el = document.getElementById(id); if (el) el.textContent = String(v); };
   set("pb-time", (game.time + game.penalty).toFixed(1));
   set("pb-cp", game.checkpointsPassed);
   set("pb-cp-total", game.totalCheckpoints);
+  updatePositionHUD();
   const hp = document.getElementById("pb-hp-fill");
   if (hp) hp.style.width = Math.max(0, Boat.health) + "%";
   const boost = document.getElementById("pb-boost-fill");
@@ -1224,6 +1549,32 @@ function drawMinimap() {
     const x = (m.x + ARENA) * scale, y = (m.z + ARENA) * scale;
     ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
   }
+  // Boost rings
+  ctx.strokeStyle = "#66ffcc";
+  ctx.lineWidth = 1;
+  for (const ring of Course.boostRings) {
+    const x = (ring.x + ARENA) * scale, y = (ring.z + ARENA) * scale;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(2, ring.r * scale), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Oil slicks
+  ctx.fillStyle = "rgba(30,25,10,0.9)";
+  for (const o of Course.oils) {
+    const x = (o.x + ARENA) * scale, y = (o.z + ARENA) * scale;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(2, o.r * scale), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Rival boats (colored dots)
+  for (let i = 0; i < Rivals.boats.length; i++) {
+    const r = Rivals.boats[i];
+    const x = (r.pos.x + ARENA) * scale, y = (r.pos.z + ARENA) * scale;
+    ctx.fillStyle = RIVAL_CSS[i % RIVAL_CSS.length];
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
   // Boat (triangle)
   const bx = (Boat.pos.x + ARENA) * scale, by = (Boat.pos.z + ARENA) * scale;
   ctx.save();
@@ -1264,6 +1615,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   buildEnvironment(scene);
   Course.build(scene);
   Boat.build(scene);
+  Rivals.build(scene);
   Boat.reset();
   Course.reset();
   game.totalCheckpoints = Course.checkpoints.length;
