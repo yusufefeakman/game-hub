@@ -38,6 +38,14 @@ const PLAYER_W = 34;
 const PLAYER_H = 42;
 const LEVEL_TIME = 180; // seconds
 
+// Power-ups, bats & combo scoring
+const POWER_TIME = 8; // seconds each power-up lasts
+const DOUBLE_JUMP_VEL = -660; // extra (bird-wing) jump velocity
+const MAGNET_RADIUS = 190; // coin magnet pull radius
+const BAT_SPEED = 85; // bat horizontal drift speed (toward the player)
+const COMBO_WINDOW = 1.5; // seconds between stomps to keep a combo alive
+const COMBO_MAX = 5; // score multiplier cap
+
 // World / level geometry
 const TILE = 40; // tile size in px
 const LEVEL_COLS = 220; // level width in tiles
@@ -69,6 +77,8 @@ const C = {
   playerBelly: "#d6f3ff",
   enemy: "#b06ab3",
   enemyDark: "#7d4480",
+  bat: "#7e57c2",
+  batDark: "#4527a0",
   boss: "#c792ea",
   bossDark: "#8e5bb5",
   star: "#ffe066",
@@ -134,6 +144,9 @@ const AudioSys = {
   hurt() { this.tone("sawtooth", 300, 110, 0.35, 0.4); },
   checkpoint() { this.tone("square", 523, 523, 0.1, 0.3); this.tone("square", 659, 659, 0.1, 0.3, 0.1); this.tone("square", 784, 784, 0.25, 0.3, 0.2); },
   powerup() { [523, 659, 784, 1047].forEach((f, i) => this.tone("square", f, f, 0.12, 0.3, i * 0.09)); },
+  doubleJump() { this.tone("square", 480, 880, 0.16, 0.3); },
+  shieldPop() { this.tone("sine", 620, 1300, 0.14, 0.35); this.noise(0.08, 0.2); },
+  combo(n: number) { this.tone("square", 620 + n * 130, 620 + n * 130, 0.12, 0.3); },
   bossHit() { this.noise(0.15, 0.5); this.tone("square", 140, 70, 0.2, 0.4); },
   bossDie() { [784, 659, 523, 392, 262].forEach((f, i) => this.tone("square", f, f, 0.16, 0.35, i * 0.12)); this.noise(0.5, 0.5, 0.6); },
   gameover() { [392, 330, 262, 196].forEach((f, i) => this.tone("triangle", f, f, 0.3, 0.4, i * 0.25)); },
@@ -214,11 +227,20 @@ const Input = {
    4 = stone (solid, unbreakable), 5 = pipe top, 6 = pipe body */
 interface Coin { x: number; y: number; taken: boolean; }
 interface Enemy {
-  type: "walker" | "hopper";
+  type: "walker" | "hopper" | "bat";
   x: number; y: number; w: number; h: number;
   vx: number; vy: number; alive: boolean; squashT: number;
   hopT?: number; dir?: number; onGround?: boolean;
+  // Bat-only fields: hover baseline, bob phase, home column and drift range.
+  baseY?: number; bobT?: number; homeX?: number; range?: number;
 }
+interface PowerUp {
+  kind: "double" | "shield" | "magnet";
+  x: number; y: number; taken: boolean;
+}
+const PU_COLORS: Record<PowerUp["kind"], string> = {
+  double: "#7ee081", shield: "#4fc3f7", magnet: "#ff8a80",
+};
 interface MovingPlatform {
   x: number; y: number; w: number;
   x0: number; x1: number; y0: number; y1: number;
@@ -239,6 +261,7 @@ const Level = {
   rows: 0,
   coins: [] as Coin[],
   enemies: [] as Enemy[],
+  powerups: [] as PowerUp[],
   movingPlatforms: [] as MovingPlatform[],
   checkpoints: [] as Checkpoint[],
   secret: null as null | { x: number; y: number; revealed: boolean; coins: Coin[] },
@@ -249,7 +272,7 @@ const Level = {
   build() {
     this.rows = ROWS;
     this.grid = Array.from({ length: this.rows }, () => new Array(LEVEL_COLS).fill(0));
-    this.coins = []; this.enemies = []; this.movingPlatforms = [];
+    this.coins = []; this.enemies = []; this.powerups = []; this.movingPlatforms = [];
     this.checkpoints = []; this.secret = null; this.boss = null;
 
     const g = this.grid;
@@ -285,6 +308,10 @@ const Level = {
       this.enemies.push({ type: "walker", x: c * TILE, y: r * TILE - 34, w: 34, h: 34, vx: ENEMY_SPEED * dir, vy: 0, alive: true, squashT: 0 });
     const hopper = (c: number, r: number) =>
       this.enemies.push({ type: "hopper", x: c * TILE, y: r * TILE - 36, w: 32, h: 36, vx: 0, vy: 0, alive: true, squashT: 0, hopT: 0, dir: 1 });
+    const bat = (c: number, r: number, range = 3) =>
+      this.enemies.push({ type: "bat", x: c * TILE, y: r * TILE, w: 36, h: 26, vx: 0, vy: 0, alive: true, squashT: 0, dir: -1, baseY: r * TILE, bobT: rnd(c) * 6, homeX: c * TILE, range });
+    const powerup = (c: number, r: number, kind: PowerUp["kind"]) =>
+      this.powerups.push({ kind, x: c * TILE + TILE / 2, y: r * TILE + TILE / 2, taken: false });
     const checkpoint = (c: number) => this.checkpoints.push({ x: c * TILE, y: GROUND_Y - 56, active: false });
 
     const R = this.rows;
@@ -302,6 +329,7 @@ const Level = {
     walker(28, gnd);
     platform(31, 34, gnd - 3);
     coinRow(31, 34, gnd - 4);
+    powerup(33, gnd - 5, "double"); // bird wings above the meadow platform
     checkpoint(34);
 
     /* ---- SECTION 2: Pits & floating bricks (cols 36-70) ---- */
@@ -310,6 +338,7 @@ const Level = {
     coinRow(45, 47, gnd - 3);
     platform(57, 59, gnd - 3);
     coinRow(57, 59, gnd - 4);
+    bat(58, gnd - 5); // hovering over the second pit
     brick(52, gnd - 3); qblock(53, gnd - 3); brick(54, gnd - 3);
     coinArc(53, gnd - 4, 5);
     walker(50, gnd); walker(63, gnd);
@@ -328,6 +357,7 @@ const Level = {
     qblock(90, gnd - 5);
     walker(88, gnd);
     this.movingPlatforms.push({ x: 95 * TILE, y: (gnd - 6) * TILE, w: 90, x0: 95 * TILE, x1: 100 * TILE, y0: 0, y1: 0, dx: 1, dy: 0, speed: 60, t: 0, curDX: 0, curDY: 0 });
+    bat(97, gnd - 5, 3); // patrols above the tower's moving platform
     platform(101, 103, gnd - 6);
     coinRow(101, 103, gnd - 7);
     hopper(96, gnd);
@@ -343,6 +373,8 @@ const Level = {
     brick(123, gnd - 3); qblock(124, gnd - 3); brick(125, gnd - 3);
     coinRow(113, 116, gnd - 4);
     coinRow(122, 126, gnd - 4);
+    powerup(124, gnd - 5, "shield"); // bubble above the corridor brick stack
+    bat(122, gnd - 5, 3); // trapped between the corridor walls
     walker(121, gnd); walker(131, gnd); hopper(133, gnd);
     set(130, gnd - 2, 2); set(130, gnd - 3, 2);
     this.secret = {
@@ -359,10 +391,12 @@ const Level = {
     platform(151, 153, gnd - 2);
     platform(159, 161, gnd - 3);
     coinRow(151, 161, gnd - 4);
+    bat(152, gnd - 4, 2); // lurks over the first gauntlet pit
     walker(147, gnd); walker(156, gnd); walker(165, gnd); walker(168, gnd);
     hopper(171, gnd); hopper(173, gnd);
     gap(166, 169);
     this.movingPlatforms.push({ x: 166 * TILE, y: (gnd - 2) * TILE, w: 80, x0: 165 * TILE, x1: 170 * TILE, y0: 0, y1: 0, dx: 1, dy: 0, speed: 90, t: 0, curDX: 0, curDY: 0 });
+    powerup(167, gnd - 4, "magnet"); // magnet above the gauntlet's moving platform
     qblock(174, gnd - 3);
     checkpoint(174);
 
@@ -374,6 +408,7 @@ const Level = {
       state: "walk", stateT: 0, facing: -1,
       orbs: [], alive: true, flashT: 0, deadT: 0,
     };
+    bat(185, gnd - 4, 4); // a bat harasses the player during the boss fight
     this.finish = { x: 203 * TILE, y: GROUND_Y - 70, r: 26, reached: false };
   },
 
@@ -405,18 +440,25 @@ const Player = {
   invuln: 0,
   dead: false, deadT: 0,
   animT: 0,
+  // Power-up timers (seconds left). The shield also absorbs one hit while up.
+  powerDJ: 0, powerShield: 0, powerMagnet: 0,
+  extraJumpUsed: false, // Double Jump allows one extra airborne jump
   reset() {
     const s = Level.spawn;
     this.x = s.x; this.y = s.y; this.vx = 0; this.vy = 0;
     this.onGround = false; this.facing = 1;
     this.coyote = 0; this.jumpBuf = 0; this.invuln = 0;
     this.dead = false; this.deadT = 0; this.animT = 0;
+    this.powerDJ = 0; this.powerShield = 0; this.powerMagnet = 0;
+    this.extraJumpUsed = false;
   },
   respawn() {
     let cp = Level.spawn;
     for (const c of Level.checkpoints) if (c.active) cp = { x: c.x, y: c.y };
     this.x = cp.x; this.y = cp.y; this.vx = 0; this.vy = 0;
     this.onGround = false; this.invuln = 2; this.dead = false; this.deadT = 0;
+    this.powerDJ = 0; this.powerShield = 0; this.powerMagnet = 0;
+    this.extraJumpUsed = false;
   },
   update(dt: number) {
     if (this.dead) {
@@ -427,6 +469,9 @@ const Player = {
     }
     this.animT += dt;
     if (this.invuln > 0) this.invuln -= dt;
+    if (this.powerDJ > 0) this.powerDJ -= dt;
+    if (this.powerShield > 0) this.powerShield -= dt;
+    if (this.powerMagnet > 0) this.powerMagnet -= dt;
 
     const accel = this.onGround ? MOVE_ACCEL : AIR_ACCEL;
     if (Input.left && !Input.right) {
@@ -452,6 +497,15 @@ const Player = {
       this.onGround = false;
       this.coyote = 0; this.jumpBuf = 0;
       AudioSys.jump();
+      spawnDust(this.x + PLAYER_W / 2, this.y + PLAYER_H, 6);
+    } else if (this.jumpBuf > 0 && !this.onGround && this.coyote <= 0 &&
+      this.powerDJ > 0 && !this.extraJumpUsed && this.vy > DOUBLE_JUMP_VEL) {
+      // Bird wings: one extra mid-air jump while Double Jump is active.
+      // Requires a fresh press (the jump buffer expires while held).
+      this.vy = DOUBLE_JUMP_VEL;
+      this.extraJumpUsed = true;
+      this.coyote = 0; this.jumpBuf = 0;
+      AudioSys.doubleJump();
       spawnDust(this.x + PLAYER_W / 2, this.y + PLAYER_H, 6);
     }
     if (!Input.jump && this.vy < 0) this.vy *= Math.pow(JUMP_CUT, dt * 30);
@@ -484,6 +538,8 @@ const Player = {
         this.coyote = COYOTE_TIME;
       }
     }
+
+    if (this.onGround) this.extraJumpUsed = false; // rearm the extra jump on landing
 
     if (this.x < 0) { this.x = 0; this.vx = Math.max(0, this.vx); }
     if (this.x + PLAYER_W > LEVEL_W) { this.x = LEVEL_W - PLAYER_W; this.vx = Math.min(0, this.vx); }
@@ -554,57 +610,84 @@ const Player = {
   },
   hurt() {
     if (this.invuln > 0 || this.dead) return;
+    if (this.powerShield > 0) {
+      // The shield bubble absorbs one hit, then pops.
+      this.powerShield = 0;
+      this.invuln = 1.2;
+      AudioSys.shieldPop();
+      spawnPickupFlash(this.x + PLAYER_W / 2, this.y + PLAYER_H / 2, PU_COLORS.shield);
+      game.addMessage("SHIELD SAVED!", this.x + PLAYER_W / 2, this.y - 16, true);
+      return;
+    }
     this.die();
   },
 };
 
 function updateEnemies(dt: number) {
+  const p = Player;
   for (const e of Level.enemies) {
     if (!e.alive) { e.squashT += dt; continue; }
-    e.vy += GRAVITY * dt;
-    if (e.vy > MAX_FALL) e.vy = MAX_FALL;
 
-    if (e.type === "hopper") {
-      e.hopT! += dt;
-      if (e.onGround && e.hopT! > 1.1) {
-        e.vy = -520; e.vx = 130 * e.dir!; e.hopT = 0;
-        AudioSys.tone("triangle", 200, 320, 0.1, 0.15);
+    if (e.type === "bat") {
+      // Bats drift toward the player horizontally while in range, bobbing
+      // gently. They stay near their home spot so they never wander into
+      // walls or chase the player across the whole level.
+      const chase = !p.dead && Math.abs(p.x + PLAYER_W / 2 - (e.x + e.w / 2)) < 420;
+      const dir = chase ? Math.sign(p.x + PLAYER_W / 2 - (e.x + e.w / 2)) || e.dir || 1 : e.dir || 1;
+      e.x += dir * BAT_SPEED * dt;
+      const lim = (e.range || 3) * TILE;
+      if (Math.abs(e.x - e.homeX!) > lim) {
+        e.x = e.homeX! + Math.sign(e.x - e.homeX!) * lim;
+        e.dir = -Math.sign(e.x - e.homeX!);
+      } else e.dir = dir;
+      e.bobT! += dt;
+      e.y = e.baseY! + Math.sin(e.bobT! * 3.2) * 16;
+    } else {
+      e.vy += GRAVITY * dt;
+      if (e.vy > MAX_FALL) e.vy = MAX_FALL;
+
+      if (e.type === "hopper") {
+        e.hopT! += dt;
+        if (e.onGround && e.hopT! > 1.1) {
+          e.vy = -520; e.vx = 130 * e.dir!; e.hopT = 0;
+          AudioSys.tone("triangle", 200, 320, 0.1, 0.15);
+        }
+        if (e.onGround && e.hopT! < 0.3) e.vx *= 0.9;
       }
-      if (e.onGround && e.hopT! < 0.3) e.vx *= 0.9;
+
+      e.x += e.vx * dt;
+      if (Level.solidRect(e.x + (e.vx > 0 ? e.w : 0), e.y + 4, e.vx > 0 ? 2 : e.w, e.h - 8)) {
+        e.x -= e.vx * dt;
+        e.vx = -e.vx;
+      }
+      e.y += e.vy * dt;
+      e.onGround = false;
+      if (e.vy > 0 && Level.solidRect(e.x + 2, e.y + e.h - 1, e.w - 4, 2)) {
+        e.y = Math.floor((e.y + e.h) / TILE) * TILE - e.h - 0.01;
+        e.vy = 0; e.onGround = true;
+      } else if (e.vy < 0 && Level.solidRect(e.x + 2, e.y - 1, e.w - 4, 2)) {
+        e.y = (Math.floor(e.y / TILE) + 1) * TILE + 0.01;
+        e.vy = 0;
+      }
+      if (e.type === "walker" && e.onGround) {
+        const aheadX = e.vx > 0 ? e.x + e.w + 2 : e.x - 2;
+        if (!Level.solidRect(aheadX, e.y + e.h + 4, 2, 4)) e.vx = -e.vx;
+      }
+      if (e.y > DEATH_Y) { e.alive = false; continue; }
     }
 
-    e.x += e.vx * dt;
-    if (Level.solidRect(e.x + (e.vx > 0 ? e.w : 0), e.y + 4, e.vx > 0 ? 2 : e.w, e.h - 8)) {
-      e.x -= e.vx * dt;
-      e.vx = -e.vx;
-    }
-    e.y += e.vy * dt;
-    e.onGround = false;
-    if (e.vy > 0 && Level.solidRect(e.x + 2, e.y + e.h - 1, e.w - 4, 2)) {
-      e.y = Math.floor((e.y + e.h) / TILE) * TILE - e.h - 0.01;
-      e.vy = 0; e.onGround = true;
-    } else if (e.vy < 0 && Level.solidRect(e.x + 2, e.y - 1, e.w - 4, 2)) {
-      e.y = (Math.floor(e.y / TILE) + 1) * TILE + 0.01;
-      e.vy = 0;
-    }
-    if (e.type === "walker" && e.onGround) {
-      const aheadX = e.vx > 0 ? e.x + e.w + 2 : e.x - 2;
-      if (!Level.solidRect(aheadX, e.y + e.h + 4, 2, 4)) e.vx = -e.vx;
-    }
-    if (e.y > DEATH_Y) { e.alive = false; continue; }
-
-    const p = Player;
     if (!p.dead && rectsOverlap(p.x, p.y, PLAYER_W, PLAYER_H, e.x, e.y, e.w, e.h)) {
-      const stomping = p.vy > 120 && p.y + PLAYER_H - e.y < 24;
-      if (stomping) {
-        e.alive = false; e.squashT = 0;
-        p.vy = KILL_BOUNCE;
-        game.score += 150;
-        AudioSys.stomp();
-        spawnDust(e.x + e.w / 2, e.y + e.h / 2, 8);
-        game.addMessage("+150", e.x + e.w / 2, e.y - 10);
+      if (e.type === "bat") {
+        p.hurt(); // bats cannot be stomped — they only hurt
       } else {
-        p.hurt();
+        const stomping = p.vy > 120 && p.y + PLAYER_H - e.y < 24;
+        if (stomping) {
+          e.alive = false; e.squashT = 0;
+          p.vy = KILL_BOUNCE;
+          game.registerStomp(e.x + e.w / 2, e.y, 150, e.type === "hopper" ? "#e57373" : C.enemy);
+        } else {
+          p.hurt();
+        }
       }
     }
   }
@@ -708,16 +791,46 @@ function updateMovingPlatforms(dt: number) {
   }
 }
 
-function updatePickups() {
+function updatePickups(dt: number) {
   const p = Player;
   if (p.dead) return;
+  const pcx = p.x + PLAYER_W / 2, pcy = p.y + PLAYER_H / 2;
   for (const c of Level.coins) {
     if (c.taken) continue;
-    if (Math.abs(p.x + PLAYER_W / 2 - c.x) < 26 && Math.abs(p.y + PLAYER_H / 2 - c.y) < 30) {
+    // Coin Magnet: nearby coins glide toward the player while it's active.
+    if (p.powerMagnet > 0) {
+      const dx = pcx - c.x, dy = pcy - c.y;
+      const d = Math.hypot(dx, dy);
+      if (d < MAGNET_RADIUS && d > 2) {
+        const k = Math.min(1, dt * 4);
+        c.x += dx * k; c.y += dy * k;
+      }
+    }
+    if (Math.abs(pcx - c.x) < 26 && Math.abs(pcy - c.y) < 30) {
       c.taken = true;
       game.coins++; game.score += 50;
       AudioSys.coin();
       game.addMessage("+50", c.x, c.y - 14);
+    }
+  }
+  for (const pu of Level.powerups) {
+    if (pu.taken) continue;
+    if (Math.abs(pcx - pu.x) < 28 && Math.abs(pcy - pu.y) < 34) {
+      pu.taken = true;
+      game.score += 200;
+      AudioSys.powerup();
+      spawnPickupFlash(pu.x, pu.y, PU_COLORS[pu.kind]);
+      if (pu.kind === "double") {
+        p.powerDJ = POWER_TIME; p.extraJumpUsed = false;
+        game.addMessage("DOUBLE JUMP!", pu.x, pu.y - 20, true);
+      } else if (pu.kind === "shield") {
+        p.powerShield = POWER_TIME;
+        game.addMessage("SHIELD!", pu.x, pu.y - 20, true);
+      } else {
+        p.powerMagnet = POWER_TIME;
+        game.addMessage("COIN MAGNET!", pu.x, pu.y - 20, true);
+      }
+      game.addMessage("+200", pu.x, pu.y + 10);
     }
   }
   for (const cp of Level.checkpoints) {
@@ -741,9 +854,10 @@ interface Particle {
   x: number; y: number; vx: number; vy: number;
   life: number; max: number; size: number; color: string;
   rot?: number; spin?: number; coin?: boolean;
+  ring?: boolean; grow?: number; star?: boolean; // pickup flash / stomp burst
 }
 const particles: Particle[] = [];
-const messages: { text: string; x: number; y: number; t: number }[] = [];
+const messages: { text: string; x: number; y: number; t: number; big?: boolean }[] = [];
 
 function spawnDust(x: number, y: number, n: number) {
   for (let i = 0; i < n; i++) particles.push({ x, y, vx: (Math.random() - 0.5) * 200, vy: -Math.random() * 120, life: 0.5, max: 0.5, size: 4, color: "#d8c9a3" });
@@ -754,6 +868,23 @@ function spawnBrickBits(x: number, y: number) {
 function spawnCoinPop(x: number, y: number) {
   particles.push({ x, y, vx: 0, vy: -260, life: 0.6, max: 0.6, size: 12, color: C.coin, coin: true });
 }
+function spawnPickupFlash(x: number, y: number, color: string) {
+  // Expanding white ring plus a burst of colored stars (power-up pickups).
+  particles.push({ x, y, vx: 0, vy: 0, life: 0.35, max: 0.35, size: 10, color: "#fff", ring: true, grow: 140 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    particles.push({ x, y, vx: Math.cos(a) * 180, vy: Math.sin(a) * 180 - 40, life: 0.6, max: 0.6, size: 5, color, star: true, rot: Math.random() * 6, spin: (Math.random() - 0.5) * 8 });
+  }
+}
+function spawnStompBurst(x: number, y: number, color: string) {
+  // Dust + white ring + small stars, consistent with the pickup flash style.
+  spawnDust(x, y + 8, 8);
+  particles.push({ x, y, vx: 0, vy: 0, life: 0.3, max: 0.3, size: 8, color: "#fff", ring: true, grow: 120 });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    particles.push({ x, y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 120 - 60, life: 0.5, max: 0.5, size: 4, color, star: true });
+  }
+}
 function spawnStarBurst(x: number, y: number) {
   for (let i = 0; i < 26; i++) {
     const a = (i / 26) * Math.PI * 2;
@@ -763,7 +894,8 @@ function spawnStarBurst(x: number, y: number) {
 function updateParticles(dt: number) {
   for (const p of particles) {
     p.life -= dt;
-    p.vy += 900 * dt;
+    if (p.ring) p.size += (p.grow || 0) * dt; // rings expand instead of falling
+    else p.vy += 900 * dt;
     p.x += p.vx * dt; p.y += p.vy * dt;
     if (p.rot !== undefined) p.rot += (p.spin || 0) * dt;
   }
@@ -785,6 +917,22 @@ const game = {
   score: 0, coins: 0, lives: 3,
   timeLeft: LEVEL_TIME,
   camX: 0,
+  combo: 0, comboT: 0, // consecutive-stomp multiplier state
+
+  registerStomp(x: number, y: number, base: number, color: string) {
+    // Consecutive enemy stomps within COMBO_WINDOW seconds stack a multiplier.
+    this.combo = this.comboT > 0 ? Math.min(this.combo + 1, COMBO_MAX) : 1;
+    this.comboT = COMBO_WINDOW;
+    const pts = base * this.combo;
+    this.score += pts;
+    AudioSys.stomp();
+    if (this.combo > 1) {
+      AudioSys.combo(this.combo);
+      this.addMessage(`COMBO x${this.combo}!`, Player.x + PLAYER_W / 2, Player.y - 24, true);
+    }
+    this.addMessage(`+${pts}`, x, y - 10);
+    spawnStompBurst(x, y, color);
+  },
 
   startGame() {
     AudioSys.init(); AudioSys.resume();
@@ -794,6 +942,7 @@ const game = {
     this.score = 0; this.coins = 0; this.lives = 3;
     this.timeLeft = LEVEL_TIME;
     this.camX = 0;
+    this.combo = 0; this.comboT = 0;
     this.state = "playing";
     hideAllScreens();
     updateHUD();
@@ -826,7 +975,7 @@ const game = {
     if (el) el.innerHTML = `Score: ${this.score} (time bonus +${bonus}) &nbsp; Coins: ${this.coins} &nbsp; Lives left: ${this.lives}`;
     show("screen-victory");
   },
-  addMessage(text: string, x: number, y: number) { messages.push({ text, x, y, t: 0 }); },
+  addMessage(text: string, x: number, y: number, big = false) { messages.push({ text, x, y, t: 0, big }); },
   update(dt: number) {
     if (this.state !== "playing") return;
     this.time += dt;
@@ -836,11 +985,15 @@ const game = {
       Player.hurt();
       if (this.lives > 0) this.timeLeft = 30;
     }
+    if (this.comboT > 0) {
+      this.comboT -= dt;
+      if (this.comboT <= 0) this.combo = 0; // combo lapses after the window
+    }
     updateMovingPlatforms(dt);
     Player.update(dt);
     updateEnemies(dt);
     updateBoss(dt);
-    updatePickups();
+    updatePickups(dt);
     updateParticles(dt);
 
     const target = Player.x + PLAYER_W / 2 - W * 0.42;
@@ -864,6 +1017,19 @@ function updateHUD() {
   set("hud-time", Math.ceil(game.timeLeft));
   const hearts = document.getElementById("hud-lives");
   if (hearts) hearts.innerHTML = '<span class="heart">&#9829;</span>'.repeat(Math.max(0, game.lives));
+  // Active power-up chips with shrinking duration bars. Rebuilding the HTML
+  // every frame is cheap here (a handful of spans) and keeps the bars live.
+  const powers = document.getElementById("hud-powers");
+  if (powers) {
+    const chips: { cls: string; name: string; t: number }[] = [];
+    if (Player.powerDJ > 0) chips.push({ cls: "dj", name: "WINGS", t: Player.powerDJ });
+    if (Player.powerShield > 0) chips.push({ cls: "sh", name: "SHIELD", t: Player.powerShield });
+    if (Player.powerMagnet > 0) chips.push({ cls: "mg", name: "MAGNET", t: Player.powerMagnet });
+    powers.innerHTML = chips.map((c) => {
+      const pct = Math.max(0, Math.min(1, c.t / POWER_TIME)) * 100;
+      return `<span class="pp-power ${c.cls}"><span class="pp-power-name">${c.name}</span><span class="pp-power-bar"><i style="width:${pct.toFixed(0)}%"></i></span></span>`;
+    }).join("");
+  }
 }
 
 function show(id: string) { document.getElementById(id)?.classList.remove("hidden"); }
@@ -983,6 +1149,47 @@ function drawCoins() {
     ctx.beginPath(); ctx.ellipse(x - rw * 0.3, c.y - 3, rw * 0.3, 2.5, 0, 0, Math.PI * 2); ctx.fill();
   }
 }
+function drawPowerups() {
+  const t = game.time;
+  for (const pu of Level.powerups) {
+    if (pu.taken) continue;
+    const x = Math.round(pu.x - game.camX);
+    if (x < -30 || x > W + 30) continue;
+    const y = pu.y + Math.sin(t * 3 + pu.x * 0.05) * 4;
+    const glow = 0.5 + 0.5 * Math.sin(t * 5 + pu.x * 0.1);
+    ctx.fillStyle = `rgba(255,255,255,${0.25 + glow * 0.25})`;
+    ctx.beginPath(); ctx.arc(x, y, 18, 0, Math.PI * 2); ctx.fill();
+    if (pu.kind === "double") {
+      // Bird wings: two feathered white wings flapping gently.
+      const flap = Math.sin(t * 6) * 3;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.moveTo(x - 3, y); ctx.lineTo(x - 16, y - 8 - flap); ctx.lineTo(x - 12, y + 2); ctx.lineTo(x - 17, y + 4 - flap); ctx.lineTo(x - 4, y + 7);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + 3, y); ctx.lineTo(x + 16, y - 8 - flap); ctx.lineTo(x + 12, y + 2); ctx.lineTo(x + 17, y + 4 - flap); ctx.lineTo(x + 4, y + 7);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = PU_COLORS.double;
+      ctx.fillRect(x - 2, y - 2, 4, 8);
+    } else if (pu.kind === "shield") {
+      // Shield bubble: a glossy cyan orb.
+      ctx.fillStyle = "rgba(79,195,247,0.55)";
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = C.playerDark; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(x - 4, y - 4, 3, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // Coin magnet: a classic red horseshoe magnet with silver tips.
+      ctx.strokeStyle = "#e53935"; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(x, y + 2, 9, Math.PI, 0); ctx.stroke();
+      ctx.fillStyle = "#eceff1";
+      ctx.fillRect(x - 12, y + 2, 6, 7); ctx.fillRect(x + 6, y + 2, 6, 7);
+      ctx.fillStyle = PU_COLORS.magnet;
+      ctx.fillRect(x - 2, y - 12, 4, 4);
+    }
+  }
+}
 function drawCheckpoints() {
   for (const cp of Level.checkpoints) {
     const x = cp.x - game.camX;
@@ -1028,7 +1235,29 @@ function drawEnemies() {
       continue;
     }
     const bob = Math.sin(game.time * 8 + e.x * 0.1) * 2;
-    if (e.type === "walker") {
+    if (e.type === "bat") {
+      // Flapping purple bat with red eyes and little fangs.
+      const flap = Math.sin(game.time * 14 + e.x * 0.1);
+      const bx = x + e.w / 2, by = e.y + e.h / 2;
+      ctx.fillStyle = C.batDark;
+      ctx.beginPath();
+      ctx.moveTo(bx - 6, by - 2); ctx.lineTo(bx - 22, by - 10 - flap * 6); ctx.lineTo(bx - 16, by + 6); ctx.lineTo(bx - 24, by + 2 - flap * 4); ctx.lineTo(bx - 8, by + 8);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(bx + 6, by - 2); ctx.lineTo(bx + 22, by - 10 - flap * 6); ctx.lineTo(bx + 16, by + 6); ctx.lineTo(bx + 24, by + 2 - flap * 4); ctx.lineTo(bx + 8, by + 8);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = C.bat;
+      ctx.beginPath(); ctx.ellipse(bx, by, e.w / 2 - 6, e.h / 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = C.batDark;
+      ctx.beginPath(); ctx.moveTo(bx - 8, e.y + 4); ctx.lineTo(bx - 12, e.y - 6); ctx.lineTo(bx - 3, e.y + 2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(bx + 8, e.y + 4); ctx.lineTo(bx + 12, e.y - 6); ctx.lineTo(bx + 3, e.y + 2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#ff1744";
+      ctx.beginPath(); ctx.arc(bx - 5, by - 2, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(bx + 5, by - 2, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.moveTo(bx - 4, by + 4); ctx.lineTo(bx - 2, by + 8); ctx.lineTo(bx, by + 4); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(bx + 1, by + 4); ctx.lineTo(bx + 3, by + 8); ctx.lineTo(bx + 5, by + 4); ctx.closePath(); ctx.fill();
+    } else if (e.type === "walker") {
       ctx.fillStyle = C.enemy;
       ctx.beginPath(); ctx.ellipse(x + e.w / 2, e.y + e.h / 2 + bob, e.w / 2, e.h / 2 - 2, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.enemyDark;
@@ -1144,6 +1373,18 @@ function drawPlayer() {
   ctx.fillRect(footL, y + PLAYER_H - 7, 10, 7);
   ctx.fillRect(footR, y + PLAYER_H - 7, 10, 7);
 
+  if (p.powerDJ > 0) {
+    // Bird wings appear behind Bloop while Double Jump is active.
+    const flap = Math.sin(p.animT * 18) * 4;
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, y + 16); ctx.lineTo(cx - 26, y + 8 - flap); ctx.lineTo(cx - 18, y + 22); ctx.lineTo(cx - 27, y + 24 - flap); ctx.lineTo(cx - 12, y + 28);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 10, y + 16); ctx.lineTo(cx + 26, y + 8 - flap); ctx.lineTo(cx + 18, y + 22); ctx.lineTo(cx + 27, y + 24 - flap); ctx.lineTo(cx + 12, y + 28);
+    ctx.closePath(); ctx.fill();
+  }
+
   ctx.fillStyle = C.player;
   ctx.beginPath();
   ctx.ellipse(cx, y + PLAYER_H / 2 + 4, PLAYER_W / 2 - 2, PLAYER_H / 2 - 4, 0, 0, Math.PI * 2);
@@ -1180,6 +1421,24 @@ function drawPlayer() {
   ctx.beginPath(); ctx.ellipse(cx + 12 + ex, y + 21, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
 
   ctx.restore();
+
+  if (p.powerShield > 0) {
+    // Shield bubble around Bloop.
+    const pulse = 28 + Math.sin(game.time * 6) * 2;
+    ctx.fillStyle = "rgba(79,195,247,0.16)";
+    ctx.beginPath(); ctx.ellipse(cx, y + PLAYER_H / 2, pulse, pulse + 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(79,195,247,0.85)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(cx, y + PLAYER_H / 2, pulse, pulse + 4, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.beginPath(); ctx.arc(cx - pulse * 0.5, y + PLAYER_H / 2 - pulse * 0.5, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  if (p.powerMagnet > 0) {
+    // Two golden sparkles orbit Bloop while the coin magnet is active.
+    const a = game.time * 5;
+    ctx.fillStyle = C.coin;
+    ctx.beginPath(); ctx.arc(cx + Math.cos(a) * 26, y + PLAYER_H / 2 + Math.sin(a) * 20, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx - Math.cos(a) * 26, y + PLAYER_H / 2 - Math.sin(a) * 20, 3, 0, Math.PI * 2); ctx.fill();
+  }
 }
 function drawStar(cx: number, cy: number, spikes: number, outer: number, inner: number) {
   ctx.beginPath();
@@ -1220,6 +1479,13 @@ function drawParticles() {
     const x = p.x - game.camX;
     if (p.coin) {
       ctx.beginPath(); ctx.ellipse(x, p.y, 8, 9, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (p.ring) {
+      ctx.strokeStyle = p.color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, p.y, p.size, 0, Math.PI * 2); ctx.stroke();
+    } else if (p.star) {
+      ctx.save(); ctx.translate(x, p.y); ctx.rotate(p.rot || 0);
+      drawStar(0, 0, 4, p.size * a + 2, (p.size * a + 2) * 0.45);
+      ctx.restore();
     } else if (p.rot !== undefined) {
       ctx.save(); ctx.translate(x, p.y); ctx.rotate(p.rot);
       ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
@@ -1229,10 +1495,10 @@ function drawParticles() {
     }
   }
   ctx.globalAlpha = 1;
-  ctx.font = "bold 14px monospace";
   ctx.textAlign = "center";
   for (const m of messages) {
     ctx.globalAlpha = 1 - m.t / 1.2;
+    ctx.font = m.big ? "bold 18px monospace" : "bold 14px monospace";
     ctx.fillStyle = "#000";
     ctx.fillText(m.text, m.x - game.camX + 1, m.y + 1);
     ctx.fillStyle = "#ffd23f";
@@ -1248,6 +1514,7 @@ function render() {
   drawMovingPlatforms();
   drawCheckpoints();
   drawCoins();
+  drawPowerups();
   drawFinish();
   drawEnemies();
   drawBoss();
@@ -1278,6 +1545,13 @@ const OVERLAY_CSS = `
 .pp-hud-box { background:rgba(0,0,0,0.45); border:2px solid rgba(255,255,255,0.7); border-radius:8px; color:#fff; font-size:15px; font-weight:bold; padding:4px 12px; letter-spacing:1px; text-shadow:1px 1px 0 #000; display:flex; gap:14px; align-items:center; }
 .pp-hud-box .coin-ico { display:inline-block; width:14px; height:14px; background:radial-gradient(circle at 35% 35%,#fff3a0,#ffd23f 60%,#d99a00); border-radius:50%; border:1px solid #8a6d00; vertical-align:-2px; }
 .pp-hud-box .heart { color:#ff5d73; font-size:16px; }
+.pp-hud-box .pp-power { display:inline-flex; align-items:center; gap:4px; border-radius:6px; padding:1px 6px; border:1px solid rgba(255,255,255,0.5); font-size:12px; }
+.pp-hud-box .pp-power .pp-power-name { letter-spacing:0; }
+.pp-hud-box .pp-power .pp-power-bar { display:inline-block; width:34px; height:5px; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.6); border-radius:3px; overflow:hidden; }
+.pp-hud-box .pp-power .pp-power-bar i { display:block; height:100%; background:#ffd23f; }
+.pp-hud-box .pp-power.dj { background:rgba(126,224,129,0.35); color:#d6ffd9; }
+.pp-hud-box .pp-power.sh { background:rgba(79,195,247,0.35); color:#d6f3ff; }
+.pp-hud-box .pp-power.mg { background:rgba(255,138,128,0.35); color:#ffd9d4; }
 .pp-mute-btn { pointer-events:auto; cursor:pointer; background:rgba(0,0,0,0.45); border:2px solid rgba(255,255,255,0.7); border-radius:8px; color:#fff; font-size:16px; width:40px; height:34px; }
 .pp-touch { position:absolute; bottom:0; left:0; right:0; display:none; justify-content:space-between; align-items:flex-end; padding:14px 18px; z-index:8; pointer-events:none; }
 body.touch .pp-touch { display:flex; }
@@ -1298,6 +1572,7 @@ function buildOverlayUI(container: HTMLElement) {
     <div class="pp-hud-box">
       <span>SCORE <span id="hud-score">0</span></span>
       <span><span class="coin-ico"></span> <span id="hud-coins">0</span></span>
+      <span id="hud-powers"></span>
     </div>
     <div class="pp-hud-box">
       <span id="hud-lives"><span class="heart">&#9829;</span><span class="heart">&#9829;</span><span class="heart">&#9829;</span></span>
@@ -1321,6 +1596,8 @@ function buildOverlayUI(container: HTMLElement) {
     <p>Help <b style="color:#7ee081">Bloop</b> the little blue critter cross the meadow,<br>
        smash the grumps, grab every coin, and reach the Golden Star!</p>
     <p style="color:#ff9db0">Beware the boss <b style="color:#c792ea">Gloom</b> at the end of the path!</p>
+    <p style="color:#9be8ff">Grab bird wings, shield bubbles and coin magnets for temporary powers &mdash;<br>
+       chain stomps for combo points, and remember: <b style="color:#c792ea">bats</b> can't be stomped!</p>
     <button class="big-btn" id="btn-start">START GAME</button>
     <div class="keys">
       <b>&#8592;/&#8594; or A/D</b> move &nbsp; &middot; &nbsp; <b>Space / W / &#8593;</b> jump (hold = higher)<br>
