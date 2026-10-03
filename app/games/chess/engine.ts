@@ -1068,20 +1068,10 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   };
 
   const pickSquare = (e: { clientX: number; clientY: number }): number | null => {
-    raycaster.setFromCamera(ndcOf(e), camera);
-    const hits = raycaster.intersectObjects(pickables, true);
-    for (const h of hits) {
-      let o: THREE.Object3D | null = h.object;
-      while (o) {
-        if (typeof o.userData.square === "number") return o.userData.square;
-        if (typeof o.userData.pieceId === "number") {
-          const p = pieces.get(o.userData.pieceId);
-          if (p) return p.sq;
-        }
-        o = o.parent;
-      }
-    }
-    return null;
+    // Board-plane pick (not mesh raycast): neighbouring pieces must never
+    // occlude the square you actually point at, and the plane mapping is
+    // rotation-safe. The board is a flat 8x8, so the plane IS the board.
+    return pickPlane(e)?.sq ?? null;
   };
 
   /** Ray vs. the board plane — for drop targets while dragging a piece. */
@@ -2619,6 +2609,25 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       };
     },
     pick: (x: number, y: number) => pickSquare({ clientX: x, clientY: y }),
+    /** Diagnostics: which pickable objects the ray hits, nearest first. */
+    pickInfo: (x: number, y: number) => {
+      raycaster.setFromCamera(ndcOf({ clientX: x, clientY: y }), camera);
+      return raycaster
+        .intersectObjects(pickables, true)
+        .slice(0, 4)
+        .map((h) => {
+          let label = h.object.name || h.object.type;
+          let o: THREE.Object3D | null = h.object;
+          while (o) {
+            if (typeof o.userData.square === "number")
+              label += `/sq${o.userData.square}`;
+            if (typeof o.userData.pieceId === "number")
+              label += `/pid${o.userData.pieceId}`;
+            o = o.parent;
+          }
+          return { label, d: +h.distance.toFixed(2) };
+        });
+    },
     plane: (x: number, y: number) => {
       const hit = pickPlane({ clientX: x, clientY: y });
       return hit ? { x: +hit.x.toFixed(3), z: +hit.z.toFixed(3), sq: hit.sq } : null;
@@ -2659,6 +2668,13 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       if (mv.promo) doMove({ ...mv, promo: "q" });
       else doMove(mv);
       return "ok";
+    },
+    /** Test helper: set both clocks (seconds) to verify flag-fall quickly. */
+    setClocks: (w: number, b: number) => {
+      clocks.w = w;
+      clocks.b = b;
+      lastClockTick = performance.now();
+      updateHUD();
     },
     /** Diagnostics: project square centre, unproject, intersect board plane. */
     debug: (sq: number) => {
