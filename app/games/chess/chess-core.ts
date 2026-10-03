@@ -662,23 +662,29 @@ export function analyzeStatus(pos: Position): GameStatus {
   return { state: "playing", check };
 }
 
-/** Insufficient mating material? (FIDE-style dead-position simplification) */
+/**
+ * Insufficient mating material — automatic draw by the "dead position"
+ * rule. Same criterion lichess applies: only kings and minor pieces on
+ * the board, and either (a) at most one minor piece in total (K vs K,
+ * K+N vs K, K+B vs K) or (b) every minor is a bishop and all bishops sit
+ * on the same square colour. K+N vs K+N, K+NN vs K, K+BB of opposite
+ * colours etc. can still be mated, so they are NOT dead material.
+ */
 export function insufficientMaterial(pos: Position): boolean {
-  let bishops: number[] = [];
-  let knights = 0;
+  let minors = 0;
+  let bishops = 0;
+  let light = false;
+  let dark = false;
   for (let i = 0; i < 64; i++) {
     const p = pos.board[i];
     if (!p || p.t === "k") continue;
-    if (p.t === "b") bishops.push(i);
-    else if (p.t === "n") knights++;
-    else return false; // pawns / rooks / queens present -> sufficient
+    if (p.t !== "b" && p.t !== "n") return false; // pawns / rooks / queens
+    minors++;
+    if (p.t === "b") {
+      bishops++;
+      if ((FILE(i) + RANK(i)) & 1) light = true;
+      else dark = true;
+    }
   }
-  if (bishops.length === 0 && knights === 0) return true; // K vs K
-  if (bishops.length === 0) return true; // only knights left (KNN vs K etc.)
-  if (knights === 0) {
-    // bishops only: all on the same square colour -> dead
-    const color = (FILE(bishops[0]) + RANK(bishops[0])) & 1;
-    return bishops.every((i) => ((FILE(i) + RANK(i)) & 1) === color);
-  }
-  return false; // knights + bishops
+  return minors <= 1 || (bishops === minors && !(light && dark));
 }

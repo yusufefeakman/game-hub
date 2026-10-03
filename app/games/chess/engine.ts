@@ -38,11 +38,19 @@ export interface GameHandle {
 }
 
 const TC_SECONDS: Record<TimeControl, { base: number; inc: number }> = {
-  "3": { base: 180, inc: 0 },
-  "5": { base: 300, inc: 0 },
+  "3": { base: 180, inc: 2 },
+  "5": { base: 300, inc: 3 },
   "10": { base: 600, inc: 0 },
-  "15": { base: 900, inc: 0 },
+  "15": { base: 900, inc: 10 },
   unlimited: { base: 0, inc: 0 },
+};
+
+const TC_LABEL: Record<TimeControl, string> = {
+  "3": "3+2",
+  "5": "5+3",
+  "10": "10+0",
+  "15": "15+10",
+  unlimited: "Sınırsız",
 };
 
 const LIGHT_SQ = 0xefd9ab;
@@ -615,13 +623,37 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   let menuOpen = true; // start at the main menu
   let gameActive = false; // clock/AI run only while in a game
   let pos: Core.Position = Core.initialPosition();
-  let history: Core.HistoryEntry[] = [];
+  type HistEntry = Core.HistoryEntry & { after: Core.Position };
+  let history: HistEntry[] = [];
   let moveList: string[] = [];
   let captured: { w: Core.PieceType[]; b: Core.PieceType[] } = { w: [], b: [] };
   let repetition = new Map<string, number>();
   let clocks = { w: 0, b: 0 };
   let gameOver: null | { result: string; reason: string } = null;
+  let gameResult: null | "1-0" | "0-1" | "1/2-1/2" = null;
   let pendingPromotion: Core.Move | null = null;
+  let pendingUndo = false;
+  let autoPromo = false; // auto-promote to queen (skip the modal)
+  let autoFlip = true; // keep the side to move on the near side
+  // Move review: viewIdx 0 = initial position, k = position after k moves,
+  // history.length = the live position.
+  let viewIdx = 0;
+  let startSnap: Core.Position = Core.initialPosition();
+  let initialClocks = { w: 0, b: 0 };
+  // Drag & drop
+  let dragState: {
+    piece: PieceObj;
+    sq: number;
+    x: number;
+    y: number;
+    active: boolean;
+  } | null = null;
+  // Hint arrow
+  let hintGroup: THREE.Group | null = null;
+  // Move-list rendering guards
+  let lastRenderedMoves = -1;
+  let lastRenderedHighlight = -1;
+  let movesScrolledUp = false;
   let selection: number | null = null;
   let legalTargets = new Set<number>();
   let lastMove: { from: number; to: number } | null = null;
@@ -640,12 +672,12 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   const squareWorld = (i: number) =>
     new THREE.Vector3(Core.FILE(i) - 3.5, SQUARE_TOP_Y, Core.RANK(i) - 3.5);
 
-  const rebuildPieces = () => {
+  const rebuildPieces = (board: (Core.Piece | null)[] = pos.board) => {
     for (const p of pieces.values()) world.remove(p.group);
     pieces.clear();
     pieceAt.clear();
     for (let i = 0; i < 64; i++) {
-      const p = pos.board[i];
+      const p = board[i];
       if (!p) continue;
       const group = buildPieceMesh(p.t, p.c === "w" ? whiteMat : blackMat);
       group.position.copy(squareWorld(i));
@@ -815,6 +847,92 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDist = 0;
 
+  /* ---------- drag & drop helpers ---------- */
+  const startDragCandidate = (e: PointerEvent) => {
+    if (
+      dragState ||
+      menuOpen ||
+      !gameActive ||
+      gameOver ||
+      animating ||
+      aiThinking ||
+      pendingPromotion ||
+      !isHumanTurn() ||
+      !isLive()
+    )
+      return;
+    const sq = pickSquare(e);
+    if (sq === null) return;
+    const p = pos.board[sq];
+    if (!p || p.c !== pos.turn) return;
+    const obj = pieceAt.get(sq);
+    if (obj) dragState = { piece: obj, sq, x: e.clientX, y: e.clientY, active: false };
+  };
+
+  const activatePieceDrag = () => {
+    if (!dragState || dragState.active) return;
+    dragState.active = true;
+    pointer.dragging = false; // the piece goes, not the camera
+    // reveal its legal destinations
+    selection = dragState.sq;
+    legalTargets = new Set(Core.legalMoves(pos, dragState.sq).map((m) => m.to));
+    clearMarkers();
+    showMarkers();
+    refreshOverlays(null);
+    Snd.click();
+    canvas.style.cursor = "grabbing";
+  };
+
+  const cancelPieceDrag = (snapBack: boolean) => {
+    const d = dragState;
+    dragState = null;
+    canvas.style.cursor = "default";
+    if (d && snapBack && d.active) {
+      const piece = d.piece;
+      animating = true;
+      animatePieceTo(piece, squareWorld(piece.sq), 0.16, () => {
+        animating = false;
+        refreshOverlays(null);
+      });
+    } else if (d) {
+      refreshOverlays(null);
+    }
+  };
+
+  const dropPiece = (e: PointerEvent) => {
+    const d = dragState;
+    dragState = null;
+    canvas.style.cursor = "default";
+    if (!d || !d.active) return;
+    const piece = d.piece;
+    const hit = pickPlane(e);
+    const target = hit ? hit.sq : null;
+    if (target !== null && target !== piece.sq && legalTargets.has(target)) {
+      // execute the move (or open the promotion modal)
+      const moves = Core.legalMoves(pos, piece.sq).filter((m) => m.to === target);
+      const move = moves.find((m) => !m.promo) ?? moves[0];
+      if (move) {
+        if (move.promo) {
+          if (autoPromo) {
+            doMove({ ...move, promo: "q" });
+          } else {
+            pendingPromotion = move;
+            showPromotionModal();
+          }
+        } else {
+          doMove(move);
+        }
+      }
+    } else {
+      // snap back to origin
+      animating = true;
+      animatePieceTo(piece, squareWorld(piece.sq), 0.16, () => {
+        animating = false;
+        refreshOverlays(null);
+      });
+    }
+  };
+
   const onPointerDown = (e: PointerEvent) => {
     Snd.ensure();
     canvas.setPointerCapture(e.pointerId);
@@ -823,6 +941,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       const [a, b] = [...pointers.values()];
       pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
       pointer.dragging = true;
+      cancelPieceDrag(true); // pinch takes over from a piece drag
       return;
     }
     pointer.down = true;
@@ -830,6 +949,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     pointer.dragging = false;
     pointer.x = e.clientX;
     pointer.y = e.clientY;
+    startDragCandidate(e);
   };
 
   const onPointerMove = (e: PointerEvent) => {
@@ -855,6 +975,24 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       pointer.moved += Math.abs(e.clientX - pointer.x) + Math.abs(e.clientY - pointer.y);
       pointer.x = e.clientX;
       pointer.y = e.clientY;
+      if (dragState && !dragState.active && pointer.moved > 6) {
+        activatePieceDrag();
+      }
+      if (dragState?.active) {
+        // lift the piece onto the pointer (board-plane projection)
+        const hit = pickPlane(e);
+        if (hit) {
+          const g = dragState.piece.group;
+          g.position.x = THREE.MathUtils.clamp(hit.x, -3.85, 3.85);
+          g.position.z = THREE.MathUtils.clamp(hit.z, -3.85, 3.85);
+          g.position.y = SQUARE_TOP_Y + 0.45;
+          if (hoverSq !== hit.sq) {
+            hoverSq = hit.sq;
+            refreshOverlays(hoverSq);
+          }
+        }
+        return;
+      }
       if (pointer.moved > 6) pointer.dragging = true;
       if (pointer.dragging) {
         cam.tTheta -= (e.movementX || 0) * 0.0052;
@@ -875,6 +1013,19 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     pointer.down = false;
     pointer.dragging = false;
     pinchDist = 0;
+    if (dragState) {
+      const wasActive = dragState.active;
+      if (wasActive) {
+        dropPiece(e);
+      } else if (!wasDrag) {
+        dragState = null;
+        handleClick(e);
+      } else {
+        dragState = null;
+      }
+      updateHover(e);
+      return;
+    }
     if (!wasDrag) handleClick(e);
     updateHover(e);
   };
@@ -887,6 +1038,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     pointer.down = false;
     pointer.dragging = false;
     pinchDist = 0;
+    cancelPieceDrag(true);
   };
 
   const onWheel = (e: WheelEvent) => {
@@ -907,13 +1059,16 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     for (const p of pieces.values()) pickables.push(p.group);
   };
 
-  const pickSquare = (e: { clientX: number; clientY: number }): number | null => {
+  const ndcOf = (e: { clientX: number; clientY: number }) => {
     const rect = canvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
+    return new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
       -((e.clientY - rect.top) / rect.height) * 2 + 1
     );
-    raycaster.setFromCamera(ndc, camera);
+  };
+
+  const pickSquare = (e: { clientX: number; clientY: number }): number | null => {
+    raycaster.setFromCamera(ndcOf(e), camera);
     const hits = raycaster.intersectObjects(pickables, true);
     for (const h of hits) {
       let o: THREE.Object3D | null = h.object;
@@ -929,6 +1084,34 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     return null;
   };
 
+  /** Ray vs. the board plane — for drop targets while dragging a piece. */
+  /**
+   * Ray vs. the board plane — for drop targets while dragging a piece.
+   * Returns the hit in BOARD-LOCAL coordinates (the `world` group's space):
+   * the board may be rotated 180°, so the world-space hit must be rotated
+   * back; both the square index and the drag position use local space.
+   */
+  const pickPlane = (
+    e: { clientX: number; clientY: number }
+  ): { x: number; z: number; sq: number } | null => {
+    raycaster.setFromCamera(ndcOf(e), camera);
+    const ray = raycaster.ray;
+    if (Math.abs(ray.direction.y) < 1e-6) return null;
+    const t = (SQUARE_TOP_Y - ray.origin.y) / ray.direction.y;
+    if (t < 0) return null;
+    const p = ray.origin.clone().addScaledVector(ray.direction, t);
+    // world -> board-local (undo the current world Y-rotation)
+    const th = world.rotation.y;
+    const c = Math.cos(th);
+    const s = Math.sin(th);
+    const lx = p.x * c - p.z * s;
+    const lz = p.x * s + p.z * c;
+    const f = Math.floor(lx + 4);
+    const r = Math.floor(lz + 4);
+    if (f < 0 || f > 7 || r < 0 || r > 7) return null;
+    return { x: lx, z: lz, sq: Core.SQ(f, r) };
+  };
+
   /* ---------- interaction ---------- */
   const isHumanTurn = () =>
     !menuOpen &&
@@ -940,6 +1123,11 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     if (menuOpen) return;
     if (animating || aiThinking || pendingPromotion || gameOver) return;
     if (!isHumanTurn()) return;
+    if (!isLive()) {
+      // A board click while reviewing jumps back to the live position.
+      navLive();
+      return;
+    }
     const sq = pickSquare(e);
     if (sq === null) {
       selection = null;
@@ -956,8 +1144,12 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       const move = moves.find((m) => !m.promo) ?? moves[0];
       if (move) {
         if (move.promo) {
-          pendingPromotion = move;
-          showPromotionModal();
+          if (autoPromo) {
+            doMove({ ...move, promo: "q" });
+          } else {
+            pendingPromotion = move;
+            showPromotionModal();
+          }
           return;
         }
         doMove(move);
@@ -1006,9 +1198,14 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
 
     const { next, info } = Core.makeMove(pos, move);
     const moverColor = piece.c;
+    // FIX: grab the captured piece's object BEFORE `pieceAt` is rewritten —
+    // for a normal capture the mover is registered on `move.to`, which is the
+    // same square the captured piece was just evicted from.
+    const capObj = info.captured ? pieceAt.get(info.captureSquare!) : null;
     history.push({
       snapshot: Core.clonePos(pos),
       info: { ...info, clock: { w: clocks.w, b: clocks.b } },
+      after: Core.clonePos(next),
     });
     pos = next;
     repetition.set(info.posKey, (repetition.get(info.posKey) ?? 0) + 1);
@@ -1020,15 +1217,47 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     selection = null;
     legalTargets.clear();
     clearMarkers();
+    clearHint();
     lastMove = { from: move.from, to: move.to };
+    // If the user is following the live game, follow the new move; otherwise
+    // keep the position they are reviewing on screen.
+    const wasLive = viewIdx === history.length - 1;
+    if (wasLive) viewIdx = history.length;
     animating = true;
 
-    // visuals
     const obj = pieceAt.get(move.from);
     if (!obj) {
+      // Defensive: bookkeeping out of sync — rebuild visuals from the rules.
       animating = false;
+      rebuildPieces();
+      refreshPickables();
+      refreshOverlays(null);
       postMove(moverColor, info);
+      if (pendingUndo) {
+        pendingUndo = false;
+        undo();
+      }
       return;
+    }
+
+    // The user was reviewing an older position: apply the move silently.
+    if (!wasLive) {
+      animating = false;
+      rebuildPieces();
+      refreshPickables();
+      refreshOverlays(null);
+      postMove(moverColor, info);
+      if (pendingUndo) {
+        pendingUndo = false;
+        undo();
+      }
+      return;
+    }
+
+    // En passant: the captured pawn still sits in `pieceAt` (the mover
+    // landed elsewhere); for a normal capture the entry was overwritten.
+    if (capObj && info.captureSquare !== null && info.captureSquare !== move.to) {
+      pieceAt.delete(info.captureSquare);
     }
     pieceAt.delete(move.from);
     obj.sq = move.to;
@@ -1036,15 +1265,12 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
 
     animatePieceTo(obj, squareWorld(move.to), 0.22, () => {
       // captured piece removal
-      if (info.captured && info.captureSquare !== null) {
-        const cap = pieceAt.get(info.captureSquare);
-        if (cap) {
-          pieceAt.delete(info.captureSquare);
-          animateScale(cap.group, 0, 0.2, () => {
-            world.remove(cap.group);
-            pieces.delete(cap.id);
-          });
-        }
+      if (capObj) {
+        animateScale(capObj.group, 0, 0.2, () => {
+          world.remove(capObj.group);
+          pieces.delete(capObj.id);
+          refreshPickables();
+        });
       }
       // castling rook
       if (info.castle) {
@@ -1087,6 +1313,10 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       refreshPickables();
       refreshOverlays(null);
       postMove(moverColor, info);
+      if (pendingUndo) {
+        pendingUndo = false;
+        undo();
+      }
     });
   };
 
@@ -1110,9 +1340,11 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
         result: "ŞAH MAT",
         reason: `${winnerName(status.winner)} kazandı`,
       };
+      gameResult = status.winner === "w" ? "1-0" : "0-1";
       Snd.end();
     } else if (status.state === "stalemate") {
       gameOver = { result: "PAT", reason: "Berabere" };
+      gameResult = "1/2-1/2";
       Snd.end();
     } else {
       const rep = repetition.get(info.posKey) ?? 0;
@@ -1121,6 +1353,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       else if (Core.insufficientMaterial(pos)) reason = "Yetersiz materyal";
       if (reason) {
         gameOver = { result: "BERABERE", reason };
+        gameResult = "1/2-1/2";
         Snd.end();
       } else if (status.check) {
         Snd.check();
@@ -1134,6 +1367,9 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       scheduleAI();
     } else if (gameOver) {
       showGameOverModal();
+    } else if (autoFlip && settings.mode === "2p" && !menuOpen) {
+      // Keep the side to move on the near side in local matches.
+      setBoardParity(pos.turn === "w" ? 1 : 0);
     }
   };
 
@@ -1159,8 +1395,182 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     }, 40);
   };
 
+  /* ---------- move review (history navigation) ---------- */
+  const isLive = () => viewIdx === history.length;
+
+  /** Position displayed while reviewing at `viewIdx`. */
+  const displayPosition = (): Core.Position => {
+    if (viewIdx === 0) return startSnap;
+    return history[viewIdx - 1].after;
+  };
+
+  /** Captured-piece lists at a given move index (for review + material). */
+  const capturedAt = (idx: number) => {
+    const cap: { w: Core.PieceType[]; b: Core.PieceType[] } = { w: [], b: [] };
+    for (let i = 0; i < idx && i < history.length; i++) {
+      const c = history[i].info.captured;
+      if (c) cap[c.c === "w" ? "b" : "w"].push(c.t);
+    }
+    return cap;
+  };
+
+  const PIECE_MAT: Record<Core.PieceType, number> = {
+    p: 1, n: 3, b: 3, r: 5, q: 9, k: 0,
+  };
+  const materialDiff = (cap: { w: Core.PieceType[]; b: Core.PieceType[] }) => {
+    // positive = white ahead (cap.w = black pieces white captured)
+    const sum = (l: Core.PieceType[]) => l.reduce((a, t) => a + PIECE_MAT[t], 0);
+    return sum(cap.w) - sum(cap.b);
+  };
+
+  /** Re-render the board / HUD for the current viewIdx. */
+  const applyView = () => {
+    const total = history.length;
+    viewIdx = Math.max(0, Math.min(viewIdx, total));
+    const disp = displayPosition();
+    const lm = viewIdx >= 1 ? history[viewIdx - 1].info.move : null;
+    lastMove = lm ? { from: lm.from, to: lm.to } : null;
+    selection = null;
+    legalTargets.clear();
+    clearMarkers();
+    clearHint();
+    dragState = null;
+    rebuildPieces(disp.board);
+    refreshPickables();
+    refreshOverlays(null);
+    updateHUD();
+  };
+
+  const navPrev = () => {
+    if (menuOpen || viewIdx === 0) return;
+    Snd.click();
+    viewIdx = Math.max(0, viewIdx - 1);
+    applyView();
+  };
+
+  const navNext = () => {
+    if (menuOpen || viewIdx >= history.length) return;
+    Snd.click();
+    viewIdx = Math.min(history.length, viewIdx + 1);
+    applyView();
+  };
+
+  const navLive = () => {
+    if (menuOpen || isLive()) return;
+    Snd.click();
+    viewIdx = history.length;
+    applyView();
+  };
+
+  /* ---------- PGN export ---------- */
+  const buildPGN = (): string => {
+    const now = new Date();
+    const date = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(
+      now.getDate()
+    ).padStart(2, "0")}`;
+    const result = gameResult ?? "*";
+    let moves = "";
+    for (let i = 0; i < moveList.length; i += 2) {
+      moves += `${i / 2 + 1}. ${moveList[i]}${moveList[i + 1] ? " " + moveList[i + 1] : ""}`;
+      if (i + 2 < moveList.length) moves += " ";
+    }
+    const header = [
+      '[Event "Casual Game"]',
+      '[Site "GameHub 3D Chess"]',
+      `[Date "${date}"]`,
+      `[White "${playerName("w")}"]`,
+      `[Black "${playerName("b")}"]`,
+      `[Result "${result}"]`,
+      "",
+    ].join("\n");
+    return `${header}${moves.trim()} ${result}\n`;
+  };
+
+  const downloadPGN = () => {
+    Snd.click();
+    const blob = new Blob([buildPGN()], { type: "application/x-chess-pgn" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `satranci-${Date.now()}.pgn`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+
+  /* ---------- hint (engine's best move) ---------- */
+  const clearHint = () => {
+    if (hintGroup) {
+      world.remove(hintGroup);
+      hintGroup.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) m.geometry.dispose();
+      });
+      hintGroup = null;
+    }
+  };
+
+  const showHintArrow = (from: number, to: number) => {
+    clearHint();
+    const a = squareWorld(from);
+    const b = squareWorld(to);
+    const dir = b.clone().sub(a);
+    const len = dir.length();
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xf2c14e,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    const arrow = new THREE.Group();
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.055, Math.max(0.1, len - 0.35), 12),
+      mat
+    );
+    shaft.position.y = Math.max(0.1, len - 0.35) / 2;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.35, 12), mat);
+    head.position.y = len - 0.175;
+    arrow.add(shaft);
+    arrow.add(head);
+    arrow.position.set(a.x, SQUARE_TOP_Y + 0.1, a.z);
+    arrow.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      dir.clone().normalize()
+    );
+    arrow.renderOrder = 3;
+    world.add(arrow);
+    hintGroup = arrow;
+  };
+
+  const hint = () => {
+    if (
+      menuOpen ||
+      !gameActive ||
+      gameOver ||
+      animating ||
+      aiThinking ||
+      pendingPromotion ||
+      !isLive() ||
+      !isHumanTurn()
+    )
+      return;
+    Snd.click();
+    const res = bestMove(pos, { timeMs: 900, maxDepth: 5, randomChance: 0 });
+    if (!res) return;
+    showHintArrow(res.move.from, res.move.to);
+    updateHUD();
+  };
+
   /* ---------- undo / flip / resign / new game ---------- */
   const undo = () => {
+    // While reviewing an older position, the first undo just jumps back to
+    // the live position; a second press actually undoes a move.
+    if (viewIdx !== history.length) {
+      viewIdx = history.length;
+      applyView();
+      return;
+    }
     if (pendingPromotion) {
       pendingPromotion = null;
       hidePromotionModal();
@@ -1169,7 +1579,11 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       aiGen++;
       aiThinking = false;
     }
-    if (animating) return;
+    if (animating) {
+      // Queue it; the running animation finishes first and replays undo.
+      pendingUndo = true;
+      return;
+    }
     if (history.length === 0) return;
 
     const pops = settings.mode === "ai" ? 2 : 1;
@@ -1180,6 +1594,8 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       clocks.b = entry.info.clock?.b ?? clocks.b;
       moveList.pop();
     }
+    // we are back at the (shortened) live position
+    viewIdx = history.length;
     // rebuild derived state
     repetition = new Map([[Core.makeKey(pos), 1]]);
     captured = { w: [], b: [] };
@@ -1190,11 +1606,13 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       }
     }
     gameOver = null;
+    gameResult = null;
     lastMove = history.length > 0 ? history[history.length - 1].info.move : null;
     lastMove = lastMove ? { from: lastMove.from, to: lastMove.to } : null;
     selection = null;
     legalTargets.clear();
     clearMarkers();
+    clearHint();
     hideGameOverModal();
     rebuildPieces();
     refreshPickables();
@@ -1214,17 +1632,30 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
 
   const flip = () => {
     if (animating) return;
+    setBoardParity(Math.round(flipTarget / Math.PI) % 2 === 0 ? 1 : 0);
+  };
+
+  /** Rotate the board so the given parity is applied (0 = black near, 1 = white near). */
+  const setBoardParity = (p: number) => {
+    const current = Math.round(flipTarget / Math.PI) % 2;
+    if (current === p) return;
     flipTarget += Math.PI;
+    // drop any in-flight rotation tween so it cannot fight this one
+    for (let i = tweens.length - 1; i >= 0; i--) {
+      if (tweens[i].kind === "rot") tweens.splice(i, 1);
+    }
     const from = world.rotation.y;
     addTween({ kind: "rot", obj: world, from, to: flipTarget, dur: 0.35, el: 0 });
   };
 
   const resign = () => {
     if (gameOver || animating || menuOpen || !gameActive) return;
+    const loser = pos.turn;
     gameOver = {
       result: "TESLİM",
-      reason: `${pos.turn === "w" ? "Siyah" : "Beyaz"} kazandı`,
+      reason: `${loser === "w" ? "Siyah" : "Beyaz"} kazandı`,
     };
+    gameResult = loser === "w" ? "0-1" : "1-0";
     Snd.end();
     updateHUD();
     refreshOverlays(null);
@@ -1235,20 +1666,27 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     aiGen++;
     aiThinking = false;
     pendingPromotion = null;
+    pendingUndo = false;
     hidePromotionModal();
     hideGameOverModal();
     pos = Core.initialPosition();
+    startSnap = Core.clonePos(pos);
     history = [];
     moveList = [];
     captured = { w: [], b: [] };
     repetition = new Map([[Core.makeKey(pos), 1]]);
     const tc = TC_SECONDS[settings.tc];
     clocks = { w: tc.base, b: tc.base };
+    initialClocks = { w: tc.base, b: tc.base };
+    lastClockTick = performance.now();
     gameOver = null;
+    gameResult = null;
+    viewIdx = 0;
     selection = null;
     legalTargets.clear();
     lastMove = null;
     clearMarkers();
+    clearHint();
     animating = false;
     tweens.length = 0;
     gameActive = true;
@@ -1258,6 +1696,11 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     refreshPickables();
     refreshOverlays(null);
     updateHUD();
+    // Face the board toward the human player.
+    if (autoFlip && settings.mode === "ai") {
+      const humanWhite = settings.aiColor === "b";
+      setBoardParity(humanWhite ? 1 : 0);
+    }
     if (settings.mode === "ai" && settings.aiColor === "w") scheduleAI();
   };
 
@@ -1273,6 +1716,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     aiGen++;
     aiThinking = false;
     pendingPromotion = null;
+    pendingUndo = false;
     hidePromotionModal();
     hideGameOverModal();
     hideSettingsModal();
@@ -1281,6 +1725,8 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     selection = null;
     legalTargets.clear();
     clearMarkers();
+    clearHint();
+    viewIdx = history.length;
     refreshOverlays(null);
     showMenu();
     updateHUD();
@@ -1344,6 +1790,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
         <div class="rch-over-reason">${gameOver.reason}</div>
         <div class="rch-over-btns">
           <button class="rch-btn rch-btn-primary" data-act="rematch">Tekrar Oyna</button>
+          <button class="rch-btn" data-act="pgn">📄 PGN</button>
           <button class="rch-btn" data-act="menu">Ana Menü</button>
         </div>
       </div>`;
@@ -1353,6 +1800,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       hideGameOverModal();
       newGame();
     });
+    overModal.querySelector('[data-act="pgn"]')?.addEventListener("click", downloadPGN);
     overModal.querySelector('[data-act="menu"]')?.addEventListener("click", () => {
       Snd.click();
       hideGameOverModal();
@@ -1387,6 +1835,14 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     clockB: null as HTMLSpanElement | null,
     nameW: null as HTMLSpanElement | null,
     nameB: null as HTMLSpanElement | null,
+    matW: null as HTMLSpanElement | null,
+    matB: null as HTMLSpanElement | null,
+    navPrev: null as HTMLButtonElement | null,
+    navNext: null as HTMLButtonElement | null,
+    navLive: null as HTMLButtonElement | null,
+    navLabel: null as HTMLSpanElement | null,
+    hint: null as HTMLButtonElement | null,
+    pgn: null as HTMLButtonElement | null,
   };
 
   const GLYPH: Record<Core.PieceType, string> = {
@@ -1421,77 +1877,111 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
 
   const updateHUD = () => {
     if (!hud) return;
-    // move list
+    const total = history.length;
+    const live = isLive();
+    const disp = live ? pos : displayPosition();
+    const dispClocks =
+      live ? clocks : viewIdx === 0 ? initialClocks : (history[viewIdx - 1].info.clock ?? initialClocks);
+    const dispCap = live ? captured : capturedAt(viewIdx);
+    const matDiff = materialDiff(dispCap);
+
+    // move list (rebuild only when the content or the highlight changed)
     if (els.moves) {
-      let html = "";
-      for (let i = 0; i < moveList.length; i += 2) {
-        const n = i / 2 + 1;
-        html += `<div class="rch-move-row"><span class="rch-move-num">${n}.</span><span>${moveList[i]}</span><span>${moveList[i + 1] ?? ""}</span></div>`;
+      const highlight = viewIdx - 1; // ply index currently on the board
+      if (moveList.length !== lastRenderedMoves || highlight !== lastRenderedHighlight) {
+        let html = "";
+        for (let i = 0; i < moveList.length; i += 2) {
+          const n = i / 2 + 1;
+          const wCls = i === highlight ? " rch-move-active" : "";
+          const bCls = i + 1 === highlight ? " rch-move-active" : "";
+          const bSpan = moveList[i + 1]
+            ? `<span data-ply="${i + 1}" class="rch-move${bCls}">${moveList[i + 1]}</span>`
+            : `<span class="rch-move-empty"></span>`;
+          html += `<div class="rch-move-row"><span class="rch-move-num">${n}.</span><span data-ply="${i}" class="rch-move${wCls}">${moveList[i]}</span>${bSpan}</div>`;
+        }
+        els.moves.innerHTML = html;
+        lastRenderedMoves = moveList.length;
+        lastRenderedHighlight = highlight;
+        if (!movesScrolledUp) els.moves.scrollTop = els.moves.scrollHeight;
       }
-      els.moves.innerHTML = html;
-      els.moves.scrollTop = els.moves.scrollHeight;
       if (els.movesTitle) {
         els.movesTitle.textContent = `HAMLELER (${moveList.length})`;
       }
     }
-    // captured
+    // captured — cap.w holds captured BLACK pieces, cap.b captured WHITE ones;
+    // the white row shows what WHITE captured (black pieces) and the black row
+    // what BLACK captured (white pieces), + material badge
     if (els.capWhite) {
-      els.capWhite.innerHTML = captured.w
+      els.capWhite.innerHTML = dispCap.w
         .slice()
         .sort((a, b) => VAL_ORDER.indexOf(a) - VAL_ORDER.indexOf(b))
         .map((t) => `<span class="rch-cap rch-cap-dark">${GLYPH[t]}</span>`)
         .join("");
     }
     if (els.capBlack) {
-      els.capBlack.innerHTML = captured.b
+      els.capBlack.innerHTML = dispCap.b
         .slice()
         .sort((a, b) => VAL_ORDER.indexOf(a) - VAL_ORDER.indexOf(b))
         .map((t) => `<span class="rch-cap rch-cap-light">${GLYPH_W[t]}</span>`)
         .join("");
     }
+    if (els.matW) els.matW.textContent = matDiff > 0 ? `+${matDiff}` : "";
+    if (els.matB) els.matB.textContent = matDiff < 0 ? `+${-matDiff}` : "";
     // player names
     if (els.nameW) els.nameW.textContent = playerName("w");
     if (els.nameB) els.nameB.textContent = playerName("b");
     // status
     if (els.status) {
       let txt: string;
+      let side: Core.Color = pos.turn;
       if (menuOpen) {
         txt = "";
         els.status.style.display = "none";
       } else {
         els.status.style.display = "";
-        if (gameOver) {
+        if (!live) {
+          side = disp.turn;
+          txt = `İNCELEME ${viewIdx}/${total}${Core.inCheck(disp, disp.turn) ? " — ŞAH!" : ""}`;
+        } else if (gameOver) {
           txt = `${gameOver.result} — ${gameOver.reason}`;
         } else if (pendingPromotion) {
           txt = "Terfi taşını seç";
         } else if (aiThinking) {
           txt = "DÜŞÜNÜYOR...";
         } else {
-          const side = pos.turn === "w" ? "Beyaz" : "Siyah";
-          txt = `${side} oynuyor${Core.inCheck(pos, pos.turn) ? " — ŞAH!" : ""}`;
+          const nm = side === "w" ? playerName("w") : playerName("b");
+          txt = `${nm} oynuyor${Core.inCheck(disp, disp.turn) ? " — ŞAH!" : ""}`;
         }
       }
       els.status.textContent = txt;
-      els.status.className = `rch-status rch-turn-${pos.turn}${gameOver ? " rch-status-over" : ""}${menuOpen ? " rch-hidden" : ""}`;
+      els.status.className = `rch-status rch-turn-${side}${gameOver ? " rch-status-over" : ""}${menuOpen ? " rch-hidden" : ""}`;
     }
-    // clocks
+    // clocks (historical clocks while reviewing)
     if (els.clockWrap) {
       els.clockWrap.style.display = menuOpen ? "none" : "flex";
       if (els.clockW && els.clockB) {
-        els.clockW.textContent = fmtClock(clocks.w);
-        els.clockB.textContent = fmtClock(clocks.b);
-        els.clockW.parentElement!.classList.toggle(
+        els.clockW.textContent = fmtClock(dispClocks.w);
+        els.clockB.textContent = fmtClock(dispClocks.b);
+        const activeColor = live ? pos.turn : disp.turn;
+        els.clockW.closest(".rch-clock")?.classList.toggle(
           "rch-clock-active",
-          !gameOver && gameActive && pos.turn === "w"
+          !gameOver && gameActive && activeColor === "w"
         );
-        els.clockB.parentElement!.classList.toggle(
+        els.clockB.closest(".rch-clock")?.classList.toggle(
           "rch-clock-active",
-          !gameOver && gameActive && pos.turn === "b"
+          !gameOver && gameActive && activeColor === "b"
         );
       }
     }
+    // navigation
+    if (els.navPrev) els.navPrev.disabled = viewIdx === 0;
+    if (els.navNext) els.navNext.disabled = live;
+    if (els.navLive) els.navLive.classList.toggle("rch-seg-active", live);
+    if (els.navLabel) {
+      els.navLabel.textContent = live ? "CANLI" : `${viewIdx}/${total}`;
+    }
     // undo enabled
-    if (els.undo) els.undo.disabled = history.length === 0;
+    if (els.undo) els.undo.disabled = history.length === 0 && viewIdx === 0;
   };
 
   const buildHUD = () => {
@@ -1506,6 +1996,8 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
           <button class="rch-btn" data-ctl="menubtn">🏠 Menü</button>
           <button class="rch-btn" data-ctl="undo">↩ Geri Al</button>
           <button class="rch-btn" data-ctl="flip">⇄ Çevir</button>
+          <button class="rch-btn" data-ctl="hint">💡 İpucu</button>
+          <button class="rch-btn" data-ctl="pgn">📄 PGN</button>
           <button class="rch-btn" data-ctl="resetcam">⌖ Kamera</button>
           <button class="rch-btn" data-ctl="resign">🏳 Teslim</button>
           <button class="rch-btn" data-ctl="sound">🔊</button>
@@ -1513,8 +2005,8 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       </div>
       <div class="rch-left">
         <div class="rch-clock-row" data-ctl="clockwrap">
-          <div class="rch-clock"><span class="rch-clock-dot rch-dot-w"></span><div class="rch-clock-inner"><span class="rch-clock-name" data-name="w">Beyaz</span><span data-clock="w">10:00</span></div></div>
-          <div class="rch-clock"><span class="rch-clock-dot rch-dot-b"></span><div class="rch-clock-inner"><span class="rch-clock-name" data-name="b">Siyah</span><span data-clock="b">10:00</span></div></div>
+          <div class="rch-clock"><span class="rch-clock-dot rch-dot-w"></span><div class="rch-clock-inner"><span class="rch-clock-name" data-name="w">Beyaz</span><span><span data-clock="w">10:00</span><span class="rch-mat" data-mat="w"></span></span></div></div>
+          <div class="rch-clock"><span class="rch-clock-dot rch-dot-b"></span><div class="rch-clock-inner"><span class="rch-clock-name" data-name="b">Siyah</span><span><span data-clock="b">10:00</span><span class="rch-mat" data-mat="b"></span></span></div></div>
         </div>
         <div class="rch-panel">
           <div class="rch-panel-title">ALINAN TAŞLAR</div>
@@ -1524,6 +2016,11 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       <div class="rch-right">
         <div class="rch-panel rch-moves-panel">
           <div class="rch-panel-title" data-ctl="movestitle">HAMLELER</div>
+          <div class="rch-nav">
+            <button class="rch-btn rch-nav-btn" data-ctl="navprev">◀</button>
+            <button class="rch-btn rch-nav-btn" data-ctl="navlive"><span data-ctl="navlabel">CANLI</span></button>
+            <button class="rch-btn rch-nav-btn" data-ctl="navnext">▶</button>
+          </div>
           <div class="rch-moves" data-ctl="moves"></div>
         </div>
       </div>
@@ -1541,7 +2038,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
               <button class="rch-menu-btn" data-act="vs2">2 OYUNCU</button>
               <button class="rch-menu-btn" data-act="settings">AYARLAR</button>
             </div>
-            <div class="rch-menu-hint">Sürükle: kamerayı döndür &nbsp;•&nbsp; Tekerlek / kıstır: yakınlaş &nbsp;•&nbsp; Tıkla: taş seç</div>
+            <div class="rch-menu-hint">Sürükle: taş taşı veya kamerayı döndür &nbsp;•&nbsp; Tekerlek / kıstır: yakınlaş &nbsp;•&nbsp; ◀ ▶: hamleleri incele &nbsp;•&nbsp; U: geri al &nbsp;•&nbsp; H: ipucu &nbsp;•&nbsp; F: çevir &nbsp;•&nbsp; M: ses</div>
           </div>
           <div class="rch-menu-view" data-view="vsai">
             <div class="rch-menu-subtitle">BİLGİSAYARA KARŞI</div>
@@ -1571,12 +2068,12 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
         <div class="rch-modal-card rch-settings-card">
           <div class="rch-modal-title">AYARLAR</div>
           <div class="rch-set-row">
-            <div class="rch-set-label">Süre</div>
+            <div class="rch-set-label">Süre (Fischer artımlı)</div>
             <div class="rch-seg" data-ctl="tcseg">
-              <button data-tc="3">3 dk</button>
-              <button data-tc="5">5 dk</button>
-              <button data-tc="10">10 dk</button>
-              <button data-tc="15">15 dk</button>
+              <button data-tc="3">3+2</button>
+              <button data-tc="5">5+3</button>
+              <button data-tc="10">10+0</button>
+              <button data-tc="15">15+10</button>
               <button data-tc="unlimited">Sınırsız</button>
             </div>
           </div>
@@ -1586,6 +2083,20 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
               <button data-diff="easy">Kolay</button>
               <button data-diff="medium">Orta</button>
               <button data-diff="hard">Zor</button>
+            </div>
+          </div>
+          <div class="rch-set-row">
+            <div class="rch-set-label">Piyon Terfisi</div>
+            <div class="rch-seg" data-ctl="promoseg">
+              <button data-promo="0">Taş Seç</button>
+              <button data-promo="1">Otomatik Vezir</button>
+            </div>
+          </div>
+          <div class="rch-set-row">
+            <div class="rch-set-label">Otomatik Çevir (oynayan tarafta tut)</div>
+            <div class="rch-seg" data-ctl="flipseg">
+              <button data-flip="1">Açık</button>
+              <button data-flip="0">Kapalı</button>
             </div>
           </div>
           <div class="rch-set-row">
@@ -1620,6 +2131,14 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     els.clockB = hud.querySelector('[data-clock="b"]') as HTMLSpanElement;
     els.nameW = hud.querySelector('[data-name="w"]') as HTMLSpanElement;
     els.nameB = hud.querySelector('[data-name="b"]') as HTMLSpanElement;
+    els.matW = hud.querySelector('[data-mat="w"]') as HTMLSpanElement;
+    els.matB = hud.querySelector('[data-mat="b"]') as HTMLSpanElement;
+    els.navPrev = hud.querySelector('[data-ctl="navprev"]') as HTMLButtonElement;
+    els.navNext = hud.querySelector('[data-ctl="navnext"]') as HTMLButtonElement;
+    els.navLive = hud.querySelector('[data-ctl="navlive"]') as HTMLButtonElement;
+    els.navLabel = hud.querySelector('[data-ctl="navlabel"]') as HTMLSpanElement;
+    els.hint = hud.querySelector('[data-ctl="hint"]') as HTMLButtonElement;
+    els.pgn = hud.querySelector('[data-ctl="pgn"]') as HTMLButtonElement;
 
     // ---- main menu ----
     const menuViews = hud.querySelectorAll(".rch-menu-view");
@@ -1704,6 +2223,20 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
         syncSettingsUI();
       });
     });
+    hud.querySelectorAll('[data-ctl="promoseg"] button').forEach((b) => {
+      b.addEventListener("click", () => {
+        Snd.click();
+        autoPromo = b.getAttribute("data-promo") === "1";
+        syncSettingsUI();
+      });
+    });
+    hud.querySelectorAll('[data-ctl="flipseg"] button').forEach((b) => {
+      b.addEventListener("click", () => {
+        Snd.click();
+        autoFlip = b.getAttribute("data-flip") === "1";
+        syncSettingsUI();
+      });
+    });
     hud.querySelector('[data-ctl="soundset"]')!.addEventListener("click", () => {
       Snd.muted = !Snd.muted;
       syncSettingsUI();
@@ -1711,6 +2244,21 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     hud.querySelector('[data-ctl="settingsclose"]')!.addEventListener("click", () => {
       Snd.click();
       hideSettingsModal();
+    });
+
+    // ---- move list: click a move to review it, track user scroll ----
+    els.moves.addEventListener("click", (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>("[data-ply]");
+      if (!t) return;
+      const ply = parseInt(t.getAttribute("data-ply")!, 10);
+      if (Number.isNaN(ply)) return;
+      Snd.click();
+      viewIdx = Math.max(0, Math.min(history.length, ply + 1));
+      applyView();
+    });
+    els.moves.addEventListener("scroll", () => {
+      const m = els.moves!;
+      movesScrolledUp = m.scrollTop + m.clientHeight < m.scrollHeight - 24;
     });
 
     // ---- in-game buttons ----
@@ -1735,6 +2283,11 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       Snd.muted = !Snd.muted;
       els.sound!.textContent = Snd.muted ? "🔇" : "🔊";
     });
+    els.hint.addEventListener("click", hint);
+    els.pgn.addEventListener("click", downloadPGN);
+    els.navPrev.addEventListener("click", navPrev);
+    els.navNext.addEventListener("click", navNext);
+    els.navLive.addEventListener("click", navLive);
 
     syncSettingsUI();
     showMenu();
@@ -1747,6 +2300,12 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     });
     hud.querySelectorAll('[data-ctl="diffseg"] button').forEach((b) => {
       b.classList.toggle("rch-seg-active", b.getAttribute("data-diff") === settings.difficulty);
+    });
+    hud.querySelectorAll('[data-ctl="promoseg"] button').forEach((b) => {
+      b.classList.toggle("rch-seg-active", (b.getAttribute("data-promo") === "1") === autoPromo);
+    });
+    hud.querySelectorAll('[data-ctl="flipseg"] button').forEach((b) => {
+      b.classList.toggle("rch-seg-active", (b.getAttribute("data-flip") === "1") === autoFlip);
     });
     hud.querySelector('[data-ctl="soundset"]')!.textContent = Snd.muted ? "Kapalı" : "Açık";
   };
@@ -1770,20 +2329,26 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     if (settingsModal) settingsModal.style.display = "none";
   };
 
-  /* ---------- clocks ---------- */
+  /* ---------- clocks (real-time based, drift-free) ---------- */
+  let lastClockTick = performance.now();
   const clockTimer = window.setInterval(() => {
+    const now = performance.now();
+    const dt = Math.min(2, (now - lastClockTick) / 1000);
+    lastClockTick = now;
     if (stopped || gameOver || !gameActive) return;
     const tc = TC_SECONDS[settings.tc];
     if (tc.base <= 0) return;
-    clocks[pos.turn] -= 0.25;
+    clocks[pos.turn] -= dt;
     if (clocks[pos.turn] <= 0) {
       clocks[pos.turn] = 0;
       const loser = pos.turn;
-      const loserName = loser === "w" ? "Beyaz" : "Siyah";
+      const loserName = playerName(loser);
       if (Core.insufficientMaterial(pos)) {
         gameOver = { result: "BERABERE", reason: "Yetersiz materyal" };
+        gameResult = "1/2-1/2";
       } else {
         gameOver = { result: "SÜRE DOLDU", reason: `${loserName} süreyi aştı` };
+        gameResult = loser === "w" ? "0-1" : "1-0";
       }
       Snd.end();
       updateHUD();
@@ -1791,7 +2356,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     } else {
       updateHUD();
     }
-  }, 250);
+  }, 200);
 
   /* ---------- main loop ---------- */
   const onResize = () => {
@@ -1803,10 +2368,14 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   };
 
   let raf = 0;
+  let lastFrameT = performance.now();
   const loop = () => {
     if (stopped) return;
     raf = requestAnimationFrame(loop);
-    const dt = Math.min(0.05, 1 / 60);
+    const now = performance.now();
+    // Real-time dt so tweens/animation durations hold even when fps drops.
+    const dt = Math.min(0.25, (now - lastFrameT) / 1000);
+    lastFrameT = now;
 
     // tweens
     for (let i = tweens.length - 1; i >= 0; i--) {
@@ -1870,6 +2439,14 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
 .rch-moves::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px}
 .rch-move-row{display:grid;grid-template-columns:26px 1fr 1fr;gap:4px;font-variant-numeric:tabular-nums}
 .rch-move-num{color:#8b8aa8}
+.rch-move{cursor:pointer;border-radius:4px;padding:0 2px;transition:background .1s}
+.rch-move:hover{background:rgba(255,255,255,.1)}
+.rch-move-active{color:#f2c14e;font-weight:800;background:rgba(242,193,78,.14)}
+.rch-move-empty{opacity:0}
+.rch-nav{display:flex;gap:5px;align-items:stretch;margin-bottom:8px}
+.rch-nav-btn{flex:1;padding:4px 2px;font-size:12px;white-space:nowrap}
+.rch-nav-btn.rch-seg-active{background:rgba(242,193,78,.18);color:#f2c14e;border-color:#f2c14e}
+.rch-mat{color:#f2c14e;font-size:11px;font-weight:800;margin-left:5px}
 .rch-cap-row{min-height:20px;font-size:17px;letter-spacing:2px}
 .rch-cap-dark{color:#c9c5ba;text-shadow:0 0 3px rgba(0,0,0,.8)}
 .rch-cap-light{color:#f2e8d0}
@@ -1937,12 +2514,52 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   document.head.appendChild(styleEl);
 
   /* ---------- wiring ---------- */
+  const onKey = (e: KeyboardEvent) => {
+    if (stopped) return;
+    const k = e.key.toLowerCase();
+    if (k === "escape") {
+      if (pendingPromotion) {
+        pendingPromotion = null;
+        hidePromotionModal();
+        updateHUD();
+      } else if (settingsModal && settingsModal.offsetParent !== null) {
+        hideSettingsModal();
+      } else if (overModal) {
+        backToMenu();
+      } else if (!menuOpen && gameActive) {
+        backToMenu();
+      }
+      return;
+    }
+    if (menuOpen || !gameActive) return;
+    if (k === "u" || k === "ü") {
+      Snd.click();
+      undo();
+    } else if (k === "f") {
+      Snd.click();
+      flip();
+    } else if (k === "m") {
+      Snd.muted = !Snd.muted;
+      if (els.sound) els.sound.textContent = Snd.muted ? "🔇" : "🔊";
+    } else if (k === "r") {
+      resetCamera();
+    } else if (k === "h") {
+      hint();
+    } else if (k === "arrowleft") {
+      e.preventDefault();
+      navPrev();
+    } else if (k === "arrowright") {
+      e.preventDefault();
+      navNext();
+    }
+  };
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", onPointerUp);
   canvas.addEventListener("pointercancel", onPointerCancel);
   canvas.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("resize", onResize);
+  window.addEventListener("keydown", onKey);
   canvas.style.imageRendering = "auto";
   canvas.style.touchAction = "none";
 
@@ -1964,6 +2581,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       cancelAnimationFrame(raf);
       clearInterval(clockTimer);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("keydown", onKey);
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
@@ -1986,6 +2604,80 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
     choosePromotion,
     resetCamera,
     backToMenu,
+  };
+
+  // Debug/test hook (used by the Playwright suite; harmless in production).
+  (window as unknown as Record<string, unknown>).__chess = {
+    /** Project a square centre (board surface) to client (screen) coordinates. */
+    screen: (sq: number) => {
+      const v = world.localToWorld(squareWorld(sq).clone());
+      v.project(camera);
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: rect.left + ((v.x + 1) / 2) * rect.width,
+        y: rect.top + ((1 - v.y) / 2) * rect.height,
+      };
+    },
+    pick: (x: number, y: number) => pickSquare({ clientX: x, clientY: y }),
+    plane: (x: number, y: number) => {
+      const hit = pickPlane({ clientX: x, clientY: y });
+      return hit ? { x: +hit.x.toFixed(3), z: +hit.z.toFixed(3), sq: hit.sq } : null;
+    },
+    state: () => ({
+      moveList: [...moveList],
+      viewIdx,
+      historyLen: history.length,
+      gameOver: gameOver ? { ...gameOver } : null,
+      gameActive,
+      gameResult,
+      aiThinking,
+      menuOpen,
+      turn: pos.turn,
+      settings: { ...settings },
+      autoPromo,
+      autoFlip,
+      clocks: { ...clocks },
+      boardRotation: Math.round(world.rotation.y / Math.PI) % 2,
+      worldRotY: +world.rotation.y.toFixed(4),
+      selection,
+      legalCount: legalTargets.size,
+      drag: dragState ? { sq: dragState.sq, active: dragState.active } : null,
+      gameOverBusy: animating,
+      legal: [...legalTargets],
+    }),
+    legal: (sq: number) =>
+      Core.legalMoves(pos, sq).map(
+        (m) => `${Core.sqName(m.from)}-${Core.sqName(m.to)}${m.promo ? "=" + m.promo : ""}`
+      ),
+    /** Play a move immediately as the human (promotes to queen). */
+    play: (from: number, to: number) => {
+      if (menuOpen || animating || aiThinking || gameOver || pendingPromotion) return "busy";
+      if (!isHumanTurn()) return "not-your-turn";
+      const moves = Core.legalMoves(pos, from).filter((m) => m.to === to);
+      const mv = moves.find((m) => !m.promo) ?? moves[0];
+      if (!mv) return "illegal";
+      if (mv.promo) doMove({ ...mv, promo: "q" });
+      else doMove(mv);
+      return "ok";
+    },
+    /** Diagnostics: project square centre, unproject, intersect board plane. */
+    debug: (sq: number) => {
+      const P = world.localToWorld(squareWorld(sq).clone());
+      const Pp = P.clone().project(camera);
+      const near = new THREE.Vector3(Pp.x, Pp.y, -1).unproject(camera);
+      const far = new THREE.Vector3(Pp.x, Pp.y, 1).unproject(camera);
+      const dir = far.clone().sub(near).normalize();
+      const t = (SQUARE_TOP_Y - near.y) / dir.y;
+      const hit = near.clone().add(dir.clone().multiplyScalar(t));
+      return {
+        camPos: camera.position.toArray().map((n) => +n.toFixed(3)),
+        camRotY: +camera.rotation.y.toFixed(4),
+        worldRotY: +world.rotation.y.toFixed(4),
+        P: P.toArray().map((n) => +n.toFixed(3)),
+        planeHit: hit.toArray().map((n) => +n.toFixed(3)),
+        err: hit.clone().sub(P).toArray().map((n) => +n.toFixed(3)),
+      };
+    },
   };
 
   return handle;
