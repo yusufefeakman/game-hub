@@ -94,6 +94,17 @@ const GAMES = [
     status: "playable" as const,
   },
   {
+    id: "okey",
+    title: "101 Okey",
+    subtitle: "Klasik Türk Okeyi",
+    emoji: "🀄",
+    artClass: "art-8",
+    description:
+      "108 taşlık klasik Türk okeyi! Renk ve karma setler, 101+ açılış, 3 geçiş kuralı ve ceza puanları. 2-4 oyuncu, akıllı bot rakipler, -101 hedefli maçlar. Tamamen Türkçe.",
+    route: "/games/okey",
+    status: "playable" as const,
+  },
+  {
     id: "fighter",
     title: "Dövüş Arenası",
     subtitle: "Efsane Savaşçılar",
