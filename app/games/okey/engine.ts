@@ -248,6 +248,9 @@ export function startGame(root: HTMLElement): () => void {
   let selection = new Set<number>();
   let busy = true;
   let toastTimer: number | null = null;
+  // Yeni maç/tur başladığında artar — bekleyen eski bot sleep'leri yeni
+  // turda hayalet hamle yapmasın (MENÜ→BAŞLA hızlı tıklama yarışı).
+  let matchGen = 0;
 
   /* ---------- DOM skeleton ---------- */
   const css = `
@@ -406,7 +409,10 @@ export function startGame(root: HTMLElement): () => void {
     const row = (e.target as HTMLElement).closest("[data-seti]") as HTMLElement | null;
     if (!row) return;
     const si = +row.dataset.seti!;
-    if (selection.size === 1 && canExtend(table[si], selTile()!)) {
+    if (!players[humanIdx()].opened) {
+      // 101 Okey kuralı: açılış (101+) yapmadan masa setlerine dokunulamaz.
+      toast("Önce 101+ açılış yapmalısın");
+    } else if (selection.size === 1 && canExtend(table[si], selTile()!)) {
       sfx("play");
       applyPlay(humanIdx(), { kind: "extend", tile: selTile()!, setIdx: si });
     } else if (selection.size >= 1) {
@@ -491,6 +497,7 @@ export function startGame(root: HTMLElement): () => void {
   }
 
   function dealRound() {
+    matchGen++;
     const tiles = shuffle(makeTiles());
     hands = players.map(() => []);
     for (let i = 0; i < players.length; i++)
@@ -523,6 +530,8 @@ export function startGame(root: HTMLElement): () => void {
 
   async function startTurn(isDeal = false) {
     if (stopped) return;
+    const gen = matchGen;
+    const fresh = () => !stopped && phase === "play" && gen === matchGen;
     selection = new Set();
     renderAll();
     if (players[turn].isHuman) {
@@ -531,25 +540,25 @@ export function startGame(root: HTMLElement): () => void {
       renderAll();
       if (t) { flashTile(t.id, handBox); sfx("draw"); }
       await sleep(isDeal ? 250 : 420);
-      if (stopped || phase !== "play") return;
+      if (!fresh()) return;
       busy = false;
       renderAll();
     } else {
       busy = true;
       renderAll();
       await sleep(650);
-      if (stopped || phase !== "play") return;
+      if (!fresh()) return;
       const t = drawTile(turn);
       renderAll();
       if (t) sfx("draw");
       await sleep(500);
-      if (stopped || phase !== "play") return;
+      if (!fresh()) return;
       const spec = aiChoose(turn);
       if (spec) {
         applyPlay(turn, spec);
         sfx("play");
         await sleep(650);
-        if (stopped || phase !== "play") return;
+        if (!fresh()) return;
         endTurn();
       } else {
         sfx("pass");
@@ -653,9 +662,9 @@ export function startGame(root: HTMLElement): () => void {
     if (phase !== "play") return;
     players.forEach((p, i) => {
       if (p.penalty === null) {
-        // Turu ilk bitiren (empty) veya son kalan (out) 0 ceza alır;
-        // destek bitti (pool) durumunda herkes elindeki taşların toplamını öder.
-        p.penalty = i === winner && why !== "pool" ? 0 : handSum(i);
+        // Turu ilk bitiren (empty), son kalan (out) veya destek bitiminde en
+        // düşük toplamı olan (pool) 0 ceza alır; diğerleri el toplamını öder.
+        p.penalty = i === winner ? 0 : handSum(i);
       }
       p.score -= p.penalty;
     });
@@ -673,7 +682,7 @@ export function startGame(root: HTMLElement): () => void {
     const reason =
       why === "empty" ? `${players[winner].name} elini bitirdi!` :
       why === "pool" ? "Destek bitti — en düşük toplam kazandı." :
-      "Üç elenen oyuncu — en düşük toplam kazandı.";
+      "Son kalan oyuncu turu kazandı.";
     const rows = players
       .map((p, i) => {
         const win = i === winner && why !== "pool" ? " ⭐" : "";
@@ -852,7 +861,8 @@ export function startGame(root: HTMLElement): () => void {
         if (phase !== "play" || busy || turn !== hi) return;
         if (selection.has(t.id)) selection.delete(t.id);
         else {
-          if (selection.size >= 9) { toast("Çok fazla taş"); return; }
+          // 16 taşlık sınır: 14 taşlık tam el bile seçilebilir (açılış setleri)
+          if (selection.size >= 16) { toast("Çok fazla taş"); return; }
           selection.add(t.id);
         }
         renderAll();
@@ -863,7 +873,9 @@ export function startGame(root: HTMLElement): () => void {
     // table
     tableBox.innerHTML = "";
     tableBox.classList.toggle("empty", table.length === 0);
-    const single = selection.size === 1 && !busy && turn === hi && phase === "play" ? selTile() : null;
+    const single =
+      selection.size === 1 && !busy && turn === hi && phase === "play" && players[hi].opened
+        ? selTile() : null;
     table.forEach((s, si) => {
       const row = document.createElement("div");
       row.className = "setrow";
@@ -895,7 +907,7 @@ export function startGame(root: HTMLElement): () => void {
       if (parts && !needOpen) { info.textContent = `✓ ${sel.length} taş, toplam ${sum}`; info.classList.add("good"); }
       else if (!parts) { info.textContent = "Geçersiz kombinasyon"; info.classList.add("bad"); }
       else { info.textContent = `Açılış 101+ olmalı (şu an ${sum})`; info.classList.add("bad"); }
-    } else if (sel.length === 1) {
+    } else if (sel.length === 1 && players[hi].opened) {
       info.textContent = "Eklenebilecek sete tıkla";
     } else {
       info.textContent = "";
@@ -942,6 +954,7 @@ export function startGame(root: HTMLElement): () => void {
       const hi = humanIdx();
       if (phase !== "play" || busy || turn !== hi) return "not-your-turn";
       if (spec.kind === "extend") {
+        if (!players[hi].opened) return "not-opened";
         const t = hands[hi].find((x) => x.id === spec.tile);
         if (!t) return "bad-tile";
         if (!canExtend(table[spec.setIdx], t)) return "cannot-extend";
@@ -968,6 +981,24 @@ export function startGame(root: HTMLElement): () => void {
       const b = modalOv.querySelector('[data-ok="next"]') as HTMLButtonElement | null;
       if (b) { b.click(); return "ok"; }
       return "no-modal";
+    },
+    /** Test-only knobs for headless verification. */
+    debug: {
+      /** Havuzu n taşa indir (destek tükenme akışını test et). */
+      setPool: (n: number) => { pool.length = Math.max(0, n | 0); return `pool=${pool.length}`; },
+      /** Oyuncu i'nin elini verilen taşlarla değiştir (test kurulumu). */
+      deal: (i: number, tiles: { c: number; n: number }[]) => {
+        let base = 9000 + matchGen * 100;
+        hands[i] = tiles.map((t) => ({ id: base++, c: t.c, n: t.n }));
+        return `el=${hands[i].length}`;
+      },
+      /** Bot i açılışını hemen masaya koyar (varsa). */
+      openBot: (i: number) => {
+        const s = aiChoose(i);
+        if (!s) return "no-opening";
+        applyPlay(i, s);
+        return "ok";
+      },
     },
   };
 
