@@ -169,54 +169,28 @@ const sumOf = (tiles: Tile[]) => tiles.reduce((a, t) => a + t.n, 0);
 /** Best opening combination (disjoint sets totalling >= 101, max total). */
 function findBestOpening(hand: Tile[]): { sets: Tile[][]; sum: number } | null {
   const sets = allSetsInHand(hand);
-  const full = new Set(hand.map((t) => t.id));
-  const masks = sets.map((s) => s.map((t) => full.size - 1 - t.id).filter(() => 0));
-  // use id -> bit over hand index
-  const idx = new Map<number, number>();
-  hand.forEach((t, i) => idx.set(t.id, i));
-  const setMasks = sets.map((s) => {
-    let m = 0;
-    for (const t of s) m |= 1 << (idx.get(t.id)!);
-    return m;
-  });
   const sums = sets.map(sumOf);
-  const N = hand.length;
   let best: { sets: Tile[][]; sum: number } | null = null;
-  const rec = (used: number, total: number, chosen: number[]) => {
-    if (total >= OPENING_MIN) {
-      if (!best || total > best.sum) {
-        best = { sets: chosen.map((i) => sets[i]), sum: total };
-      }
-    }
-    // remaining tiles upper bound prune
-    let rem = 0;
-    for (let i = 0; i < N; i++) if (!(used & (1 << i))) rem += hand[i].n;
-    if (total + rem <= (best?.sum ?? OPENING_MIN - 1)) return;
-    for (let i = 0; i < sets.length; i++) {
-      if (used & setMasks[i]) continue;
-      chosen.push(i);
-      rec(used | setMasks[i], total + sums[i], chosen);
-      chosen.pop();
-    }
-  };
+  // id-tabanlı kaplılık (bitmask 32+ taşta çakışıyor — el zamanla büyür)
+  const used = new Set<number>();
   // avoid duplicate combos: enforce ascending index order
-  const recAsc = (start: number, used: number, total: number, chosen: number[]) => {
+  const recAsc = (start: number, total: number, chosen: number[]) => {
     if (total >= OPENING_MIN && (!best || total > best.sum)) {
       best = { sets: chosen.map((i) => sets[i]), sum: total };
     }
     let rem = 0;
-    for (let i = 0; i < N; i++) if (!(used & (1 << i))) rem += hand[i].n;
+    for (const t of hand) if (!used.has(t.id)) rem += t.n;
     if (total + rem <= (best?.sum ?? OPENING_MIN - 1)) return;
     for (let i = start; i < sets.length; i++) {
-      if (used & setMasks[i]) continue;
+      if (sets[i].some((t) => used.has(t.id))) continue;
+      for (const t of sets[i]) used.add(t.id);
       chosen.push(i);
-      recAsc(i + 1, used | setMasks[i], total + sums[i], chosen);
+      recAsc(i + 1, total + sums[i], chosen);
       chosen.pop();
+      for (const t of sets[i]) used.delete(t.id);
     }
   };
-  recAsc(0, 0, 0, []);
-  void rec;
-  void masks;
+  recAsc(0, 0, []);
   return best;
 }
 
@@ -226,16 +200,10 @@ function chooseFollowUp(hand: Tile[], table: TSet[]): MoveSpec | null {
   let best: MoveSpec | null = null;
   // 1) best pair of new disjoint sets
   const sets = allSetsInHand(hand);
-  const idx = new Map<number, number>();
-  hand.forEach((t, i) => idx.set(t.id, i));
-  const masks = sets.map((s) => {
-    let m = 0;
-    for (const t of s) m |= 1 << (idx.get(t.id)!);
-    return m;
-  });
   for (let i = 0; i < sets.length; i++) {
+    const idsI = new Set(sets[i].map((t) => t.id));
     for (let j = i + 1; j < sets.length; j++) {
-      if (masks[i] & masks[j]) continue;
+      if (sets[j].some((t) => idsI.has(t.id))) continue;
       const sc = sumOf(sets[i]) + sumOf(sets[j]);
       if (sc > bestScore) {
         bestScore = sc;
@@ -370,6 +338,7 @@ export function startGame(root: HTMLElement): () => void {
       <span class="ok-stat" data-ok="round">Tur 1</span>
       <span class="ok-stat" data-ok="pool">Destek: 0</span>
       <span class="ok-status" data-ok="status">—</span>
+      <button class="ok-btn" data-ok="sound" style="padding:4px 10px;font-size:13px" title="Ses aç/kapat">🔊</button>
     </div>
     <div class="ok-main">
       <div class="ok-opp" data-ok="opp"></div>
@@ -379,6 +348,7 @@ export function startGame(root: HTMLElement): () => void {
         <div class="ok-ctl">
           <button class="ok-btn primary" data-ok="play" disabled>OYNA</button>
           <button class="ok-btn danger" data-ok="pass" disabled>GEÇ</button>
+          <button class="ok-btn" data-ok="hint" disabled>💡 İPUCU</button>
           <button class="ok-btn" data-ok="menu">MENÜ</button>
           <div class="ok-info" data-ok="info"></div>
         </div>
@@ -423,7 +393,13 @@ export function startGame(root: HTMLElement): () => void {
   $('[data-ok="play"]').addEventListener("click", humanPlay);
   $('[data-ok="pass"]').addEventListener("click", () => {
     if (phase !== "play" || busy || turn !== humanIdx()) return;
+    sfx("pass");
     doPass(turn, true);
+  });
+  $('[data-ok="hint"]').addEventListener("click", humanHint);
+  $('[data-ok="sound"]').addEventListener("click", () => {
+    soundOn = !soundOn;
+    ($('[data-ok="sound"]') as HTMLButtonElement).textContent = soundOn ? "🔊" : "🔇";
   });
   tableBox.addEventListener("click", (e) => {
     if (phase !== "play" || busy || turn !== humanIdx()) return;
@@ -431,6 +407,7 @@ export function startGame(root: HTMLElement): () => void {
     if (!row) return;
     const si = +row.dataset.seti!;
     if (selection.size === 1 && canExtend(table[si], selTile()!)) {
+      sfx("play");
       applyPlay(humanIdx(), { kind: "extend", tile: selTile()!, setIdx: si });
     } else if (selection.size >= 1) {
       toast("Bir sete tek taş eklenebilir");
@@ -450,6 +427,38 @@ export function startGame(root: HTMLElement): () => void {
     t.classList.add("show");
     if (toastTimer) window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => t.classList.remove("show"), 1800);
+  }
+
+  /* ---------- sound ---------- */
+  let soundOn = true;
+  let ac: AudioContext | null = null;
+  function sfx(kind: "draw" | "play" | "pass" | "win") {
+    if (!soundOn) return;
+    try {
+      ac ??= new AudioContext();
+      const notes: Record<string, [number, number, OscillatorType, number][]> = {
+        draw: [[520, 0.06, "sine", 0.09]],
+        play: [[660, 0.07, "triangle", 0.11], [880, 0.09, "triangle", 0.1]],
+        pass: [[220, 0.12, "sawtooth", 0.05]],
+        win: [[523, 0.1, "triangle", 0.11], [659, 0.1, "triangle", 0.11], [784, 0.16, "triangle", 0.11]],
+      };
+      let at = ac.currentTime;
+      for (const [f, d, type, g] of notes[kind]) {
+        const o = ac.createOscillator();
+        const gain = ac.createGain();
+        o.type = type;
+        o.frequency.value = f;
+        gain.gain.setValueAtTime(g, at);
+        gain.gain.exponentialRampToValueAtTime(0.001, at + d);
+        o.connect(gain);
+        gain.connect(ac.destination);
+        o.start(at);
+        o.stop(at + d + 0.02);
+        at += d * 0.85;
+      }
+    } catch {
+      /* ses yoksa oyun sessiz devam eder */
+    }
   }
 
   function makeTiles(): Tile[] {
@@ -498,7 +507,7 @@ export function startGame(root: HTMLElement): () => void {
   }
 
   function backToMenu() {
-    if (phase === "play" && !busy) return; // mid-turn: allow menu anyway? keep simple: allow
+    // Menü her an tıklanabilir; bekleyen bot turları phase kontrolüyle kendiliğinden durur.
     phase = "menu";
     busy = true;
     menuOv.style.display = "flex";
@@ -520,28 +529,30 @@ export function startGame(root: HTMLElement): () => void {
       busy = true;
       const t = drawTile(turn);
       renderAll();
-      if (t) flashTile(t.id, handBox);
+      if (t) { flashTile(t.id, handBox); sfx("draw"); }
       await sleep(isDeal ? 250 : 420);
-      if (stopped) return;
+      if (stopped || phase !== "play") return;
       busy = false;
       renderAll();
     } else {
       busy = true;
       renderAll();
       await sleep(650);
-      if (stopped) return;
+      if (stopped || phase !== "play") return;
       const t = drawTile(turn);
       renderAll();
-      if (t) flashTile(t.id, oppBox);
+      if (t) sfx("draw");
       await sleep(500);
-      if (stopped) return;
+      if (stopped || phase !== "play") return;
       const spec = aiChoose(turn);
       if (spec) {
         applyPlay(turn, spec);
+        sfx("play");
         await sleep(650);
-        if (stopped) return;
+        if (stopped || phase !== "play") return;
         endTurn();
       } else {
+        sfx("pass");
         doPass(turn, false);
         if (phase === "play") endTurn();
       }
@@ -555,6 +566,10 @@ export function startGame(root: HTMLElement): () => void {
       if (combo) return { kind: "sets", sets: combo.sets };
       return null;
     }
+    // Açılmış bot: küçük eleme oyununda hemen oynar; aksi halde %50 elinde
+    // tutar (gerçek oyuncular gibi) — turlar uzar, insan oyuncu elini
+    // büyütmek için daha çok tur kazanır.
+    if (hand.length > 5 && Math.random() < 0.5) return null;
     return chooseFollowUp(hand, table);
   }
 
@@ -596,7 +611,7 @@ export function startGame(root: HTMLElement): () => void {
       toast(`${players[i].name} 3. geçişle elendi!`);
       if (players.filter((p) => !p.out).length <= 1) {
         renderAll();
-        roundEnd(players.find((p) => !p.out)?.name === players[i].name ? i : remainingWinner(), "out");
+        roundEnd(remainingWinner(), "out");
         return;
       }
     } else {
@@ -636,16 +651,20 @@ export function startGame(root: HTMLElement): () => void {
 
   function roundEnd(winner: number, why: "empty" | "out" | "pool") {
     if (phase !== "play") return;
-    phase = "roundEnd";
-    busy = true;
     players.forEach((p, i) => {
       if (p.penalty === null) {
-        p.penalty = i === winner && why === "empty" ? 0 : handSum(i);
+        // Turu ilk bitiren (empty) veya son kalan (out) 0 ceza alır;
+        // destek bitti (pool) durumunda herkes elindeki taşların toplamını öder.
+        p.penalty = i === winner && why !== "pool" ? 0 : handSum(i);
       }
       p.score -= p.penalty;
     });
-    renderAll();
     const matchOver = players.some((p) => p.score <= MATCH_TARGET);
+    // Maç bittiğinde faz ayrıdır — test kancaları (state) maç sonunu görebilsin.
+    phase = matchOver ? "matchEnd" : "roundEnd";
+    busy = true;
+    sfx("win");
+    renderAll();
     showRoundModal(winner, why, matchOver);
   }
 
@@ -729,7 +748,31 @@ export function startGame(root: HTMLElement): () => void {
       toast(`Açılış 101+ olmalı (şu an ${sum})`);
       return;
     }
+    sfx("play");
     applyPlay(hi, { kind: "sets", sets: parts });
+  }
+
+  /** 💡 Highlight the best legal move for the human (same heuristics as AI). */
+  function humanHint() {
+    if (phase !== "play" || busy || turn !== humanIdx()) return;
+    const hi = humanIdx();
+    if (!players[hi].opened) {
+      const combo = findBestOpening(hands[hi]);
+      if (!combo) { toast("Açılış için 101+ kombinasyon yok — GEÇ"); return; }
+      selection = new Set(combo.sets.flat().map((t) => t.id));
+      toast(`Açılış önerisi: ${combo.sets.length} set, toplam ${combo.sum}`);
+    } else {
+      const mv = chooseFollowUp(hands[hi], table);
+      if (!mv) { toast("Oyuncak bir şey yok — GEÇ"); return; }
+      if (mv.kind === "sets") {
+        selection = new Set(mv.sets.flat().map((t) => t.id));
+        toast("Önerilen setler seçildi — OYNA'ya bas");
+      } else {
+        selection = new Set([mv.tile.id]);
+        toast("Taş seçildi — parladığı sete tıkla");
+      }
+    }
+    renderAll();
   }
 
   /* ---------- rendering ---------- */
@@ -755,6 +798,7 @@ export function startGame(root: HTMLElement): () => void {
     $('[data-ok="round"]').textContent = `Tur ${roundNum}`;
     $('[data-ok="pool"]').textContent = `Destek: ${pool.length}`;
     const status =
+      phase === "matchEnd" ? "Maç bitti" :
       phase === "roundEnd" ? "Tur bitti" :
       busy ? `${players[turn].name} düşünüyor…` :
       hi === turn ? "Sıra sende!" : `${players[turn].name} oynuyor…`;
@@ -838,8 +882,10 @@ export function startGame(root: HTMLElement): () => void {
     const sel = hands[hi].filter((t) => selection.has(t.id));
     const playBtn = $('[data-ok="play"]') as HTMLButtonElement;
     const passBtn = $('[data-ok="pass"]') as HTMLButtonElement;
+    const hintBtn = $('[data-ok="hint"]') as HTMLButtonElement;
     playBtn.disabled = !myTurn || sel.length < 3;
     passBtn.disabled = !myTurn;
+    hintBtn.disabled = !myTurn;
     const info = $('[data-ok="info"]');
     info.className = "ok-info";
     if (sel.length >= 3) {
