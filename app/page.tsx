@@ -144,7 +144,7 @@ const GAMES = [
     emoji: "🍬",
     artClass: "art-15",
     description:
-      "Candy Crush tarzı eşleştirme! Renkli boncukları 3+ eşleştir, zincirleme patlamalar yap, her 10 bölümde BOSS'u yen. Tıkla & sürükle ile takas et.",
+      "Candy Crush tarzı eşleştirme! Renkli boncukları 3+ eşleştir, zincirleme patlamalar yap, 4 sıra → Çubuklu, 5 sıra → Renk Bombası, L/T → Sarmalı boncuklarla devasa patlamalar yarat. Her 10 bölümde BOSS'u yen. Tıkla & sürükle ile takas et.",
     route: "/games/candy-burst",
     status: "playable" as const,
   },
