@@ -83,6 +83,14 @@ function getJson(url) {
   })()`);
   check('Oyun menüden başlatıldı', JSON.parse(afterStart || '{}').dataLen > 10000);
 
+  // 4b) Test kancası: state playing, grid dolu
+  const hook1 = JSON.parse(await evaluate(sessionId, `(() => {
+    const t = window.__candyTest;
+    if (!t) return JSON.stringify({ missing: true });
+    return JSON.stringify({ state: t.state, grid: t.gridCount(), level: t.level });
+  })()`));
+  check('Test kancası: playing + 64 boncuk', hook1.state === 'playing' && hook1.grid === 64, JSON.stringify(hook1));
+
   // 5) Simulate several drag-swaps across the grid (canvas 900x600, grid 448x448 @ (226,100))
   const swapResult = await evaluate(sessionId, `new Promise((resolve) => {
     const c = document.querySelector('canvas');
@@ -112,6 +120,62 @@ function getJson(url) {
   })`);
   check('12 sürükle-takas simüle edildi', JSON.parse(swapResult || '{}').done === 12, swapResult);
   await sleep(2000);
+
+  // Zincirlemeler/bölüm geçişleri çözülene kadar state 'playing' olana kadar bekle
+  // (levelComplete geçicidir; yalnız gameover/victory sonludur)
+  const waitPlaying = async (timeoutMs = 15000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const s = await evaluate(sessionId, `window.__candyTest?.state`);
+      if (s === 'playing') return true;
+      if (s === 'gameover' || s === 'victory') return false;
+      await sleep(200);
+    }
+    return false;
+  };
+
+  // 5b) Takaslar sonrası (geçersiz takas animasyonu dahil) state playing + grid dolu
+  const settled = await waitPlaying();
+  const hook2 = JSON.parse(await evaluate(sessionId, `(() => {
+    const t = window.__candyTest;
+    return JSON.stringify({ state: t.state, grid: t.gridCount(), moves: t.movesLeft, score: t.score });
+  })()`));
+  check('Takas sonrası: playing + 64 boncuk', settled && hook2.state === 'playing' && hook2.grid === 64, JSON.stringify(hook2));
+
+  // 5c) Pause: P ile duraklat → state paused → P ile aynı state'e dön
+  const pauseResult = JSON.parse(await evaluate(sessionId, `new Promise((resolve) => {
+    const t = window.__candyTest;
+    const key = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true }));
+    const before = t.state;
+    key('KeyP');
+    setTimeout(() => {
+      const paused = t.state;
+      key('KeyP');
+      setTimeout(() => resolve(JSON.stringify({ before, paused, resumed: t.state })), 300);
+    }, 300);
+  })`));
+  check('Pause/resume (P tuşu)', pauseResult.paused === 'paused' && pauseResult.resumed === pauseResult.before, JSON.stringify(pauseResult));
+
+  // 5d) Mute: toggle → muted, tekrar toggle → açık
+  const muteResult = JSON.parse(await evaluate(sessionId, `(() => {
+    const t = window.__candyTest;
+    t.toggleMute();
+    const m1 = t.muted;
+    t.toggleMute();
+    return JSON.stringify({ afterFirst: m1, afterSecond: t.muted });
+  })()`));
+  check('Mute toggle (M)', muteResult.afterFirst === true && muteResult.afterSecond === false, JSON.stringify(muteResult));
+
+  // 5e) Hamle bonusu: hedef aşıldığında bonus = kalan hamle * 100
+  const bonusResult = JSON.parse(await evaluate(sessionId, `(() => {
+    const t = window.__candyTest;
+    t.debugAddScore(99999);
+    const moves = t.movesLeft;
+    t.debugLevelComplete();
+    return JSON.stringify({ state: t.state, bonus: t.levelBonus, expected: moves * 100 });
+  })()`));
+  check('Hamle bonusu (+100/hamle)', bonusResult.state === 'levelComplete' && bonusResult.bonus === bonusResult.expected, JSON.stringify(bonusResult));
+  await sleep(2500); // levelComplete → bir sonraki bölüm
 
   // 6) No JS exceptions / console errors across all interactions
   const errs = [];

@@ -201,7 +201,7 @@ interface BossState {
   x: number; y: number;
   flashTimer: number; alive: boolean; deathTimer: number;
 }
-type GameState = "menu" | "playing" | "swapping" | "clearing" | "falling" | "levelComplete" | "gameover" | "victory";
+type GameState = "menu" | "playing" | "swapping" | "clearing" | "falling" | "levelComplete" | "gameover" | "victory" | "paused";
 
 const cellKey = (r: number, c: number) => `${r},${c}`;
 
@@ -226,7 +226,12 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   let swapFrom: { r: number; c: number } | null = null;
   let swapTo: { r: number; c: number } | null = null;
   let swapProgress = 0;
+  let swapPhase: "to" | "back" = "to";
+  let invalidSwapAnim = false; // geçersiz takas: git-gel animasyonu
   let bombSwap = false;
+  let levelBonus = 0;
+  let newRecord = false;
+  let pausedFrom: GameState = "playing";
   let bombPartnerColor = -1;
   let particles: Particle[] = [];
   let boss: BossState | null = null;
@@ -250,10 +255,30 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function touchBest() {
     if (totalScore > best) {
       best = totalScore;
+      newRecord = true;
       try { localStorage.setItem("candy-burst-best", String(best)); } catch { /* ignore */ }
     }
   }
   best = loadBest();
+
+  /* ---- Pause & Mute ---- */
+  function togglePause() {
+    if (state === "paused") {
+      state = pausedFrom;
+      AudioSys.startMusic();
+    } else if (state === "playing" || state === "swapping" || state === "clearing" || state === "falling") {
+      pausedFrom = state;
+      state = "paused";
+      AudioSys.stopMusic();
+    }
+  }
+  function toggleMute() {
+    AudioSys.muted = !AudioSys.muted;
+  }
+  const muteBtn = { x: W - 46, y: 54, w: 32, h: 32 };
+  function isMuteHit(px: number, py: number) {
+    return px >= muteBtn.x && px <= muteBtn.x + muteBtn.w && py >= muteBtn.y && py <= muteBtn.y + muteBtn.h;
+  }
 
   /* ---- Input ---- */
   let pointerDown = false;
@@ -273,6 +298,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   function onPointerDown(px: number, py: number) {
+    if (isMuteHit(px, py)) { toggleMute(); return; }
+    if (state === "paused") { togglePause(); return; }
     if (state === "menu") { startGamePlay(); return; }
     if (state === "gameover" || state === "victory") { resetGame(); return; }
     if (state !== "playing") return;
@@ -347,6 +374,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     onPointerUp(p.x, p.y);
   }
   function onKeyDown(e: KeyboardEvent) {
+    if (e.code === "KeyM") { toggleMute(); return; }
+    if (e.code === "KeyP" || e.code === "Escape") { togglePause(); return; }
     if (state === "menu" && (e.code === "Space" || e.code === "Enter")) startGamePlay();
     if ((state === "gameover" || state === "victory") && (e.code === "Space" || e.code === "Enter")) resetGame();
   }
@@ -540,6 +569,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
         grid[b.r][b.c] = candyB;
         AudioSys.invalid();
         selected = null;
+        hintCells = null;
+        /* Görsel geri tepme: boncuklar yer değiştirip geri döner */
+        state = "swapping";
+        swapFrom = a; swapTo = b; swapProgress = 0;
+        swapPhase = "to";
+        invalidSwapAnim = true;
+        bombSwap = false;
+        candyA.targetX = GRID_OFFSET_X + b.c * CELL_SIZE + CELL_SIZE / 2;
+        candyA.targetY = GRID_OFFSET_Y + b.r * CELL_SIZE + CELL_SIZE / 2;
+        candyB.targetX = GRID_OFFSET_X + a.c * CELL_SIZE + CELL_SIZE / 2;
+        candyB.targetY = GRID_OFFSET_Y + a.r * CELL_SIZE + CELL_SIZE / 2;
         return;
       }
     }
@@ -547,6 +587,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     AudioSys.swap();
     state = "swapping";
     swapFrom = a; swapTo = b; swapProgress = 0;
+    swapPhase = "to";
+    invalidSwapAnim = false;
     bombSwap = isBomb;
     bombPartnerColor = candyA.special === SP_BOMB ? candyB.color : candyB.special === SP_BOMB ? candyA.color : -1;
     movesLeft--;
@@ -778,6 +820,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     level = lvl;
     score = 0;
     combo = 0;
+    levelBonus = 0;
     isBossLevel = lvl % 10 === 0;
     currentConfig = getLevelConfig(lvl);
     movesLeft = currentConfig.moves;
@@ -808,11 +851,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     AudioSys.resume();
     AudioSys.startMusic();
     totalScore = 0;
+    newRecord = false;
     startLevel(1);
   }
 
   function resetGame() {
     totalScore = 0;
+    newRecord = false;
     startLevel(1);
     AudioSys.startMusic();
   }
@@ -820,6 +865,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function checkLevelComplete(): boolean {
     if (isBossLevel) {
       if (boss && !boss.alive) {
+        levelBonus = movesLeft * 100;
+        if (levelBonus > 0) { score += levelBonus; totalScore += levelBonus; touchBest(); }
         state = "levelComplete";
         stateTimer = 120;
         AudioSys.levelup();
@@ -828,6 +875,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       return false;
     }
     if (score >= targetScore) {
+      /* Kalan hamle bonusu: her hamle +100 */
+      levelBonus = movesLeft * 100;
+      if (levelBonus > 0) { score += levelBonus; totalScore += levelBonus; touchBest(); }
       state = "levelComplete";
       stateTimer = 120;
       AudioSys.levelup();
@@ -838,6 +888,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   /* ---- Update ---- */
   function update() {
+    if (state === "paused") return;
     animTime++;
     if (shakeTimer > 0) shakeTimer--;
     if (bannerTimer > 0) bannerTimer--;
@@ -891,6 +942,23 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
           if (t >= 1) {
             a.x = a.targetX; a.y = a.targetY;
             b.x = b.targetX; b.y = b.targetY;
+            if (invalidSwapAnim) {
+              /* Git-gel animasyonu: gidiş bitti → dönüş, dönüş bitti → oyna */
+              if (swapPhase === "to") {
+                swapPhase = "back";
+                swapProgress = 0;
+                a.targetX = GRID_OFFSET_X + swapFrom.c * CELL_SIZE + CELL_SIZE / 2;
+                a.targetY = GRID_OFFSET_Y + swapFrom.r * CELL_SIZE + CELL_SIZE / 2;
+                b.targetX = GRID_OFFSET_X + swapTo.c * CELL_SIZE + CELL_SIZE / 2;
+                b.targetY = GRID_OFFSET_Y + swapTo.r * CELL_SIZE + CELL_SIZE / 2;
+              } else {
+                invalidSwapAnim = false;
+                swapPhase = "to";
+                swapFrom = null; swapTo = null;
+                state = "playing";
+              }
+              return;
+            }
             const { cells, runs } = findRuns();
             if (bombSwap) {
               const init = [{ r: swapFrom.r, c: swapFrom.c }, { r: swapTo.r, c: swapTo.c }, ...cells];
@@ -1424,6 +1492,18 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.textAlign = "right";
     ctx.fillText(`Toplam: ${totalScore}`, W - 15, 36);
 
+    // Mute button (tıklanabilir, M kısayolu)
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    roundRectPath(muteBtn.x, muteBtn.y, muteBtn.w, muteBtn.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = "18px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(AudioSys.muted ? "🔇" : "🔊", muteBtn.x + muteBtn.w / 2, muteBtn.y + muteBtn.h / 2 + 1);
+
     ctx.restore();
   }
 
@@ -1517,7 +1597,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
     ctx.font = "14px Arial";
     ctx.fillStyle = "#888";
-    ctx.fillText("Kolay → Ultra | 30 Bölüm | Boss'lar dahil", W / 2, H - 30);
+    ctx.fillText("Kolay → Ultra | 30 Bölüm | Boss'lar dahil | P: Duraklat | M: Ses", W / 2, H - 30);
 
     ctx.restore();
   }
@@ -1537,10 +1617,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "22px Arial";
     ctx.fillStyle = "#ccc";
     ctx.fillText(`Skor: ${score}  |  Toplam: ${totalScore}`, W / 2, H / 2 + 20);
+    if (levelBonus > 0) {
+      ctx.fillStyle = "#4ade80";
+      ctx.font = "bold 20px Arial";
+      ctx.fillText(`Hamle bonusu: +${levelBonus} (${movesLeft} kalan hamle)`, W / 2, H / 2 + 55);
+    }
     if (isBossLevel) {
       ctx.fillStyle = "#ff6b6b";
       ctx.font = "bold 24px Arial";
-      ctx.fillText("BOSS YENİLDİ!", W / 2, H / 2 + 55);
+      ctx.fillText("BOSS YENİLDİ!", W / 2, H / 2 + (levelBonus > 0 ? 88 : 55));
     }
     ctx.restore();
   }
@@ -1563,11 +1648,21 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "bold 20px Arial";
     ctx.fillStyle = "#ffd700";
     ctx.fillText(`🏆 Rekor: ${best}`, W / 2, H / 2 + 42);
+    let promptY = H / 2 + 85;
+    if (newRecord) {
+      ctx.font = "bold 26px Arial";
+      ctx.fillStyle = "#4ade80";
+      ctx.shadowColor = "#4ade80";
+      ctx.shadowBlur = 14;
+      ctx.fillText("🎉 YENİ REKOR!", W / 2, H / 2 + 68);
+      ctx.shadowBlur = 0;
+      promptY = H / 2 + 102;
+    }
     const alpha = 0.5 + Math.sin(animTime * 0.06) * 0.5;
     ctx.globalAlpha = alpha;
     ctx.font = "bold 22px Arial";
     ctx.fillStyle = "#ffd700";
-    ctx.fillText("Tıkla veya SPACE ile Tekrar Oyna", W / 2, H / 2 + 85);
+    ctx.fillText("Tıkla veya SPACE ile Tekrar Oyna", W / 2, promptY);
     ctx.globalAlpha = 1;
     ctx.restore();
   }
@@ -1590,12 +1685,40 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "22px Arial";
     ctx.fillStyle = "#ccc";
     ctx.fillText(`Toplam Skor: ${totalScore}  |  🏆 Rekor: ${best}`, W / 2, H / 2 + 30);
+    let promptY = H / 2 + 90;
+    if (newRecord) {
+      ctx.font = "bold 26px Arial";
+      ctx.fillStyle = "#4ade80";
+      ctx.shadowColor = "#4ade80";
+      ctx.shadowBlur = 14;
+      ctx.fillText("🎉 YENİ REKOR!", W / 2, H / 2 + 62);
+      ctx.shadowBlur = 0;
+      promptY = H / 2 + 124;
+    }
     const alpha = 0.5 + Math.sin(animTime * 0.06) * 0.5;
     ctx.globalAlpha = alpha;
     ctx.font = "bold 22px Arial";
     ctx.fillStyle = "#ffd700";
-    ctx.fillText("Tıkla veya SPACE ile Tekrar Oyna", W / 2, H / 2 + 90);
+    ctx.fillText("Tıkla veya SPACE ile Tekrar Oyna", W / 2, promptY);
     ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function drawPaused() {
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 44px Arial";
+    ctx.fillStyle = "#69dbff";
+    ctx.shadowColor = "#69dbff";
+    ctx.shadowBlur = 18;
+    ctx.fillText("DURAKLATILDI", W / 2, H / 2 - 20);
+    ctx.shadowBlur = 0;
+    ctx.font = "20px Arial";
+    ctx.fillStyle = "#ccc";
+    ctx.fillText("P / ESC / tıkla ile devam et", W / 2, H / 2 + 28);
     ctx.restore();
   }
 
@@ -1670,6 +1793,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     drawBanner();
 
     if (state === "levelComplete") drawLevelComplete();
+    if (state === "paused") drawPaused();
     if (state === "gameover") drawGameOver();
     if (state === "victory") drawVictory();
   }
@@ -1683,8 +1807,33 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
   rafId = requestAnimationFrame(loop);
 
+  /* ---- Test hook (headless CDP doğrulama) ---- */
+  (window as any).__candyTest = {
+    get state() { return state; },
+    get score() { return score; },
+    get totalScore() { return totalScore; },
+    get movesLeft() { return movesLeft; },
+    get level() { return level; },
+    get best() { return best; },
+    get newRecord() { return newRecord; },
+    get muted() { return AudioSys.muted; },
+    gridCount() {
+      let n = 0;
+      for (let r = 0; r < GRID_SIZE; r++) for (let c = 0; c < GRID_SIZE; c++) if (grid[r]?.[c]) n++;
+      return n;
+    },
+    togglePause,
+    toggleMute,
+    /* Doğrudan seviye tamamlama yolunu tetikler (test amaçlı) */
+    debugLevelComplete: () => checkLevelComplete(),
+    get levelBonus() { return levelBonus; },
+    /* Test: skoru hedefin üzerine taşır */
+    debugAddScore: (n: number) => { score += n; totalScore += n; touchBest(); },
+  };
+
   /* ---- Cleanup ---- */
   return () => {
+    delete (window as any).__candyTest;
     cancelAnimationFrame(rafId);
     canvas.removeEventListener("mousedown", onMouseDown);
     window.removeEventListener("mouseup", onMouseUp);

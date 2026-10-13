@@ -27,20 +27,64 @@ const ROUTES = [
   await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
   let mid = 0; const pending = new Map();
   const events = [];
+  const frameContexts = new Map(); // frameId -> executionContextId (aynı-proses iframe'ler için)
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
     else if (m.method === 'Runtime.exceptionThrown' || m.method === 'Runtime.consoleAPICalled') events.push(m);
+    else if (m.method === 'Runtime.executionContextCreated' && m.params.context?.auxData?.frameId)
+      frameContexts.set(m.params.context.auxData.frameId, m.params.context.id);
   };
   const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
     const id = ++mid; pending.set(id, resolve);
     ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error(method + ' timeout')); } }, 20000);
   });
-  const evaluate = async (sessionId, expression) => {
-    const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId);
+  const evaluate = async (sessionId, expression, contextId) => {
+    const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true, ...(contextId ? { contextId } : {}) }, sessionId);
     if (r.result?.exceptionDetails) return '<exc>';
     return r.result?.result?.value;
+  };
+  const RAF_PROBE = `(async()=>{let f=0;const t0=performance.now();await new Promise(r=>{const tick=()=>{f++;if(performance.now()-t0>1200){r()}else{requestAnimationFrame(tick)}};requestAnimationFrame(tick)});return f})()`;
+  const PIX_PROBE = `new Promise((resolve)=>{
+    const c=document.querySelector('canvas');
+    if(!c){resolve(JSON.stringify({changed:false,noCanvas:true}));return;}
+    const ctx=c.getContext('2d');
+    if(ctx){
+      const snap=()=>{try{return ctx.getImageData(200,150,120,80).data.slice(0,300).join(',')}catch(e){return 'err'}};
+      const a=snap();
+      setTimeout(()=>resolve(JSON.stringify({changed:snap()!==a})),900);
+      return;
+    }
+    /* WebGL canvas: iki ardışık rAF'te toDataURL karşılaştır */
+    requestAnimationFrame(()=>{
+      const a=c.toDataURL();
+      requestAnimationFrame(()=>{
+        const b=c.toDataURL();
+        resolve(JSON.stringify({changed:a!==b}));
+      });
+    });
+  })`;
+  /** iframe tabanlı oyunlarda (sunny-side-ride) child frame'deki canvas + rAF'ı doğrular.
+   *  OOPIF ise ayrı target'a bağlanır, aynı-proses iframe ise execution context üzerinden. */
+  const probeIframe = async (sessionId) => {
+    try {
+      const ft = (await send('Page.getFrameTree', {}, sessionId)).result;
+      const kids = (ft?.frameTree?.childFrames || []).map((k) => k.frame);
+      if (kids.length === 0) return { canvas: 0, raf: -1 };
+      const probe = async (sid, ctxId) => {
+        const canvas = Number(await evaluate(sid, `document.querySelectorAll('canvas').length`, ctxId)) || 0;
+        const raf = Number(await evaluate(sid, RAF_PROBE, ctxId)) || 0;
+        const pix = JSON.parse(await evaluate(sid, PIX_PROBE, ctxId) || '{}');
+        return { canvas, raf, pix: !!pix.changed };
+      };
+      let fid = null;
+      try { fid = (await send('Target.attachToTarget', { targetId: kids[0].id, flatten: true })).result.sessionId; } catch (e) { /* aynı-proses */ }
+      if (fid) return await probe(fid);
+      const ctxId = frameContexts.get(kids[0].id);
+      if (!ctxId) return { canvas: 0, raf: -1, pix: false };
+      return await probe(sessionId, ctxId);
+    } catch (e) { return { canvas: 0, raf: -1, pix: false }; }
   };
 
   let bad = 0;
@@ -68,14 +112,18 @@ const ROUTES = [
       }
       const uniq = [...new Set(errs)].slice(0, 4);
       const i = JSON.parse(info || '{}');
-      /* canvas-only oyunlarda DOM metin az olabilir — rAF + piksel探针 ile doğrula */
+      /* canvas-only oyunlarda DOM metin az olabilir — rAF ile doğrula */
       let raf = 0;
       if (i.canvas > 0 && i.bodyLen <= 60) {
-        raf = await evaluate(sessionId, `(async()=>{let f=0;const t0=performance.now();await new Promise(r=>{const tick=()=>{f++;if(performance.now()-t0>1200){r()}else{requestAnimationFrame(tick)}};requestAnimationFrame(tick)});return f})()`);
+        raf = Number(await evaluate(sessionId, RAF_PROBE)) || 0;
       }
-      const ok = uniq.length === 0 && (i.bodyLen > 50 || raf > 10);
+      /* iframe tabanlı oyunlar: gerçek oyun child frame'de koşar.
+         Headless'ta WebGL yazılımla render edildiğinden fps düşük olabilir —
+         canvas canlı + (rAF hızlı VEYA pikseller değişiyor) yeterlidir. */
+      const ifr = i.bodyLen <= 60 ? await probeIframe(sessionId) : { canvas: 0, raf: -1, pix: false };
+      const ok = uniq.length === 0 && (i.bodyLen > 50 || raf > 10 || (ifr.canvas > 0 && (ifr.raf > 10 || ifr.pix)));
       if (!ok) bad++;
-      console.log(`${ok ? 'OK  ' : 'HATA'} | ${route.padEnd(26)} canvas=${i.canvas} metin=${i.bodyLen}${raf ? ` raf=${raf}` : ''}${uniq.length ? '\n     ' + uniq.join('\n     ') : ''}`);
+      console.log(`${ok ? 'OK  ' : 'HATA'} | ${route.padEnd(26)} canvas=${i.canvas} metin=${i.bodyLen}${raf ? ` raf=${raf}` : ''}${ifr.canvas > 0 ? ` iframe[c=${ifr.canvas},raf=${ifr.raf},pix=${ifr.pix}]` : ''}${uniq.length ? '\n     ' + uniq.join('\n     ') : ''}`);
     } catch (e) {
       bad++;
       console.log(`HATA | ${route.padEnd(26)} yüklenemedi: ${e.message}`);
