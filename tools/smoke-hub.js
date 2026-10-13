@@ -14,7 +14,7 @@ function getJson(url) {
 const ROUTES = [
   '/', '/arcade/', '/fighting/', '/doping-challenge/',
   '/games/akil-kupu/', '/games/anime-legends/', '/games/astro-blaster/',
-  '/games/candy-burst/', '/games/chess/', '/games/cube-master/',
+  '/games/candy-burst/', '/games/chess/',
   '/games/doping-runner/', '/games/fighter/', '/games/lets-world/',
   '/games/mayin-tarlasi/', '/games/okey/', '/games/pixel-pals/',
   '/games/powerboat/', '/games/spaceship/', '/games/sunny-side-ride/',

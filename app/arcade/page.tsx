@@ -86,6 +86,12 @@ const GAMES: ArcadeGame[] = [
     art: "linear-gradient(135deg,#ff4081 0%,#4a148c 100%)",
   },
   {
+    id: "okey", title: "101 Okey", emoji: "🀄", category: "Strateji",
+    tags: ["Klasik", "Bot", "108 Taş"], route: "/games/okey", pop: 86,
+    description: "Klasik Türk okeyi: 108 taş, renk ve karma setler, 101+ açılış, 3 geçiş kuralı, akıllı bot rakipler ve -101 hedefli maçlar. Tamamen Türkçe.",
+    art: "linear-gradient(135deg,#7cb342 0%,#1b5e20 100%)",
+  },
+  {
     id: "fighter", title: "Dövüş Arenası", emoji: "🥊", category: "Dövüş",
     tags: ["2P", "Enerji", "3D"], route: "/games/fighter", pop: 85,
     description: "4 efsane savaşçı (Kor, Bora, Çelik, Gölge), yumruk-tekme-blok ve enerjiyle güçlenen özel saldırılar. 1P vs CPU ya da 2 oyuncu.",

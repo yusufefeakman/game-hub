@@ -22,6 +22,9 @@ prosedürel Three.js geometrisi, sesler Web Audio API ile sentezlenir.
 | **Sürat Teknesi Hücumu** 🚤 | 3D sürat teknesi yarışı | `/game-hub/games/powerboat` |
 | **World War Z** 🧟 | 3D FPS zombi hayatta kalma | `/game-hub/games/world-war-z` |
 | **Pixel Pals** 🌟 | Platform macerası | `/game-hub/games/pixel-pals` |
+| **Candy Burst** 🍬 | Match-3: Kolay → Ultra 30 bölüm, özel boncuklar (çubuklu/sarmalı/renk bombası), zincir reaksiyonları, boss savaşları, ipucu + hamle bonusu | `/game-hub/games/candy-burst` |
+| **101 Okey** 🀄 | Klasik Türk okeyi: 108 taş, 101+ açılış, 3 geçiş, akıllı bot rakipler, -101 hedefli maçlar | `/game-hub/games/okey` |
+| **Let's World** 🌍 | Klasik platform macerası: koş, zıpla, jeton topla, düşmanları ez — her 10 bölümde dev boss | `/game-hub/games/lets-world` |
 
 ## 🕹️ Arcade Portal (Lagged tarzı)
 
