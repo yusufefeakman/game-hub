@@ -719,6 +719,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   function hasValidMoves(): boolean {
+    /* Renk bombası takası her zaman geçerlidir (trySwap + findHintMove ile tutarlı) */
+    for (let r = 0; r < GRID_SIZE; r++)
+      for (let c = 0; c < GRID_SIZE; c++)
+        if (grid[r][c]?.special === SP_BOMB) return true;
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         if (c < GRID_SIZE - 1) {
