@@ -97,6 +97,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   let raf = 0;
   let particles: Particle[] = [];
   let newRecord = false;
+  let won = false;
   try { best = Number(localStorage.getItem(REC_KEY)) || 0; } catch { best = 0; }
 
   /* ---------- DOM ---------- */
@@ -169,7 +170,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function showOver() {
     ov.style.display = "flex";
     ov.innerHTML = `
-      <h1 style="color:#ff5d5d;text-shadow:0 0 18px rgba(255,93,93,.7)">💀 YILAN ÖLDÜ</h1>
+      <h1 style="${won ? "color:#ffd23f;text-shadow:0 0 18px rgba(255,210,63,.8)" : "color:#ff5d5d;text-shadow:0 0 18px rgba(255,93,93,.7)"}">${won ? "🏆 KAZANDIN!" : "💀 YILAN ÖLDÜ"}</h1>
       <p class="big">Skor: ${score}</p>
       ${newRecord ? `<p class="yla-rec">🏆 YENİ REKOR!</p>` : `<p class="yla-rec">Rekor: ${best}</p>`}
       <button class="yla-play" id="yla-play">▶ TEKRAR</button>
@@ -188,7 +189,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     queuedDir = [];
     grow = 0; score = 0; applesEaten = 0;
     gold = null; goldTimer = 0; ghost = 0; star = null; starTimer = 0;
-    tickMs = BASE_TICK; acc = 0; particles = []; newRecord = false;
+    tickMs = BASE_TICK; acc = 0; particles = []; newRecord = false; won = false;
     spawnFood();
     scoreEl.textContent = "Skor: 0";
     bestEl.textContent = `Rekor: ${best}`;
@@ -196,11 +197,18 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   function freeCell(): Cell {
-    let c: Cell;
-    do {
-      c = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
-    } while (snake.some((s) => s.x === c.x && s.y === c.y) || (gold && gold.x === c.x && gold.y === c.y) || (star && star.x === c.x && star.y === c.y));
-    return c;
+    // Boş hücre listesini tek geçişte topla (sonsuz döngü riski yoktu:
+    // yılan tahtayı doldurduğunda eski do-while asla bitmezdi).
+    const free: Cell[] = [];
+    for (let y = 0; y < ROWS; y++)
+      for (let x = 0; x < COLS; x++) {
+        if (snake.some((s) => s.x === x && s.y === y)) continue;
+        if (gold && gold.x === x && gold.y === y) continue;
+        if (star && star.x === x && star.y === y) continue;
+        free.push({ x, y });
+      }
+    if (free.length === 0) return { x: 0, y: 0 }; // kazanma durumu zaten yakalandı
+    return free[Math.floor(Math.random() * free.length)];
   }
   let food: Cell = { x: 20, y: 9 };
   function spawnFood() { food = freeCell(); }
@@ -301,6 +309,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       score += 10; applesEaten += 1; grow += 1;
       burst((food.x + 0.5) * CELL, (food.y + 0.5) * CELL, ["#ff5d5d", "#ff9a9a", "#ffd23f"], 16);
       AudioSys.eat();
+      // Tahta tamamen doldurulduysa kazan — spawnFood() boş hücre bulamaz.
+      if (snake.length >= COLS * ROWS) { winGame(); return; }
       spawnFood();
       if (applesEaten % 7 === 0 && !gold) { gold = freeCell(); goldTimer = GOLD_LIFE; }
       if (applesEaten % 5 === 0 && !star) { star = freeCell(); starTimer = STAR_LIFE; }
@@ -329,6 +339,19 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     AudioSys.die();
     const head = snake[0];
     burst((head.x + 0.5) * CELL, (head.y + 0.5) * CELL, ["#ff5d5d", "#ff9a9a", "#ff8a3d"], 34);
+    if (score > best) {
+      best = score; newRecord = true;
+      try { localStorage.setItem(REC_KEY, String(best)); } catch { /* yok */ }
+    }
+    bestEl.textContent = `Rekor: ${best}`;
+    showOver();
+  }
+
+  function winGame() {
+    phase = "over"; won = true;
+    AudioSys.gold();
+    const head = snake[0];
+    burst((head.x + 0.5) * CELL, (head.y + 0.5) * CELL, ["#34d399", "#ffd23f", "#fff"], 40);
     if (score > best) {
       best = score; newRecord = true;
       try { localStorage.setItem(REC_KEY, String(best)); } catch { /* yok */ }

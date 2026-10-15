@@ -91,6 +91,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   let hover = -1;
   let flagMode = false;
   let newRec = false;
+  let lastTouch = 0; // dokunma sonrası sentetik mousedown'u engellemek için
   let raf = 0;
   let last = performance.now();
   let best: Best = { easy: 0, medium: 0, hard: 0 };
@@ -315,6 +316,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
   function onDown(e: MouseEvent) {
     if (phase !== "playing") return;
+    // Dokunmatikte touchend'ten hemen sonra tarayıcı sentetik bir mousedown
+    // üretir. Bayrak modunda bu çift tetikleme bayrağı koyup anında kaldırırdı;
+    // son dokunmadan ~500 ms içindeki fare olaylarını yok say.
+    if (performance.now() - lastTouch < 500) return;
     const i = cellFromEvent(e);
     if (i < 0) return;
     const x = i % COLS, y = Math.floor(i / COLS);
@@ -330,6 +335,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function onCtx(e: Event) { e.preventDefault(); }
   function onTouch(e: TouchEvent) {
     if (phase !== "playing") return;
+    lastTouch = performance.now();
     const i = cellFromEvent(e);
     if (i < 0) return;
     const x = i % COLS, y = Math.floor(i / COLS);

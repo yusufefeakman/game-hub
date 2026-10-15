@@ -560,6 +560,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     timeEl.textContent = "00:00";
     board.fill(0);
     placed.fill(false);
+    orientIdx.fill(0);
     placements = [];
     selected = null;
     preview = null;
@@ -588,6 +589,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       if (disposed) return;
       if (k >= sol.length) {
         solving = false;
+        // Süreyi sıfırla: çözüm animasyonu bitince kullanıcı devam ederse
+        // zamanlayıcı eski saniyelerden kaldığı yerde başlamasın.
+        seconds = 0;
+        timeEl.textContent = "00:00";
         render();
         toast("İşte çözüm! Şimdi sıra sende 💪");
         return;

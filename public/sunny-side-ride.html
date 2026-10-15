@@ -545,6 +545,10 @@ function buildRibbon(road, halfW, y, color, opts = {}) {
     uvs.push(0, 0, 1, a);
   }
   for (let i = 0; i < N; i++) {
+    // dash: yalnızca "açık" aralıklara (i%4<2) dörtgen ekle — gerçek kesikler.
+    // (Eski yöntem uv'yi 0/1 yapıyordu; haritasız Lambert materyalinde bu
+    // hiçbir şeyi boyamazdı ve şerit düz çizgi görünüyordu.)
+    if (opts.dash && i % 4 >= 2) continue;
     const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
     idx.push(a, c, b, b, c, d);
   }
@@ -1841,7 +1845,7 @@ function cycleCamera() {
 /* --- skor & oyun durumu --- */
 const game = {
   score: 0, tokens: 0, time: 0, airScore: 0, nearMisses: 0,
-  checkpoints: 0, combo: 0, best: 0
+  checkpoints: 0, combo: 0, best: 0, run: 0
 };
 const LS_KEY = 'sunnySideRide.best.v1';
 function loadBest() {
@@ -2031,7 +2035,11 @@ function updatePhysics(dt) {
   const before = player._lastPos || player.pos.clone();
   const moved = Math.hypot(player.pos.x - before.x, player.pos.z - before.z);
   player._lastPos = player.pos.clone();
-  if (held(INPUT_KEYS.forward) && !player.airborne && moved < 0.06) {
+  // "Takılma" yalnızca bisiklet fiilen durmuşken sayılır (speed ~0).
+  // Eski eşik (yalnızca moved<0.06) 1.2 m/s adil hızda da tetikleniyordu:
+  // çarpışma sonrası cooldown boyunca adil hız zeminleri kapalıyken bisiklet
+  // her çarpışmada yola ışınlanıp yönü sıfırlanıyordu.
+  if (held(INPUT_KEYS.forward) && !player.airborne && player.speed < 0.15 && moved < 0.06) {
     player.stuckTime = (player.stuckTime || 0) + dt;
   } else {
     player.stuckTime = 0;
@@ -2286,7 +2294,10 @@ function updateCollectibles(dt) {
         Sound.checkpoint();
         if (game.checkpoints === checkpoints.length) {
           addScore(750, '🏆 TUR TAMAMLANDI!');
-          setTimeout(() => finishGame(true), 700);
+          const run = game.run;
+          // Oyuncu 700 ms içinde R'ye basıp yeniden başlatırsa bu zamanlayıcı
+          // yeni turu bitirmemeli — run token'ı restartGame() ile artar.
+          setTimeout(() => { if (game.run === run) finishGame(true); }, 700);
         }
       }
     }
@@ -2554,7 +2565,9 @@ const START_ANG = 0.35;
 function resetBike() {
   player.pos.set(Math.cos(START_ANG) * RING_R, 0, Math.sin(START_ANG) * RING_R);
   player.pos.y = surfaceH(player.pos.x, player.pos.z);
-  player.heading = START_ANG + Math.PI / 2;
+  // Halka teğeti: a açısında yol yönü (-sin a, cos a); bisiklet yönü (sin h, cos h)
+  // olduğundan h = -a gerekir. (Eski h = a + π/2 bisikleti yola ~130° sapmış başlatırdı.)
+  player.heading = -START_ANG;
   player.speed = 0; player.vel.set(0, 0, 0);
   player.vy = 0; player.airborne = false; player.lean = 0; player.steer = 0;
   player.slip = 0; player.crashCooldown = 0; player.sprint = 100;
@@ -2611,6 +2624,7 @@ function finishGame(completed) {
 function restartGame() {
   game.score = 0; game.tokens = 0; game.time = 0; game.airScore = 0;
   game.checkpoints = 0; game.nearMisses = 0;
+  game.run++; // bitiş zamanlayıcısı token'ı: eski setTimeout yeni turu bitirmesin
   dbg.score = 0; dbg.collectibles = 0; dbg.checkpoints = 0; dbg.over = false;
   collectibles.forEach(c => { c.taken = false; });
   writeTokenMatrices(0);
