@@ -156,7 +156,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   const btns = document.createElement("div");
   btns.className = "mt-btns";
-  btns.innerHTML = `<button class="mt-btn" id="mt-flag" title="Bayrak modu">🚩</button><button class="mt-btn" id="mt-mute" title="Ses (M)">🔊</button>`;
+  btns.innerHTML = `<button class="mt-btn" id="mt-reset" title="Yeniden başla">↻</button><button class="mt-btn" id="mt-flag" title="Bayrak modu">🚩</button><button class="mt-btn" id="mt-mute" title="Ses (M)">🔊</button>`;
   container.appendChild(btns);
 
   const ov = document.createElement("div");
@@ -166,6 +166,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const minesEl = hud.querySelector<HTMLElement>("#mt-mines")!;
   const timeEl = hud.querySelector<HTMLElement>("#mt-time")!;
   const diffEl = hud.querySelector<HTMLElement>("#mt-diff")!;
+  const resetBtn = btns.querySelector<HTMLElement>("#mt-reset")!;
   const flagBtn = btns.querySelector<HTMLElement>("#mt-flag")!;
   const muteBtn = btns.querySelector<HTMLElement>("#mt-mute")!;
 
@@ -192,8 +193,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ov.innerHTML = `
       <h1>💣 MAYIN TARLASI</h1>
       <h2>Neon mayın tarlası — klasik mayın oyunu</h2>
-      <p><b>Sol tık</b> aç · <b>Sağ tık</b> / 🚩 bayrak modu bayrak · <b>M</b> ses</p>
+      <p><b>Sol tık</b> aç · <b>Sağ tık</b> / 🚩 bayrak modu bayrak · <b>M</b> ses · <b>↻</b> yeniden</p>
       <p>İlk tık her zaman güvenli! Sıfır komşulu bölge otomatik açılır.</p>
+      <p>💡 <b>Chord</b>: doğru sayıda bayrağı olan açık sayıya tıkla, komşuları anında aç.</p>
       ${diffButtonsHtml()}
       <button class="mt-play" id="mt-play">▶ BAŞLA</button>
       <p class="mt-rec">En iyi süreler — Kolay ${best.easy ? fmt(best.easy) : "—"} · Orta ${best.medium ? fmt(best.medium) : "—"} · Zor ${best.hard ? fmt(best.hard) : "—"}</p>`;
@@ -259,6 +261,23 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     updateHud();
   }
 
+  /** Chording: doğru sayıda bayrağı olan açık sayıya tıklanınca komşular açılır. */
+  function chord(x: number, y: number) {
+    const i = idx(x, y);
+    if (!revealed.has(i)) return;
+    const n = countMines(x, y);
+    if (n === 0) return;
+    const nbrs = neighbors(x, y);
+    const flagCount = nbrs.filter((c) => flags.has(c)).length;
+    if (flagCount !== n) return;
+    for (const c of nbrs) {
+      if (flags.has(c) || revealed.has(c)) continue;
+      reveal(c % COLS, Math.floor(c / COLS));
+      if (phase !== "playing") return; // mayına basıldı
+    }
+    if (phase === "playing") AudioSys.open();
+  }
+
   function checkWin() {
     if (revealed.size === TOTAL - mines.size) {
       phase = "won";
@@ -302,6 +321,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (e.button === 2) { toggleFlag(x, y); return; }
     if (e.button !== 0) return;
     if (flagMode) { toggleFlag(x, y); return; }
+    if (revealed.has(i)) { chord(x, y); return; }
     if (!started) placeMines(i);
     reveal(x, y);
   }
@@ -327,6 +347,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.addEventListener("touchend", onTouch, { passive: true });
   window.addEventListener("keydown", onKey);
 
+  resetBtn.addEventListener("click", () => { AudioSys.resume(); AudioSys.click(); start(); });
   flagBtn.addEventListener("click", () => {
     flagMode = !flagMode;
     flagBtn.classList.toggle("on", flagMode);
@@ -336,6 +357,26 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     AudioSys.muted = !AudioSys.muted;
     muteBtn.textContent = AudioSys.muted ? "🔇" : "🔊";
   });
+
+  /* ---------- headless test kancası ---------- */
+  (window as any).__mineTest = {
+    get phase() { return phase; },
+    get diff() { return diff; },
+    get mines() { return mines.size; },
+    get revealed() { return revealed.size; },
+    get flags() { return flags.size; },
+    get started() { return started; },
+    isMine(i: number) { return mines.has(i); },
+    isRevealed(i: number) { return revealed.has(i); },
+    isFlagged(i: number) { return flags.has(i); },
+    neighborCount(x: number, y: number) { return countMines(x, y); },
+    revealAt(x: number, y: number) { if (phase !== "playing") return; const i = idx(x, y); if (!started) placeMines(i); if (!revealed.has(i)) reveal(x, y); },
+    flagAt(x: number, y: number) { if (phase === "playing") toggleFlag(x, y); },
+    chordAt(x: number, y: number) { if (phase === "playing") chord(x, y); },
+    setDiff(d: Diff) { diff = d; },
+    reset() { start(); },
+    get best() { return { ...best }; },
+  };
 
   /* ---------- çizim ---------- */
   function draw(dt: number) {
@@ -436,5 +477,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     canvas.removeEventListener("touchend", onTouch);
     window.removeEventListener("keydown", onKey);
     style.remove(); hud.remove(); btns.remove(); ov.remove();
+    delete (window as any).__mineTest;
   };
 }
