@@ -269,6 +269,25 @@ const messages: { text: string; x: number; y: number; t: number; color: string }
 
 let levelIndex = 0;
 
+// En iyi skor (localStorage) — hub'daki diğer oyunlarla tutarlı
+const BEST_KEY = "astro-blaster-best";
+let best = 0;
+let newBest = false;
+try {
+  const v = Number(localStorage.getItem(BEST_KEY));
+  best = Number.isFinite(v) && v > 0 ? v : 0;
+} catch { best = 0; }
+
+function checkBest() {
+  if (game.score > best) {
+    best = game.score;
+    newBest = true;
+    try { localStorage.setItem(BEST_KEY, String(best)); } catch { /* yok */ }
+  } else {
+    newBest = false;
+  }
+}
+
 const game = {
   state: "start" as GameState,
   time: 0,
@@ -284,6 +303,7 @@ const game = {
     this.lives = START_LIVES;
     this.level = 1;
     this.slowT = 0;
+    newBest = false;
     levelIndex = 0;
     buildLevel(levelIndex);
     resetBall();
@@ -337,8 +357,11 @@ const game = {
     if (this.lives <= 0) {
       this.state = "gameover";
       AudioSys.gameover();
+      checkBest();
       const el = document.getElementById("final-stats");
-      if (el) el.innerHTML = `Score: ${this.score} &nbsp; Level: ${this.level}`;
+      if (el) el.innerHTML = `Score: ${this.score} &nbsp; Level: ${this.level}` + (newBest ? ` &nbsp; <span style="color:#7ee081">★ NEW BEST!</span>` : "");
+      const goBest = document.getElementById("go-best");
+      if (goBest) goBest.textContent = `BEST: ${best}`;
       show("screen-gameover");
     } else {
       AudioSys.hurt();
@@ -360,8 +383,11 @@ const game = {
       AudioSys.victory();
       const bonus = this.lives * 1000;
       this.score += bonus;
+      checkBest();
       const el = document.getElementById("final-stats-v");
-      if (el) el.innerHTML = `Score: ${this.score} (bonus +${bonus}) &nbsp; Level: ${this.level}`;
+      if (el) el.innerHTML = `Score: ${this.score} (bonus +${bonus}) &nbsp; Level: ${this.level}` + (newBest ? ` &nbsp; <span style="color:#7ee081">★ NEW BEST!</span>` : "");
+      const vBest = document.getElementById("v-best");
+      if (vBest) vBest.textContent = `BEST: ${best}`;
       show("screen-victory");
       return;
     }
@@ -667,6 +693,8 @@ function updateHUD() {
   set("hud-level", game.level);
   const hearts = document.getElementById("hud-lives");
   if (hearts) hearts.innerHTML = '<span class="ab-heart">&#10022;</span>'.repeat(Math.max(0, game.lives));
+  const sb = document.getElementById("start-best");
+  if (sb) sb.textContent = best > 0 ? `BEST: ${best}` : "";
 }
 
 /* ================= 6. RENDERING ================= */
@@ -985,6 +1013,7 @@ function buildOverlayUI(container: HTMLElement) {
        Gold blocks shower points, tough blocks need two hits,<br>
        and diamond blocks are indestructible.</p>
     <p style="color:#7ee081">Catch falling power-ups: <b style="color:#4dd0e1">W</b> wide &middot; <b style="color:#ffd23f">M</b> multi-ball &middot; <b style="color:#7ee081">S</b> slow-mo &middot; <b style="color:#ff5d73">E</b> extra life</p>
+    <p id="start-best" style="color:#ffd23f;font-weight:bold;letter-spacing:2px;"></p>
     <button class="big-btn" id="btn-start">START MISSION</button>
     <div class="keys">
       <b>&#8592;/&#8594; or A/D</b> move &nbsp; &middot; &nbsp; <b>Space / Click</b> launch &nbsp; &middot; &nbsp; <b>P</b> pause &nbsp; &middot; &nbsp; <b>M</b> mute<br>
@@ -1001,12 +1030,14 @@ function buildOverlayUI(container: HTMLElement) {
     <h2 style="color:#ff5d73">GAME OVER</h2>
     <p>Your ship drifts into the void...</p>
     <div id="final-stats" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
+    <div id="go-best" style="color:#4dd0e1;font-weight:bold;margin:4px 0;letter-spacing:1px;"></div>
     <button class="big-btn" id="btn-retry">TRY AGAIN</button>`, true);
 
   mk("screen-victory", `
     <h1>MISSION COMPLETE!</h1>
     <p>All cosmic blocks shattered. The galaxy is safe!</p>
     <div id="final-stats-v" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
+    <div id="v-best" style="color:#4dd0e1;font-weight:bold;margin:4px 0;letter-spacing:1px;"></div>
     <button class="big-btn" id="btn-play-again">PLAY AGAIN</button>`, true);
 
   const on = (id: string, fn: () => void) => {
@@ -1026,6 +1057,36 @@ function hide(id: string) { document.getElementById(id)?.classList.add("hidden")
 function hideAllScreens() {
   ["screen-start", "screen-pause", "screen-gameover", "screen-victory"].forEach(hide);
 }
+
+/* ================= 7.5 HEADLESS TEST KANCASI ================= */
+(window as any).__astroTest = {
+  get state() { return game.state; },
+  get score() { return game.score; },
+  get lives() { return game.lives; },
+  get level() { return game.level; },
+  get balls() { return balls.length; },
+  get stuckBalls() { return balls.filter((b) => b.stuck).length; },
+  get blocksAlive() { return blocks.filter((b) => b.alive).length; },
+  get blocksBreakable() { return blocks.filter((b) => b.alive && b.type !== 3).length; },
+  get paddleX() { return Paddle.x; },
+  get paddleW() { return Paddle.w; },
+  get best() { return best; },
+  get newBest() { return newBest; },
+  ballAt(i: number) { const b = balls[i]; return b ? { x: Math.round(b.x), y: Math.round(b.y), vx: Math.round(b.vx), vy: Math.round(b.vy), stuck: b.stuck } : null; },
+  start() { game.startGame(); },
+  launch() { if (game.state === "playing") game.launchBall(); },
+  togglePause() { game.togglePause(); },
+  toggleMute() { game.toggleMute(); },
+  movePaddle(x: number) { Paddle.x = Math.max(6, Math.min(W - Paddle.w - 6, x)); },
+  setBall(x: number, y: number, vx: number, vy: number) {
+    let b = balls.find((bb) => !bb.stuck);
+    if (!b) { b = { x, y, vx, vy, speed: BALL_SPEED, stuck: false, dead: false }; balls.push(b); }
+    b.x = x; b.y = y; b.vx = vx; b.vy = vy; b.speed = Math.hypot(vx, vy) || BALL_SPEED;
+  },
+  breakAllBreakable() { for (const blk of blocks) if (blk.alive && blk.type !== 3) blk.alive = false; },
+  loseAllLives() { while (game.lives > 0 && game.state === "playing") { game.lives--; if (game.lives <= 0) { game.state = "gameover"; checkBest(); show("screen-gameover"); } } },
+  forceVictory() { levelIndex = LEVELS.length; game.state = "levelclear"; game.clearTimer = 0.001; },
+};
 
 /* ================= 8. MAIN LOOP & PUBLIC API ================= */
 export function startGame(canvas: HTMLCanvasElement): () => void {
@@ -1068,5 +1129,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     wrap.remove();
+    delete (window as any).__astroTest;
   };
 }
