@@ -133,6 +133,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 .mt-ov{position:absolute;inset:0;z-index:7;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:10px;background:rgba(3,5,15,.75);backdrop-filter:blur(2px);
   font-family:'Segoe UI',system-ui,sans-serif;color:#fff;text-align:center}
+/* HATA DÜZELTME: kazanma/patlama sonrası overlay (z7) üstteki ↻/🚩/🔊 butonlarını
+   (z6) kapatıyor; butonlar yarı saydam katmanın altında görünüp tıklanamıyordu.
+   Bitiş ekranında overlay'i butonların altına al. */
+.mt-ov.end{z-index:1}
 .mt-ov h1{margin:0;font-size:40px;letter-spacing:2px;color:#f87171;text-shadow:0 0 18px rgba(248,113,113,.8)}
 .mt-ov h1.win{color:#4ade80;text-shadow:0 0 18px rgba(74,222,128,.8)}
 .mt-ov h2{margin:0;font-size:15px;font-weight:600;color:#9fb6cc}
@@ -181,6 +185,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       b.addEventListener("click", () => {
         diff = b.dataset.d as Diff;
         ov.querySelectorAll<HTMLElement>(".mt-diff").forEach((x) => x.classList.toggle("on", x === b));
+        updateHud(); // HUD mayın sayısı/etiketi menüde bile güncel kalsın
         AudioSys.click();
       });
     });
@@ -191,6 +196,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
   function showMenu() {
     ov.style.display = "flex";
+    ov.classList.remove("end");
     ov.innerHTML = `
       <h1>💣 MAYIN TARLASI</h1>
       <h2>Neon mayın tarlası — klasik mayın oyunu</h2>
@@ -204,6 +210,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     bindPlay("mt-play", start);
   }
   function showEnd(won: boolean) {
+    ov.classList.add("end");
     ov.style.display = "flex";
     const rec = newRec ? `<p class="mt-rec">🏆 YENİ REKOR!</p>` : `<p class="mt-rec">En iyi (${DIFFS[diff].label}): ${best[diff] ? fmt(best[diff]) : "—"}</p>`;
     ov.innerHTML = won
@@ -302,6 +309,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   function updateHud() {
     minesEl.textContent = `💣 ${Math.max(0, DIFFS[diff].mines - flags.size)}`;
+    diffEl.textContent = DIFFS[diff].label;
     timeEl.textContent = `⏱ ${fmt(time)}`;
   }
 
