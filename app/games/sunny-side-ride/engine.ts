@@ -61,18 +61,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   wrap.appendChild(frame);
   host.appendChild(wrap);
 
-  // HUB'a dönüş: oyun içindeki Esc/P ile çakışmasın diye ayrı bir buton.
-  const back = document.createElement("a");
-  back.href = base + "/";
-  back.textContent = "← Tüm Oyunlar";
-  back.style.cssText = [
-    "position:absolute", "top:12px", "right:12px", "z-index:30",
-    "background:rgba(0,0,0,.55)", "border:2px solid rgba(255,255,255,.5)",
-    "border-radius:10px", "color:#fff", "font-size:13px", "font-weight:700",
-    "padding:8px 14px", "text-decoration:none", "letter-spacing:.5px",
-    "font-family:system-ui,sans-serif",
-  ].join(";");
-  wrap.appendChild(back);
+  // Not: "← All Games" geri butonunu hub sayfası (page.tsx) zaten çiziyor.
+  // Buraya ayrıca buton koymak oyunun ⏸/⟲/📷/🔊 HUD'unu kapatıyordu.
 
   return () => {
     frame.src = "about:blank";   // oyun döngüsünü ve sesini durdur

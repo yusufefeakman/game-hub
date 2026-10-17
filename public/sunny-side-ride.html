@@ -18,6 +18,9 @@
 
   /* ---------- HUD ---------- */
   #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+  /* Hub/GameHub içinde (iframe) üst-soldaki "← All Games" butonu HUD panelle-
+     rini (hız/puan/token/süre) kapatır; HUD'u butonun altına kaydır. */
+  html.hub #hud{inset:56px 0 0 0}
   .panel{
     background:rgba(253,250,243,.9);backdrop-filter:blur(6px);
     border-radius:14px;box-shadow:var(--shadow);border:2px solid rgba(13,27,42,.12);
@@ -146,6 +149,8 @@
     #objBox{max-width:none}
   }
 </style>
+<script>/* iframe içindeyizse (GameHub/itch) .hub sınıfı: HUD üstte butonun altına iner */
+if (window.top !== window.self) document.documentElement.classList.add('hub');</script>
 </head>
 <body>
 <div id="app"></div>
