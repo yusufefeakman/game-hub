@@ -579,6 +579,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const sol = solveSoma(ORIENTATIONS);
     if (!sol) { toast("Çözüm bulunamadı"); return; }
     solving = true;
+    // önceki demo'nun gecikmeli tahta-temizliği yeni demoyu silmesin
+    if (stepT) { clearTimeout(stepT); stepT = null; }
     stopTimer();
     board.fill(0);
     placed.fill(false);
@@ -598,6 +600,18 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
         timeEl.textContent = "00:00";
         render();
         toast("İşte çözüm! Şimdi sıra sende 💪");
+        /* HATA DÜZELTME: demo bitince tahta 27 hücre DOLU kalıyordu; toast
+           "sıra sende" dese de oynanacak boş hücre yoktu. Çözülmüş küpü
+           ~1.5 s gösterip tahtayı temizle. */
+        stepT = setTimeout(() => {
+          if (disposed) return;
+          board.fill(0);
+          placed.fill(false);
+          placements = [];
+          selected = null;
+          preview = null;
+          render();
+        }, 1500);
         return;
       }
       const pl = sol[k++];
