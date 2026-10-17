@@ -616,12 +616,17 @@ function buildTrees() {
 
   // yerleşim: ana yol boyunca sık, yan yollarda orta, dışarıda seyrek
   const places = [];
+  const roadClear = (x, z, pad) => { const nr = nearestRoad(x, z); return nr.dist >= nr.sample.halfW + pad; };
   for (let i = 0; i < mainRoad.N; i += 3) {
     const p = mainRoad.pts[i], n = mainRoad.norms[i];
     for (const side of [1, -1]) {
       if (Math.random() < 0.28) continue;
       const off = ROAD_W / 2 + rnd(3.6, 7.0);
       const x = p.x + n.x * off * side, z = p.z + n.z * off * side;
+      // YOL KIVRIMLI: yalnızca o noktanın normalinden taşan ağaç, yolun
+      // başka bir kolunun ortasında kalabiliyordu (şimdi tüm adaylar en
+      // yakın yola göre denetlenir).
+      if (!roadClear(x, z, 2.4)) continue;
       places.push({ x, z, s: rnd(0.85, 1.35), canopy: Math.random() < 0.55 });
     }
   }
@@ -631,14 +636,17 @@ function buildTrees() {
       for (const side of [1, -1]) {
         if (Math.random() < 0.55) continue;
         const off = 4.1 + rnd(3.2, 6.5);
-        places.push({ x: p.x + n.x * off * side, z: p.z + n.z * off * side, s: rnd(0.8, 1.2), canopy: false });
+        const x = p.x + n.x * off * side, z = p.z + n.z * off * side;
+        // Yan yol ağacı halka yolun (ya da başka sokağın) ortasına düşmesin.
+        if (!roadClear(x, z, 2.0)) continue;
+        places.push({ x, z, s: rnd(0.8, 1.2), canopy: false });
       }
     }
   });
   for (let i = 0; i < 520; i++) {
     const a = Math.random() * TAU, r = rnd(52, WORLD_R - 26);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (nearestRoad(x, z).dist < ROAD_W / 2 + 4.5) continue;
+    if (!roadClear(x, z, 3.2)) continue;
     places.push({ x, z, s: rnd(0.7, 1.25), canopy: false });
   }
   // Yazılım rasterleştirmede örnek sayısını kıs (görsel yoğunluk korunur, maliyet düşer)
@@ -669,6 +677,8 @@ function buildTrees() {
       const rad = b === 0 ? 0 : Math.random() * spread * 0.55;
       const bx = pl.x + Math.cos(ang) * rad * (pl.canopy ? 1.45 : 1);
       const bz = pl.z + Math.sin(ang) * rad * (pl.canopy ? 1.45 : 1);
+      // Taç küresi yolun üstüne/ortasına taşmasın (ağaç yolda görünüyordu).
+      if (!roadClear(bx, bz, 0.5)) continue;
       const by = y + h * rnd(0.86, 1.12) + (b === 0 ? 0.5 : 0);
       const bs = (pl.canopy ? rnd(1.9, 2.9) : rnd(1.5, 2.4)) * pl.s;
       const t = b % 3;
@@ -693,6 +703,109 @@ const colliders = [];   // { x, z, r, h }  dairesel engeller
 const boxColliders = []; // { x, z, hw, hd, h, rot, mesh? }
 const HOUSES = [];
 const staticGroups = [];   // birleştirilecek statik gruplar
+
+/* ---------------- 5b. Yeni grafikler: yol boyu çiçekliği, kuş sürüsü, yel değirmeni ---------------- */
+/* Çiçekler: instanced gövde + renkli taç; yol kenarlarını renklendirir. */
+const vergeFlowerMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+function buildVergeFlowers() {
+  const N = IS_SWIFT ? 260 : 640;
+  const stemGeo = new THREE.CylinderGeometry(0.022, 0.03, 0.36, 4); stemGeo.translate(0, 0.18, 0);
+  const headGeo = new THREE.ConeGeometry(0.14, 0.22, 6); headGeo.translate(0, 0.46, 0);
+  const stemMat = new THREE.MeshLambertMaterial({ color: 0x41793a });
+  const stems = new THREE.InstancedMesh(stemGeo, stemMat, N);
+  const heads = new THREE.InstancedMesh(headGeo, vergeFlowerMat, N);
+  let n = 0, tries = 0;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), s = new THREE.Vector3();
+  const col = new THREE.Color();
+  const palette = [0xff5f6d, 0xffb84d, 0xfdf3e7, 0xb07cc9, 0xff8f5e, 0x82c8ff, 0xffd9e0];
+  while (n < N && tries < N * 16) {
+    tries++;
+    const a = Math.random() * TAU, r = rnd(16, WORLD_R - 24);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const nr = nearestRoad(x, z);
+    if (nr.dist < nr.sample.halfW + 1.6 || nr.dist > nr.sample.halfW + 13) continue; // sadece yol boyları
+    const y = placeH(x, z);
+    const fs = rnd(0.7, 1.5);
+    m.compose(v.set(x, y, z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * TAU), s.set(fs, fs, fs));
+    stems.setMatrixAt(n, m);
+    heads.setMatrixAt(n, m);
+    col.setHex(palette[n % palette.length]);
+    heads.setColorAt(n, col);
+    n++;
+  }
+  stems.count = n; heads.count = n;
+  stems.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true;
+  if (heads.instanceColor) heads.instanceColor.needsUpdate = true;
+  scene.add(stems, heads);
+  return n;
+}
+const vergeFlowerCount = buildVergeFlowers();
+
+/* Kuş sürüsü: gökyüzünde daire çizen V-kanatlı küçük silüetler. */
+function buildBirds() {
+  const N = 14;
+  const g = new THREE.BufferGeometry();
+  const vw = [
+    0, 0, 0, -0.55, 0.10, -0.30, -0.52, -0.14, 0.22,
+    0, 0, 0, 0.52, -0.14, 0.22, 0.55, 0.10, -0.30,
+  ];
+  g.setAttribute('position', new THREE.Float32BufferAttribute(vw, 3));
+  g.computeVertexNormals();
+  const mat = new THREE.MeshLambertMaterial({ color: 0x2c3540, side: THREE.DoubleSide });
+  const mesh = new THREE.InstancedMesh(g, mat, N);
+  const flock = [];
+  for (let i = 0; i < N; i++) flock.push({
+    a: Math.random() * TAU, r: rnd(55, 150), hgt: rnd(34, 55),
+    sp: rnd(0.045, 0.085) * (Math.random() < 0.5 ? 1 : -1),
+    ph: Math.random() * TAU, ox: rnd(-4, 4), oz: rnd(-4, 4),
+  });
+  scene.add(mesh);
+  return { mesh, flock };
+}
+const birdSys = buildBirds();
+
+/* Yel değirmeni: merkez parkın simgesi; kanatları döner (updateAmbient). */
+function buildWindmill() {
+  const x = 6, z = -10;
+  const y = placeH(x, z);
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 3.3, 10.6, IS_SWIFT ? 7 : 12),
+    new THREE.MeshLambertMaterial({ color: 0xcbb489 }));
+  body.position.y = 5.3; body.castShadow = true; body.receiveShadow = true;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(2.36, 2.5, 0.7, 12),
+    new THREE.MeshLambertMaterial({ color: 0xa6875d }));
+  band.position.y = 7.9;
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.4, 2.2, 12),
+    new THREE.MeshLambertMaterial({ color: 0x8a4b3a }));
+  cap.position.y = 11.7; cap.castShadow = true;
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2, 0.16),
+    new THREE.MeshLambertMaterial({ color: 0x5c3b24 }));
+  door.position.set(0, 1, 3.15);
+  g.add(body, band, cap, door);
+  const hub = new THREE.Group(); hub.position.set(0, 10.4, 2.55);
+  const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.8, 8),
+    new THREE.MeshLambertMaterial({ color: 0x444a52 }));
+  axle.rotation.x = Math.PI / 2;
+  const blades = new THREE.Group();
+  const sparMat = new THREE.MeshLambertMaterial({ color: 0x6e4a2f });
+  const sailMat = new THREE.MeshLambertMaterial({ color: 0xf3ead8 });
+  for (let k = 0; k < 4; k++) {
+    const arm = new THREE.Group();
+    arm.rotation.z = k * Math.PI / 2;
+    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 5.6, 0.14), sparMat);
+    spar.position.y = 2.8; spar.castShadow = true;
+    const sail = new THREE.Mesh(new THREE.BoxGeometry(0.66, 4.6, 0.07), sailMat);
+    sail.position.set(0.34, 2.9, 0.1); sail.castShadow = true;
+    arm.add(spar, sail); blades.add(arm);
+  }
+  hub.add(axle, blades);
+  g.add(hub);
+  g.position.set(x, y, z);
+  scene.add(g);
+  colliders.push({ x, z, r: 3.7, h: 13 });
+  return { blades };
+}
+const windmill = buildWindmill();
 function buildHouse(x, z, rotY, palette) {
   const g = new THREE.Group();
   const w = rnd(6.5, 8.6), d = rnd(6.0, 7.6), wallH = rnd(3.2, 4.0);
@@ -987,29 +1100,46 @@ function mergeStaticGroup(group, opts = {}) {
 
 /* ---------------- 7. Rampalar, köprüler, inişler ---------------- */
 const ramps = [];   // { x, z, rotY, w, len, h, mesh }
-function buildRamp(x, z, rotY, w = 5.4, len = 8.0, h = 1.9) {
-  const geo = new THREE.BufferGeometry();
+function buildRamp(x, z, rotY, w = 5.4, len = 8.0, h = 1.5) {
+  /* KAPIALI kama: üst (eğim), taban, arka dik yüz ve iki yan üçgen — tek
+     düz-normal geometri. Eskiden üst+alt birbirinin aynısı iki dörtgenden
+     ibaretti; yanlar da eğime uymayan dik kutulardı (yarım gömülü duvar gibi
+     görünüyordu). Şekil artık temiz ve gölgeleri de doğru. */
   const hw = w / 2;
-  // eğimli üst yüzey + yan üçgenler
-  const v = [
-    -hw, 0, -len / 2, hw, 0, -len / 2, hw, h, len / 2, -hw, h, len / 2, // üst
-    -hw, 0, -len / 2, -hw, h, len / 2, hw, h, len / 2, hw, 0, -len / 2  // alt kapanış
+  const P = [
+    [-hw, 0, -len / 2], [hw, 0, -len / 2], [hw, h, len / 2], [-hw, h, len / 2], // 0-3 üst
+    [-hw, 0, -len / 2], [-hw, 0, len / 2], [hw, 0, len / 2], [hw, 0, -len / 2], // 4-7 taban
+    [-hw, 0, len / 2], [hw, 0, len / 2], [hw, h, len / 2], [-hw, h, len / 2],   // 8-11 arka
+    [-hw, 0, len / 2], [-hw, 0, -len / 2], [-hw, h, len / 2],                   // 12-14 sol
+    [hw, 0, -len / 2], [hw, 0, len / 2], [hw, h, len / 2],                      // 15-17 sağ
   ];
-  const idx = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-  geo.setIndex(idx); geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xb5713c, side: THREE.DoubleSide }));
+  const idx = [
+    0, 2, 1, 0, 3, 2,          // üst (normal: yukarı-ileri)
+    4, 6, 5, 4, 7, 6,          // taban (normal: aşağı)
+    8, 9, 10, 8, 10, 11,       // arka (normal: +z)
+    12, 14, 13,                // sol (normal: -x)
+    15, 17, 16,                // sağ (normal: +x)
+  ];
+  const geo = new THREE.BufferGeometry();
+  const pos = [];
+  for (const i of idx) pos.push(...P[i]);
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xb5713c }));
   mesh.castShadow = true; mesh.receiveShadow = true;
   const y = placeH(x, z);
   mesh.position.set(x, y + 0.03, z);
   mesh.rotation.y = rotY;
   scene.add(mesh);
   ramps.push({ x, z, rotY, w, len, h, baseY: y + 0.03, mesh });
-  // rampa yan destekleri
-  for (const sx of [-hw, hw]) {
-    const sup = new THREE.Mesh(new THREE.BoxGeometry(0.3, h, len), new THREE.MeshLambertMaterial({ color: 0x8d5a33 }));
-    sup.position.set(sx, h / 2, 0);
-    mesh.add(sup);
+  /* Yaklaşma işareti: kısa düşük yüze kırmızı-beyaz şeritler → hangi uçtan
+     çıkılacağı uzaktan bile okunur. */
+  for (let c = 0; c < 3; c++) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.86, 0.06, 0.34),
+      new THREE.MeshLambertMaterial({ color: c % 2 ? 0xfdfaf3 : 0xe0564b }));
+    bar.position.set(0, 0.035 + (c * 0.02), -len / 2 - 0.55 - c * 0.55);
+    bar.receiveShadow = true;
+    mesh.add(bar);
   }
   return mesh;
 }
@@ -1018,9 +1148,9 @@ const RAMP_SITES = [26, 74, 121, 168, 214, 262];
 RAMP_SITES.forEach((idx) => {
   const i = idx % mainRoad.N;
   const p = mainRoad.pts[i], n = mainRoad.norms[i], tan = mainRoad.tans[i];
-  const off = (idx % 2 ? 1 : -1) * rnd(1.2, 2.6);
+  const off = (idx % 2 ? 1 : -1) * rnd(1.0, 2.2);
   const x = p.x + n.x * off, z = p.z + n.z * off;
-  buildRamp(x, z, Math.atan2(tan.x, tan.z), rnd(4.6, 5.8), rnd(7, 9.5), rnd(1.5, 2.1));
+  buildRamp(x, z, Math.atan2(tan.x, tan.z), rnd(4.8, 5.8), rnd(8.5, 10), rnd(1.15, 1.5));
 });
 
 /* --- ahşap köprü (dere üzerinde) --- */
@@ -1065,9 +1195,19 @@ function buildBridge() {
   scene.add(g);
   staticGroups.push(g);
   BRIDGE = { x: cx, z: cz, rotY, w: W, len: LEN, y };
-  // korkuluklar: köprü ekseninde iki ince kutu (döndürülmüş çarpışma)
+  /* Güverte yerden 0.62 m yüksek — fizikteki "duvar" sınırı (0.42 m)
+     yüzünden köprü artık tırmanılamaz olurdu; iki ucuna yaklaşma rampası
+     koyuyoruz: profil 0 → 0.63 kesintisiz, hem görsel hem fizik tutarlı. */
   for (const s of [-1, 1]) {
-    const nx = Math.cos(rotY), nz = -Math.sin(rotY);
+    const rl = 2.8;
+    const rx = cx + Math.cos(rotY) * (LEN / 2 + rl / 2) * s;
+    const rz = cz - Math.sin(rotY) * (LEN / 2 + rl / 2) * s;
+    buildRamp(rx, rz, rotY - s * Math.PI / 2, W, rl, 0.63);
+  }
+  // korkuluklar: köprü ekseninde iki ince kutu (döndürülmüş çarpışma)
+  // Korkuluk güvertenin YANlarında (local ±z) durur; world yönü (sin rotY, cos rotY).
+  for (const s of [-1, 1]) {
+    const nx = Math.sin(rotY), nz = Math.cos(rotY);
     boxColliders.push({
       x: cx + nx * (W / 2) * s, z: cz + nz * (W / 2) * s,
       hw: LEN / 2, hd: 0.2, h: 1.5, rot: rotY
@@ -1810,7 +1950,13 @@ function rampH(x, z) {
   let best = null, bh = 0;
   for (const r of ramps) {
     const dx = x - r.x, dz = z - r.z;
-    const c = Math.cos(-r.rotY), s = Math.sin(-r.rotY);
+    /* DÜZELTME: world→local dönüşüm rotY'in TRANSPOZU olmalı (cos rotY /
+       sin rotY). Eskiden cos(-rotY) ile yapılıyordu: fizikteki rampa,
+       çizilen rampadan açı farkına göre ~−2θ dönmüş yerde duruyordu —
+       bisiklet görsel rampaya girdiğinde yükseklik değişmiyor, başka bir
+       noktada sebepsiz zıplıyordu ("rampalar düzgün değil" şikâyetinin
+       kök nedeni). */
+    const c = Math.cos(r.rotY), s = Math.sin(r.rotY);
     const lx = dx * c - dz * s, lz = dx * s + dz * c;
     if (Math.abs(lx) > r.w / 2 || Math.abs(lz) > r.len / 2) continue;
     const t = clamp((lz + r.len / 2) / r.len, 0, 1);
@@ -1823,7 +1969,7 @@ function rampH(x, z) {
 function bridgeH(x, z) {
   if (!BRIDGE) return null;
   const dx = x - BRIDGE.x, dz = z - BRIDGE.z;
-  const c = Math.cos(-BRIDGE.rotY), s = Math.sin(-BRIDGE.rotY);
+  const c = Math.cos(BRIDGE.rotY), s = Math.sin(BRIDGE.rotY);
   const lx = dx * c - dz * s, lz = dx * s + dz * c;
   if (Math.abs(lx) > BRIDGE.len / 2 || Math.abs(lz) > BRIDGE.w / 2) return null;
   const t = clamp((lx + BRIDGE.len / 2) / BRIDGE.len, 0, 1);
@@ -1842,6 +1988,7 @@ let camMode = 0;
 const camPos = new THREE.Vector3(0, 4, -8);
 const camLook = new THREE.Vector3();
 let camShake = 0;
+let hitWallPopT = 0;   // "rampa yüzü" uyarısının spam engelleyicisi
 function cycleCamera() {
   camMode = (camMode + 1) % CAM_MODES.length;
   dbg.cameraMode = camMode;
@@ -2015,11 +2162,26 @@ function updatePhysics(dt) {
     // zemine yapış, rampa/köprü çıkışında yumuşak geçiş
     const dy = gh - player.pos.y;
     if (dy > 0.06) {           // yukarı çıkıntı: yokuş/rampa tırmanışı
-      // Yokuş yukarı çıkarken hız korunur ama hafif yavaşlar; asla sıfırlanmaz.
-      const climb = clamp(dy, 0, 2.5);
-      player.pos.y = lerp(player.pos.y, gh, clamp(dt * 14, 0, 1));
-      player.speed *= (1 - clamp(climb * 0.05, 0, 0.12));
-      if (climb > 0.45 && player.speed > 9) { player.vy = 2.4 + climb * 0.5; player.airborne = true; }
+      /* RAMPA DUWARI: rampa eğimi ~%17; adım başına düşen yükseklik bunun
+         çok üstündeyse oyuncu dik yüzeye gelmiş demektir (rampaya ters
+         yönden/yardan girmek). Eskiden tırmanma tavanı 2.5 m'di ve bisiklet
+         2 m'lik dikey yüzeyden merdiven çıkar gibi geçiyordu — rampa
+         "düzgün değil" hissinin asıl sebebi buydu. Şimdi sınır gerçek bir
+         yürünebilir eğim: üstünde duvar, hız kesilir, bisiklet geri iter. */
+      const MAX_CLIMB = 0.42;
+      if (dy > MAX_CLIMB) {
+        // duvar: konumu bu adımda geri al, hızı kes (çarpma hissi)
+        const push = Math.min(0.35, Math.abs(player.speed) * dt * 1.2 + 0.02);
+        player.pos.x -= dir.x * push; player.pos.z -= dir.z * push;
+        if (player.speed > 4) { Sound.crash(); camShake = Math.max(camShake, 0.18); if (!hitWallPopT || performance.now() - hitWallPopT > 900) { hitWallPopT = performance.now(); showPopup('🚧 Rampa yüzü!', 'warn'); } }
+        player.speed *= 0.35;
+      } else {
+        // Yokuş yukarı çıkarken hız korunur ama hafif yavaşlar; asla sıfırlanmaz.
+        const climb = clamp(dy, 0, MAX_CLIMB);
+        player.pos.y = lerp(player.pos.y, gh, clamp(dt * 14, 0, 1));
+        player.speed *= (1 - clamp(climb * 0.05, 0, 0.12));
+        if (climb > 0.34 && player.speed > 9) { player.vy = 2.4 + climb * 0.5; player.airborne = true; }
+      }
     } else if (dy < -0.30) {   // zemin düştü → havada
       player.airborne = true;
       player.vy = Math.max(-1.5, dy * 6);
@@ -2184,7 +2346,9 @@ function resolveCollisions(dt) {
     if (o.type !== 'car') continue;
     const yaw = o.mesh ? o.mesh.rotation.y : 0;
     const hw = 2.15 + bikeRadius, hd = 1.0 + bikeRadius;   // yarı uzunluk / yarı genişlik
-    const c = Math.cos(-yaw), s = Math.sin(-yaw);
+    // world→local: rotY'in transpozu (cos yaw / sin yaw) — eski cos(-yaw)
+    // çarpışma kutusunu −2θ döndürüyordu (araba görünümüyle çarpışma örtüşmüyordu).
+    const c = Math.cos(yaw), s = Math.sin(yaw);
     const dx = player.pos.x - o.x, dz = player.pos.z - o.z;
     const lx = dx * c - dz * s, lz = dx * s + dz * c;
     const ox = hw - Math.abs(lx), oz = hd - Math.abs(lz);
@@ -2239,7 +2403,7 @@ function resolveCollisions(dt) {
         hit = true;
       } else {                                  // köprü korkuluğu (döndürülmüş kutu)
         const b = o;
-        const c = Math.cos(-b.rot), s = Math.sin(-b.rot);
+        const c = Math.cos(b.rot), s = Math.sin(b.rot);
         const dx = player.pos.x - b.x, dz = player.pos.z - b.z;
         const lx = dx * c - dz * s, lz = dx * s + dz * c;
         const hx = b.hw + bikeRadius, hz = b.hd + bikeRadius;
@@ -2458,7 +2622,7 @@ function syncVisuals(dt) {
     const to = target.clone().sub(shoulder);
     const horiz = Math.hypot(to.x, to.z);
     armG.rotation.x = -0.55 + Math.atan2(-to.y, horiz) * 0.8;
-    armG.rotation.z = Math.atan2(to.x * Math.cos(-player.heading) - to.z * Math.sin(-player.heading), horiz) * 0.35;
+    armG.rotation.z = Math.atan2(to.x * Math.cos(player.heading) - to.z * Math.sin(player.heading), horiz) * 0.35;
     foreG.rotation.x = -0.42;
   }
   aimArm(riderParts.armR, riderParts.foreR, gripWorldR);
@@ -2529,6 +2693,25 @@ function updateAmbient(dt, t) {
     leafMesh.setMatrixAt(i, m);
   }
   leafMesh.instanceMatrix.needsUpdate = true;
+
+  // yeni grafikler: yel değirmeni kanatları
+  windmill.blades.rotation.z += dt * 0.9;
+
+  // kuş sürüsü: dairesel uçuş + kanat çırpma
+  const bm = new THREE.Matrix4(), bq = new THREE.Quaternion(), bv = new THREE.Vector3(), bsc = new THREE.Vector3();
+  const Y = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < birdSys.flock.length; i++) {
+    const b = birdSys.flock[i];
+    b.a += b.sp * dt;
+    const sgn = b.sp > 0 ? 1 : -1;
+    const bx = Math.cos(b.a) * b.r + b.ox, bz = Math.sin(b.a) * b.r + b.oz;
+    const by = b.hgt + Math.sin(t * 0.35 + b.ph) * 2.2;
+    const flap = 1 + Math.sin(t * 9 + b.ph) * 0.5;
+    bq.setFromAxisAngle(Y, Math.atan2(-Math.sin(b.a) * sgn, Math.cos(b.a) * sgn));
+    bm.compose(bv.set(bx, by, bz), bq, bsc.set(2.6, 2.6 * flap, 2.6));
+    birdSys.mesh.setMatrixAt(i, bm);
+  }
+  birdSys.mesh.instanceMatrix.needsUpdate = true;
 }
 
 /* ---------------- 13. HUD ---------------- */
@@ -2750,27 +2933,32 @@ addEventListener('resize', () => {
 
 /* ---------------- 15. Ana döngü ---------------- */
 /* Uyarlanabilir kalite: FPS düşerse görüş/gölge/çözünürlüğü kıs (loop'tan önce tanımlı). */
-const quality = { level: IS_SWIFT ? 0 : 2, lastCheck: 0 };
+const quality = { level: IS_SWIFT ? 0 : 2, lastCheck: 0, lowStreak: 0, highStreak: 0, cooldown: 0 };
+/* DONDURMA KASMASIN: renderer.shadowMap.enabled çalışma anında açılıp
+   kapanınca three.js TÜM malzemeleri yeniden derler — kalite düşüşünde
+   yaşanan "bir kere donma/kasma" tam olarak buydu. Gölgeyi kapatmak yerine
+   gölge HARİTASI küçültülür (boyut değişimi shader derlemesi gerektirmez). */
+renderer.shadowMap.enabled = !IS_SWIFT;
 function setQuality(level) {
   quality.level = level;
+  const mapSize = level === 2 ? SHADOW_SIZE : (level === 1 ? 1024 : 768);
+  if (sun.shadow.mapSize.width !== mapSize) {
+    sun.shadow.mapSize.set(mapSize, mapSize);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  }
   if (level === 2) {
-    renderer.shadowMap.enabled = true;
     scene.fog.far = 340;
-    sun.shadow.camera.left = -SHADOW_EXTENT; sun.shadow.camera.right = SHADOW_EXTENT;
-    sun.shadow.camera.top = SHADOW_EXTENT; sun.shadow.camera.bottom = -SHADOW_EXTENT;
     camera.far = 900;
   } else if (level === 1) {
-    renderer.shadowMap.enabled = true;
     scene.fog.far = 250;
-    const e = SHADOW_EXTENT * 0.72;
-    sun.shadow.camera.left = -e; sun.shadow.camera.right = e;
-    sun.shadow.camera.top = e; sun.shadow.camera.bottom = -e;
     camera.far = 700;
   } else {
-    renderer.shadowMap.enabled = false;   // gölge yok → en ucuz
     scene.fog.far = 200;
     camera.far = 560;
   }
+  const ext = level === 2 ? SHADOW_EXTENT : (level === 1 ? SHADOW_EXTENT * 0.72 : SHADOW_EXTENT * 0.55);
+  sun.shadow.camera.left = -ext; sun.shadow.camera.right = ext;
+  sun.shadow.camera.top = ext; sun.shadow.camera.bottom = -ext;
   sun.shadow.camera.updateProjectionMatrix();
   camera.updateProjectionMatrix();
   const cap = level === 2 ? DPR_CAP : (level === 1 ? Math.min(DPR_CAP, 0.85) : 0.55);
@@ -2783,8 +2971,16 @@ function autoQuality(dt) {
   quality.lastCheck = 0;
   const f = dbg.fps;
   if (!f) return;
-  if (f < 24 && quality.level > 0) setQuality(quality.level - 1);
-  else if (f > 56 && quality.level < 2) setQuality(quality.level + 1);
+  if (quality.cooldown > 0) { quality.cooldown--; return; }
+  // Salınımı önle: tek kötü ölçüm değil; art arda 3 düşük / 4 yüksek ölçüm iste.
+  if (f < 24) { quality.lowStreak++; quality.highStreak = 0; }
+  else if (f > 56) { quality.highStreak++; quality.lowStreak = 0; }
+  else { quality.lowStreak = 0; quality.highStreak = 0; }
+  if (quality.lowStreak >= 3 && quality.level > 0) {
+    setQuality(quality.level - 1); quality.lowStreak = 0; quality.cooldown = 2;
+  } else if (quality.highStreak >= 4 && quality.level < 2) {
+    setQuality(quality.level + 1); quality.highStreak = 0; quality.cooldown = 2;
+  }
 }
 setQuality(quality.level);
 /* Yazılım rasterleştirici (SwiftShader/llvmpipe) dolgu hızıyla sınırlıdır:
@@ -2943,6 +3139,16 @@ dbg.nearbyColliders = (x, z, rad = 6) => {
 
 dbg.input = () => ({ keys: [...keys], forward: held(INPUT_KEYS.forward), back: held(INPUT_KEYS.back), sprint: held(INPUT_KEYS.sprint), steer: player.steer, heading: player.heading, airborne: player.airborne, vy: player.vy, speed: player.speed });
 
+/* Test yardımcıları: oyuncuyu ışınla + rampa envanteri (rampa fizik doğrulaması için). */
+dbg.setPlayer = (x, z, heading, speed) => {
+  player.pos.set(x, surfaceH(x, z), z);
+  player.heading = heading; player.speed = speed || 0;
+  player.airborne = false; player.vy = 0; player.airTime = 0;
+  player.stuckTime = 0; player._lastPos = player.pos.clone();
+};
+dbg.playerInfo = () => ({ x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2), heading: +player.heading.toFixed(2), speed: +player.speed.toFixed(2), airborne: player.airborne, vy: +player.vy.toFixed(2) });
+dbg.rampsList = () => ramps.map(r => ({ x: +r.x.toFixed(1), z: +r.z.toFixed(1), rotY: +r.rotY.toFixed(2), w: +r.w.toFixed(2), len: +r.len.toFixed(2), h: +r.h.toFixed(2) }));
+
 /* Derin doğrulama yardımcıları (salt okunur) */
 dbg.sceneStats = () => {
   let totalMeshes = 0;
@@ -2957,7 +3163,8 @@ dbg.sceneStats = () => {
     grips: [bikeParts.gripL, bikeParts.gripR].filter(Boolean).length,
     trees: treePositions.length, collectibles: collectibles.length,
     checkpoints: checkpoints.length, obstacles: obstacles.length,
-    ramps: ramps.length, houses: HOUSES.length, clouds: clouds.length
+    ramps: ramps.length, houses: HOUSES.length, clouds: clouds.length,
+    flowers: vergeFlowerCount, birds: birdSys.flock.length, windmill: 1
   };
 };
 dbg.animState = () => {
@@ -3044,6 +3251,11 @@ dbg.auditRoadBlocks = () => {
       for (const c of colliders) {
         const d = Math.hypot(x - c.x, z - c.z) - c.r - bikeRadius;
         if (d < clear) { clear = d; who = { kind: 'collider(r=' + c.r.toFixed(1) + ')', x: +c.x.toFixed(1), z: +c.z.toFixed(1), r: c.r }; }
+      }
+      // Ağaç gövdeleri de yol koridorunu kapatabilir — denetime dahil.
+      for (const t of treePositions) {
+        const d = Math.hypot(x - t.x, z - t.z) - t.r - bikeRadius;
+        if (d < clear) { clear = d; who = { kind: 'tree(r=' + t.r.toFixed(1) + ')', x: +t.x.toFixed(1), z: +t.z.toFixed(1), r: t.r }; }
       }
       if (clear > bestClear) { bestClear = clear; culprit = who; }
     }
