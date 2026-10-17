@@ -313,6 +313,215 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     }
   }, { passive: false });
 
+  // --- Prosedürel Dokular (harici asset yok, offscreen canvas) ---
+  // Düz renk platformlar yerine toprak/çim/ağaç/tuğla/metal dokulu, daha
+  // gerçekçi bir dünya. Doku bir kez üretilip pattern olarak doldurulur;
+  // pattern dünya koordinatlarına sabitlenir (kamera ile birlikte kayar).
+  function makeCanvas(w: number, h: number): HTMLCanvasElement {
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    return c;
+  }
+  // Deterministik RNG — doku her yüklemede aynı görünsün
+  function makeRng(seed: number) {
+    let s = seed >>> 0;
+    return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  }
+
+  // Çim şeridi (toprak üstü)
+  function texGrass(): HTMLCanvasElement {
+    const S = 96, GH = 16;
+    const c = makeCanvas(S, GH);
+    const g = c.getContext("2d")!;
+    const rng = makeRng(7);
+    const grad = g.createLinearGradient(0, 0, 0, GH);
+    grad.addColorStop(0, "#93d95f");
+    grad.addColorStop(0.65, "#5aa63a");
+    grad.addColorStop(1, "#3f7d28");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, S, GH);
+    for (let i = 0; i < S; i += 2) {
+      const hgt = 5 + rng() * 10;
+      const hue = 92 + rng() * 38;
+      g.strokeStyle = `hsl(${hue}, ${45 + rng() * 25}%, ${34 + rng() * 26}%)`;
+      g.lineWidth = 1.4;
+      g.beginPath();
+      g.moveTo(i + 1, GH - 1);
+      g.quadraticCurveTo(i + (rng() - 0.5) * 4, GH - hgt * 0.6, i + (rng() - 0.5) * 6, GH - hgt);
+      g.stroke();
+    }
+    g.fillStyle = "rgba(45,28,14,0.55)";
+    g.fillRect(0, GH - 2, S, 2);
+    for (let i = 0; i < 3; i++) {
+      const x = 12 + rng() * (S - 24), y = 4 + rng() * 6;
+      g.fillStyle = rng() > 0.5 ? "#fff6e8" : "#ffd766";
+      for (let p = 0; p < 5; p++) {
+        const a = (p / 5) * Math.PI * 2;
+        g.beginPath();
+        g.arc(x + Math.cos(a) * 2, y + Math.sin(a) * 2, 1.4, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = "#ff9a3c";
+      g.beginPath(); g.arc(x, y, 1.3, 0, Math.PI * 2); g.fill();
+    }
+    return c;
+  }
+
+  // Toprak dokusu
+  function texDirt(): HTMLCanvasElement {
+    const S = 96;
+    const c = makeCanvas(S, S);
+    const g = c.getContext("2d")!;
+    const rng = makeRng(21);
+    const grad = g.createLinearGradient(0, 0, 0, S);
+    grad.addColorStop(0, "#7c5330");
+    grad.addColorStop(1, "#5a3b21");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, S, S);
+    for (let i = 0; i < 240; i++) {
+      const x = rng() * S, y = rng() * S;
+      const l = 20 + rng() * 30;
+      g.fillStyle = `hsl(${24 + rng() * 10}, ${30 + rng() * 15}%, ${l}%)`;
+      g.fillRect(x, y, 1 + rng() * 2, 1 + rng() * 2);
+    }
+    for (let i = 0; i < 14; i++) {
+      const x = rng() * S, y = rng() * S;
+      const r = 1.5 + rng() * 3;
+      g.fillStyle = `hsl(${30 + rng() * 15}, ${10 + rng() * 10}%, ${44 + rng() * 20}%)`;
+      g.beginPath();
+      g.ellipse(x, y, r, r * 0.8, rng() * Math.PI, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = "rgba(255,255,255,0.12)";
+      g.beginPath();
+      g.ellipse(x - r * 0.3, y - r * 0.3, r * 0.4, r * 0.3, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.strokeStyle = "rgba(48,30,15,0.4)";
+    g.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      g.beginPath();
+      let x = rng() * S, y = rng() * S * 0.5;
+      g.moveTo(x, y);
+      for (let s = 0; s < 4; s++) {
+        x += (rng() - 0.5) * 22; y += 8 + rng() * 10;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    return c;
+  }
+
+  // Ahşap tahta (normal platform)
+  function texWood(): HTMLCanvasElement {
+    const S = 96, TH = 32;
+    const c = makeCanvas(S, TH);
+    const g = c.getContext("2d")!;
+    const rng = makeRng(55);
+    const plankH = 8;
+    for (let row = 0; row * plankH < TH; row++) {
+      const y = row * plankH;
+      const light = 30 + rng() * 10;
+      g.fillStyle = `hsl(28, 46%, ${light}%)`;
+      g.fillRect(0, y, S, plankH);
+      g.strokeStyle = `hsla(25, 50%, ${light - 12}%, 0.5)`;
+      g.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        g.beginPath();
+        let gy = y + 2 + rng() * (plankH - 3);
+        g.moveTo(0, gy);
+        for (let x = 0; x <= S; x += 8) {
+          gy += (rng() - 0.5) * 2;
+          g.lineTo(x, Math.max(y + 1, Math.min(y + plankH - 1, gy)));
+        }
+        g.stroke();
+      }
+      g.fillStyle = "rgba(0,0,0,0.35)";
+      g.fillRect(0, y + plankH - 1, S, 1);
+      const sx = (row % 2) * (S / 2) + S / 4;
+      g.fillRect(sx, y, 1, plankH);
+      g.fillStyle = "rgba(80,72,62,0.85)";
+      g.beginPath(); g.arc(6, y + plankH / 2, 1.3, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(S - 6, y + plankH / 2, 1.3, 0, Math.PI * 2); g.fill();
+    }
+    return c;
+  }
+
+  // Tuğla (kırılabilir platform)
+  function texBrick(): HTMLCanvasElement {
+    const S = 96, TH = 32;
+    const c = makeCanvas(S, TH);
+    const g = c.getContext("2d")!;
+    const rng = makeRng(99);
+    const bw = 24, bh = 16;
+    g.fillStyle = "#6e4a2a";
+    g.fillRect(0, 0, S, TH);
+    for (let row = 0; row * bh < TH; row++) {
+      const y = row * bh;
+      const off = (row % 2) * (bw / 2);
+      for (let col = -1; col * bw < S + bw; col++) {
+        const x = col * bw + off;
+        const l = 36 + rng() * 13;
+        g.fillStyle = `hsl(${18 + rng() * 8}, ${46 + rng() * 10}%, ${l}%)`;
+        g.fillRect(x + 1, y + 1, bw - 2, bh - 2);
+        g.fillStyle = "rgba(255,255,255,0.10)";
+        g.fillRect(x + 1, y + 1, bw - 2, 2);
+        g.fillStyle = "rgba(0,0,0,0.18)";
+        g.fillRect(x + 1, y + bh - 3, bw - 2, 2);
+        for (let s = 0; s < 3; s++) {
+          g.fillStyle = `rgba(0,0,0,${0.05 + rng() * 0.1})`;
+          g.fillRect(x + 2 + rng() * (bw - 4), y + 2 + rng() * (bh - 4), 1.5, 1.5);
+        }
+      }
+    }
+    return c;
+  }
+
+  // Metal (hareketli platform)
+  function texMetal(): HTMLCanvasElement {
+    const S = 96, TH = 32;
+    const c = makeCanvas(S, TH);
+    const g = c.getContext("2d")!;
+    const grad = g.createLinearGradient(0, 0, 0, TH);
+    grad.addColorStop(0, "#a6bacc");
+    grad.addColorStop(0.5, "#6f8296");
+    grad.addColorStop(1, "#48586a");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, S, TH);
+    g.strokeStyle = "rgba(255,255,255,0.06)";
+    g.lineWidth = 1;
+    for (let y = 2; y < TH; y += 3) {
+      g.beginPath(); g.moveTo(0, y); g.lineTo(S, y); g.stroke();
+    }
+    g.strokeStyle = "rgba(18,28,38,0.5)";
+    g.lineWidth = 1.5;
+    g.strokeRect(2, 2, S - 4, TH - 4);
+    g.beginPath(); g.moveTo(S / 2, 2); g.lineTo(S / 2, TH - 2); g.stroke();
+    const rivets: [number, number][] = [[8, 8], [S - 8, 8], [8, TH - 8], [S - 8, TH - 8], [S / 2, 8], [S / 2, TH - 8]];
+    for (const [x, y] of rivets) {
+      g.fillStyle = "#c8d4e0";
+      g.beginPath(); g.arc(x, y, 2.2, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "rgba(255,255,255,0.55)";
+      g.beginPath(); g.arc(x - 0.7, y - 0.7, 0.8, 0, Math.PI * 2); g.fill();
+    }
+    return c;
+  }
+
+  // Tüm dokuları + pattern'leri bir kez üret
+  const textures = (() => {
+    const tGrass = texGrass();
+    const tDirt = texDirt();
+    const tWood = texWood();
+    const tBrick = texBrick();
+    const tMetal = texMetal();
+    return {
+      patGrass: ctx.createPattern(tGrass, "repeat")!,
+      patDirt: ctx.createPattern(tDirt, "repeat")!,
+      patWood: ctx.createPattern(tWood, "repeat")!,
+      patBrick: ctx.createPattern(tBrick, "repeat")!,
+      patMetal: ctx.createPattern(tMetal, "repeat")!,
+    };
+  })();
+
   // --- Level Generation ---
   function generateLevel(lvl: number) {
     platforms = [];
@@ -773,75 +982,155 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
 
   function drawMountains() {
-    ctx.globalAlpha = 0.3;
-    const offset = -game.cameraX * 0.1;
-    ctx.fillStyle = game.isBossLevel ? "#2a1a4a" : "#5a8a5a";
+    const boss = game.isBossLevel;
+
+    // Uzak dağ katmanı (sisli, açık)
+    ctx.globalAlpha = boss ? 0.4 : 0.5;
+    const off1 = -game.cameraX * 0.06;
+    ctx.fillStyle = boss ? "#4a3a6e" : "#8fb4a0";
     ctx.beginPath();
     ctx.moveTo(0, H);
-    for (let x = 0; x <= W; x += 50) {
-      const h = 200 + Math.sin((x + offset) * 0.01) * 80 + Math.cos((x + offset) * 0.025) * 40;
+    for (let x = 0; x <= W; x += 16) {
+      const h = 250 + Math.sin((x + off1) * 0.006) * 110 + Math.cos((x + off1) * 0.017) * 55;
       ctx.lineTo(x, H - h);
     }
     ctx.lineTo(W, H);
     ctx.fill();
     ctx.globalAlpha = 1;
+
+    // Yakın dağ katmanı (daha koyu, net)
+    ctx.globalAlpha = boss ? 0.55 : 0.6;
+    const off2 = -game.cameraX * 0.12;
+    ctx.fillStyle = boss ? "#332452" : "#5f9468";
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 16) {
+      const h = 190 + Math.sin((x + off2) * 0.008) * 90 + Math.cos((x + off2) * 0.021) * 45;
+      ctx.lineTo(x, H - h);
+    }
+    ctx.lineTo(W, H);
+    ctx.fill();
+    // kar tepeleri (sadece zirvelerde)
+    if (!boss) {
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      for (let x = 0; x <= W; x += 16) {
+        const h = 190 + Math.sin((x + off2) * 0.008) * 90 + Math.cos((x + off2) * 0.021) * 45;
+        if (h > 235) {
+          const py = H - h;
+          ctx.beginPath();
+          ctx.moveTo(x, py);
+          ctx.lineTo(x - 9, py + 13);
+          ctx.lineTo(x - 4, py + 9);
+          ctx.lineTo(x, py + 15);
+          ctx.lineTo(x + 4, py + 9);
+          ctx.lineTo(x + 9, py + 13);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // Orman silüetleri (paralaks, iki kat)
+    drawTreeLine(0.2, H - 70, boss ? "#241836" : "#41683a", 1.0);
+    drawTreeLine(0.34, H - 34, boss ? "#160e24" : "#2e5230", 1.35);
+  }
+
+  // Paralaks orman silüeti (üçgen ağaçlar)
+  function drawTreeLine(parallax: number, baseY: number, color: string, scale: number) {
+    const offset = -game.cameraX * parallax;
+    ctx.fillStyle = color;
+    const seg = 26 * scale;
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    ctx.lineTo(0, baseY);
+    for (let x = -seg; x <= W + seg; x += seg) {
+      const wx = x + offset;
+      const th = (20 + Math.sin(wx * 0.07) * 10 + Math.cos(wx * 0.21) * 6) * scale;
+      ctx.lineTo(x + seg * 0.5, baseY - th);
+      ctx.lineTo(x + seg, baseY);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
   }
 
   function drawPlatform(p: Platform) {
     if (p.hp <= 0) return;
 
     if (p.type === "ground") {
-      ctx.fillStyle = "#5a8f3c";
-      ctx.fillRect(p.x, p.y, p.w, 10);
-      ctx.fillStyle = "#8B5E34";
-      ctx.fillRect(p.x, p.y + 10, p.w, p.h - 10);
-      ctx.fillStyle = "#6ab04c";
-      for (let gx = p.x; gx < p.x + p.w; gx += 15) {
-        ctx.fillRect(gx, p.y - 4, 10, 6);
-      }
-      ctx.fillStyle = "#7a5020";
-      for (let dx = p.x + 5; dx < p.x + p.w; dx += 25) {
-        for (let dy = p.y + 15; dy < p.y + p.h; dy += 15) {
-          ctx.fillRect(dx + (dy % 2) * 10, dy, 8, 4);
-        }
-      }
+      // toprak gövde (dokulu)
+      ctx.save();
+      ctx.fillStyle = textures.patDirt;
+      ctx.fillRect(p.x, p.y + 12, p.w, p.h - 12);
+      ctx.restore();
+      // çim şeridi (dokulu)
+      ctx.save();
+      ctx.fillStyle = textures.patGrass;
+      ctx.fillRect(p.x, p.y, p.w, 16);
+      ctx.restore();
+      // üst kenar ışığı
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      ctx.fillRect(p.x, p.y, p.w, 2);
+      // çim-toprak geçiş gölgesi
+      ctx.fillStyle = "rgba(0,0,0,0.20)";
+      ctx.fillRect(p.x, p.y + 14, p.w, 3);
+      // alt (yay) gölgesi
+      ctx.fillStyle = "rgba(0,0,0,0.16)";
+      ctx.fillRect(p.x, p.y + p.h - 3, p.w, 3);
     } else if (p.type === "breakable") {
-      ctx.fillStyle = p.breakTimer > 0 ? "#ff8866" : "#c8843c";
+      // tuğla doku
+      ctx.save();
+      ctx.fillStyle = textures.patBrick;
       ctx.fillRect(p.x, p.y, p.w, p.h);
-      ctx.strokeStyle = "#8B5E34";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(p.x, p.y, p.w, p.h);
-      ctx.strokeStyle = "#a06a2c";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y + p.h / 2);
-      ctx.lineTo(p.x + p.w, p.y + p.h / 2);
-      ctx.stroke();
+      ctx.restore();
+      // kırılma anı parlaması
+      if (p.breakTimer > 0) {
+        ctx.fillStyle = "rgba(255,140,100,0.28)";
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+      }
+      // hasar: çatlaklar
       if (p.hp < 2) {
-        ctx.strokeStyle = "#4a3020";
+        ctx.strokeStyle = "rgba(28,16,6,0.75)";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(p.x + p.w * 0.3, p.y);
         ctx.lineTo(p.x + p.w * 0.45, p.y + p.h * 0.5);
         ctx.lineTo(p.x + p.w * 0.35, p.y + p.h);
         ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(p.x + p.w * 0.7, p.y);
+        ctx.lineTo(p.x + p.w * 0.6, p.y + p.h * 0.4);
+        ctx.stroke();
       }
+      ctx.strokeStyle = "rgba(0,0,0,0.4)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1);
     } else {
-      const baseColor = p.type === "moving" ? "#4a90d9" : "#7a5c3a";
-      const topColor = p.type === "moving" ? "#6ab0f0" : "#8B7355";
-      ctx.fillStyle = baseColor;
+      const isMoving = p.type === "moving";
+      // metal / ahşap doku
+      ctx.save();
+      ctx.fillStyle = isMoving ? textures.patMetal : textures.patWood;
       ctx.fillRect(p.x, p.y, p.w, p.h);
-      ctx.fillStyle = topColor;
-      ctx.fillRect(p.x, p.y, p.w, 7);
-      ctx.strokeStyle = "rgba(0,0,0,0.3)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(p.x, p.y, p.w, p.h);
-      if (p.type === "moving") {
+      ctx.restore();
+      // üst yüzey vurgusu
+      ctx.fillStyle = isMoving ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.10)";
+      ctx.fillRect(p.x, p.y, p.w, 3);
+      // alt gölge
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(p.x, p.y + p.h - 3, p.w, 3);
+      if (isMoving) {
+        // enerji ışıması
         ctx.shadowColor = "#4a90d9";
-        ctx.shadowBlur = 8;
-        ctx.strokeStyle = "#8ac0ff";
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = "rgba(140,190,255,0.85)";
+        ctx.lineWidth = 1.5;
         ctx.strokeRect(p.x, p.y, p.w, p.h);
         ctx.shadowBlur = 0;
+      } else {
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1);
       }
     }
   }
