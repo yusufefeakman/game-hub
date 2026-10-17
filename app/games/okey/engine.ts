@@ -1,6 +1,9 @@
 /*
  * 101 Okey — Türk okey (Rummikub tarzı) taşı oyunu, DOM tabanlı.
- * 108 taş: sayılar 1-9 × 6 renk × 2 adet.
+ * 108 sayı taşı (1-9 × 6 renk × 2) + 2 sahte Okey + gösterge mekaniği:
+ *   Gösterge taşının bir fazlası OKEY'tir (joker; 9'un fazlası 1).
+ *   Okey her taşın yerine geçer ve set içinde yerine oynadığı sayı kadar sayılır.
+ *   Sahte Okey gösterge taşının tıpatıp aynısıdır; sadece o taşı olarak oynar.
  *  - Renk: aynı renkten üst üste 3+ sayı
  *  - Karma: aynı sayıdan 3+ farklı renk
  *  - İlk açılış toplamı 101+ olmalı (bu yüzden "101 Okey")
@@ -10,7 +13,7 @@
  *  - Toplam ceza -101'e ilk ulaşan maçı kazanır.
  */
 
-type Tile = { id: number; c: number; n: number };
+type Tile = { id: number; c: number; n: number; j?: "okey" | "sahte" };
 type TSet = { owner: number; tiles: Tile[] };
 type Player = {
   name: string;
@@ -40,30 +43,63 @@ function sleep(ms: number) {
 }
 
 /* ---------------- rules (pure) ---------------- */
+/* OKEY (joker) desteği: setEval bir küpü değerlendirir; geçerliyse
+   {type, nums} döner — nums taş sırasıyla "oynanan sayı"dır (okey yerine
+   oturduğu basamağın puanını alır). Sahte Okey joker değildir; yüzündeki
+   taşı dizer. */
 
-function isRun(tiles: Tile[]): boolean {
-  if (tiles.length < 3) return false;
-  const c = tiles[0].c;
-  if (!tiles.every((t) => t.c === c)) return false;
-  const ns = tiles.map((t) => t.n).sort((a, b) => a - b);
-  for (let i = 1; i < ns.length; i++) if (ns[i] !== ns[i - 1] + 1) return false;
-  return true;
+type SetEval = { type: "run" | "group"; nums: number[] };
+const isOkey = (t: Tile) => t.j === "okey";
+
+function setEval(tiles: Tile[]): SetEval | null {
+  if (tiles.length < 3) return null;
+  const J = tiles.filter(isOkey).length;
+  const R = tiles.filter((t) => !isOkey(t));
+  if (R.length === 0) return null; // destekte yalnız 2 okey var → saf okey seti olamaz
+  // GRUP: aynı sayı, birbirinden farklı renkler; okeyler eksik renkleri tamamlar
+  const n0 = R[0].n;
+  if (R.every((t) => t.n === n0) && new Set(R.map((t) => t.c)).size === R.length && R.length + J <= 6) {
+    return { type: "group", nums: tiles.map(() => n0) };
+  }
+  // SERİ: aynı renk; okeyler eksik basamakların yerine geçer
+  const c0 = R[0].c;
+  if (R.every((t) => t.c === c0)) {
+    const ns = R.map((t) => t.n).sort((a, b) => a - b);
+    if (new Set(ns).size === ns.length) {
+      const len = tiles.length;
+      const lo = ns[0], hiN = ns[ns.length - 1];
+      if (hiN - lo + 1 <= len) {
+        for (let start = Math.max(1, hiN - len + 1); start <= Math.min(lo, 10 - len); start++) {
+          if (ns.every((n) => n >= start && n <= start + len - 1)) {
+            const taken = new Set(ns);
+            const free: number[] = [];
+            for (let k = 0; k < len; k++) if (!taken.has(start + k)) free.push(start + k);
+            let fi = 0;
+            const nums = tiles.map((t) => (isOkey(t) ? free[fi++] : t.n));
+            if (fi === free.length) return { type: "run", nums };
+          }
+        }
+      }
+    }
+  }
+  return null;
 }
 
-function isGroup(tiles: Tile[]): boolean {
-  if (tiles.length < 3) return false;
-  const n = tiles[0].n;
-  if (!tiles.every((t) => t.n === n)) return false;
-  return new Set(tiles.map((t) => t.c)).size === tiles.length;
-}
-
-const isValidSet = (t: Tile[]) => isRun(t) || isGroup(t);
+const isValidSet = (t: Tile[]) => setEval(t) !== null;
+/** Küpün puanı: okey, yerine oynadığı sayı kadar sayılır. */
+const setScore = (tiles: Tile[]) => {
+  const ev = setEval(tiles);
+  return ev ? ev.nums.reduce((a, b) => a + b, 0) : 0;
+};
 
 function sortSetTiles(tiles: Tile[]): Tile[] {
-  const run = isRun(tiles);
-  return [...tiles].sort((a, b) =>
-    run ? a.n - b.n : a.c - b.c || a.n - b.n
-  );
+  const ev = setEval(tiles);
+  if (!ev) return [...tiles];
+  if (ev.type === "group")
+    return [...tiles].sort((a, b) => (isOkey(a) ? 1 : 0) - (isOkey(b) ? 1 : 0) || a.c - b.c);
+  const zipped = tiles.map((t, i) => ({ t, v: ev.nums[i] }));
+  zipped.sort((a, b) => a.v - b.v || (isOkey(a.t) ? 1 : 0) - (isOkey(b.t) ? 1 : 0));
+  return zipped.map((x) => x.t);
 }
 
 /** Can `tile` be added to the existing set? */
@@ -87,53 +123,62 @@ function combinations<T>(arr: T[], k: number): T[][] {
 
 /**
  * Partition tiles into valid sets (3+ each). Returns null if impossible.
- * Tries larger sets first so openings spread nicely.
+ * Exact-cover: eldeki tüm geçerli küp adayları içinden çakışmayan bir
+ * örtüşüm arar (okeyli küpler de aday olduğu için joker doğru yere oturur).
  */
 function partitionIntoSets(tiles: Tile[]): Tile[][] | null {
   if (tiles.length === 0) return [];
   if (tiles.length < 3) return null;
-  const arr = [...tiles].sort((a, b) => a.n - b.n || a.c - b.c);
-  const first = arr[0];
-  const cands: Tile[][] = [];
-  // runs containing `first`
-  for (let len = 3; len <= 9; len++) {
-    for (let off = 0; off < len; off++) {
-      const startN = first.n - off;
-      if (startN < 1 || startN + len - 1 > 9) continue;
-      const need: Tile[] = [];
-      let ok = true;
-      for (let k = 0; k < len; k++) {
-        const n = startN + k;
-        const t =
-          n === first.n ? first : arr.find((x) => x.n === n && x.c === first.c);
-        if (!t) { ok = false; break; }
-        need.push(t);
-      }
-      if (ok) cands.push(need);
+  const cands = allSetsInHand(tiles);
+  if (!cands.length) return null;
+  const byTile = new Map<number, number[]>();
+  cands.forEach((c, ci) =>
+    c.forEach((t) => {
+      const arr = byTile.get(t.id);
+      if (arr) arr.push(ci);
+      else byTile.set(t.id, [ci]);
+    })
+  );
+  // Her taş en az bir adayda olmalı
+  for (const t of tiles) if (!byTile.has(t.id)) return null;
+  const covered = new Set<number>();
+  const res: Tile[][] = [];
+  const rec = (): boolean => {
+    if (covered.size === tiles.length) return true;
+    // en az adaya sahip örtülmemiş taşı seç (MRV)
+    let best: number[] | null = null;
+    for (const t of tiles) {
+      if (covered.has(t.id)) continue;
+      const list = (byTile.get(t.id) || []).filter((ci) => cands[ci].every((x) => !covered.has(x.id)));
+      if (!list.length) return false;
+      if (!best || list.length < best.length) best = list;
     }
-  }
-  // groups containing `first`
-  const others = arr.filter((t) => t.n === first.n && t.c !== first.c);
-  for (let len = 3; len <= 6; len++) {
-    const need = len - 1;
-    if (need > others.length) continue;
-    for (const combo of combinations(others, need)) cands.push([first, ...combo]);
-  }
-  cands.sort((a, b) => b.length - a.length);
-  const ids = (c: Tile[]) => new Set(c.map((t) => t.id));
-  for (const cand of cands) {
-    const candIds = ids(cand);
-    const rest = arr.filter((t) => !candIds.has(t.id));
-    const sub = partitionIntoSets(rest);
-    if (sub) return [cand, ...sub];
-  }
-  return null;
+    if (!best) return false;
+    for (const ci of best) {
+      const c = cands[ci];
+      if (c.some((x) => covered.has(x.id))) continue;
+      for (const x of c) covered.add(x.id);
+      res.push(c);
+      if (rec()) return true;
+      res.pop();
+      for (const x of c) covered.delete(x.id);
+    }
+    return false;
+  };
+  return rec() ? res : null;
 }
 
-/** All valid sets fully contained in `hand` (runs + groups). */
+/** All valid sets fully contained in `hand` (runs + groups, okeyli dâhil). */
 function allSetsInHand(hand: Tile[]): Tile[][] {
   const out: Tile[][] = [];
-  // runs
+  const seen = new Set<string>();
+  const push = (s: Tile[]) => {
+    const key = [...s].map((t) => t.id).sort((a, b) => a - b).join(",");
+    if (!seen.has(key)) { seen.add(key); out.push(s); }
+  };
+  const J = hand.filter(isOkey);
+  const N = hand.filter((t) => !isOkey(t));
+  // saf seriler (okeysiz)
   for (let c = 0; c < 6; c++) {
     for (let startN = 1; startN <= 9; startN++) {
       for (let len = 3; len <= 9; len++) {
@@ -141,24 +186,43 @@ function allSetsInHand(hand: Tile[]): Tile[][] {
         const tiles: Tile[] = [];
         let ok = true;
         for (let k = 0; k < len; k++) {
-          const t = hand.find((x) => x.c === c && x.n === startN + k);
+          const t = N.find((x) => x.c === c && x.n === startN + k);
           if (!t) { ok = false; break; }
           tiles.push(t);
         }
-        if (ok) out.push(tiles);
+        if (ok) push(tiles);
       }
     }
   }
-  // groups
+  // saf gruplar (okeysiz; sahte taş yüzündeki sayıyla normal taştır)
   for (let n = 1; n <= 9; n++) {
-    const byNum = hand.filter((t) => t.n === n);
+    const byNum = N.filter((t) => t.n === n);
     const distinct: Tile[] = [];
     const seenC = new Set<number>();
     for (const t of byNum) {
       if (!seenC.has(t.c)) { seenC.add(t.c); distinct.push(t); }
     }
     for (let len = 3; len <= Math.min(6, distinct.length); len++) {
-      for (const combo of combinations(distinct, len)) out.push(combo);
+      for (const combo of combinations(distinct, len)) push(combo);
+    }
+  }
+  // okeyli küpler: 1-5 normal taş + 1-2 okey (toplam 3-7)
+  if (J.length) {
+    for (let s = 1; s <= Math.min(5, N.length); s++) {
+      for (const sub of combinations(N, s)) {
+        for (let k = 1; k <= Math.min(2, J.length); k++) {
+          if (sub.length + k < 3 || sub.length + k > 7) continue;
+          for (const jj of combinations(J, k)) {
+            if (isValidSet([...sub, ...jj])) push([...sub, ...jj]);
+          }
+        }
+      }
+    }
+    // uzun saf serilere/gruplara okey ekleme (6+ taşlık küpler için)
+    for (const base of [...out]) {
+      if (base.some(isOkey)) continue;
+      for (const j1 of J) if (base.length + 1 <= 7 && isValidSet([...base, j1])) push([...base, j1]);
+      if (J.length === 2 && base.length + 2 <= 7 && isValidSet([...base, J[0], J[1]])) push([...base, J[0], J[1]]);
     }
   }
   return out;
@@ -169,7 +233,7 @@ const sumOf = (tiles: Tile[]) => tiles.reduce((a, t) => a + t.n, 0);
 /** Best opening combination (disjoint sets totalling >= 101, max total). */
 function findBestOpening(hand: Tile[]): { sets: Tile[][]; sum: number } | null {
   const sets = allSetsInHand(hand);
-  const sums = sets.map(sumOf);
+  const sums = sets.map(setScore);
   let best: { sets: Tile[][]; sum: number } | null = null;
   // id-tabanlı kaplılık (bitmask 32+ taşta çakışıyor — el zamanla büyür)
   const used = new Set<number>();
@@ -179,7 +243,7 @@ function findBestOpening(hand: Tile[]): { sets: Tile[][]; sum: number } | null {
       best = { sets: chosen.map((i) => sets[i]), sum: total };
     }
     let rem = 0;
-    for (const t of hand) if (!used.has(t.id)) rem += t.n;
+    for (const t of hand) if (!used.has(t.id)) rem += isOkey(t) ? 9 : t.n; // okey en kötü 9 oynar → budama güvenli
     if (total + rem <= (best?.sum ?? OPENING_MIN - 1)) return;
     for (let i = start; i < sets.length; i++) {
       if (sets[i].some((t) => used.has(t.id))) continue;
@@ -242,6 +306,7 @@ export function startGame(root: HTMLElement): () => void {
   let hands: Tile[][] = [];
   let table: TSet[] = [];
   let pool: Tile[] = [];
+  let goz: Tile | null = null; // gösterge taşı (oyun dışı; bir fazlası OKEY)
   let turn = 0;
   let roundNum = 1;
   let passesSincePlay = 0;
@@ -259,7 +324,7 @@ export function startGame(root: HTMLElement): () => void {
     radial-gradient(1200px 600px at 50% -10%, #1e3a5f55, transparent 60%),
     radial-gradient(900px 500px at 90% 110%, #3b1e5f44, transparent 60%), #0b1020;
     overflow:hidden; user-select:none; }
-  .ok-top { display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid #ffffff14; }
+  .ok-top { display:flex; align-items:center; gap:14px; row-gap:6px; flex-wrap:wrap; padding:10px 16px; border-bottom:1px solid #ffffff14; }
   .ok-title { font-weight:900; font-size:18px; letter-spacing:1px; color:#fbbf24; }
   .ok-stat { font-size:13px; background:#ffffff10; border:1px solid #ffffff18; padding:4px 10px; border-radius:999px; }
   .ok-status { margin-left:auto; font-size:14px; font-weight:700; color:#a5f3fc; }
@@ -289,6 +354,7 @@ export function startGame(root: HTMLElement): () => void {
     box-shadow:0 3px 6px #0007, inset 0 1px 0 #ffffff40; cursor:pointer; transition:transform .12s, box-shadow .12s; }
   .tile.small { width:32px; height:42px; font-size:18px; cursor:default; }
   .tile.sel { transform:translateY(-10px); box-shadow:0 0 0 3px #fbbf24, 0 8px 14px #000a; }
+  .tile.okeytag { box-shadow: inset 0 0 0 2px #ffd23f, 0 0 8px rgba(255,210,63,.45); }
   .tile.drawn { animation:okdraw .3s ease-out; }
   @keyframes okdraw { from { transform:scale(.4); opacity:0; } to { transform:scale(1); opacity:1; } }
   .tile.pop { animation:okpop .25s ease-out; }
@@ -340,6 +406,7 @@ export function startGame(root: HTMLElement): () => void {
       <span class="ok-title">🀄 101 OKEY</span>
       <span class="ok-stat" data-ok="round">Tur 1</span>
       <span class="ok-stat" data-ok="pool">Destek: 0</span>
+      <span class="ok-stat" data-ok="goz"></span>
       <span class="ok-status" data-ok="status">—</span>
       <button class="ok-btn" data-ok="sound" style="padding:4px 10px;font-size:13px" title="Ses aç/kapat">🔊</button>
     </div>
@@ -499,6 +566,14 @@ export function startGame(root: HTMLElement): () => void {
   function dealRound() {
     matchGen++;
     const tiles = shuffle(makeTiles());
+    // Gösterge: destekten çekilir ve oyun dışıdır. Bir fazlası (9→1) OKEY'tir.
+    goz = tiles.pop()!;
+    const okN = (goz.n % 9) + 1;
+    for (const t of tiles) if (t.c === goz.c && t.n === okN) t.j = "okey";
+    // Sahte Okey: gösterge taşının tıpatıp aynısı iki taş; yalnız yüzündeki sayı gibi oynar.
+    const sahteId = tiles.reduce((m, t) => Math.max(m, t.id), 107) + 1;
+    tiles.push({ id: sahteId, c: goz.c, n: goz.n, j: "sahte" }, { id: sahteId + 1, c: goz.c, n: goz.n, j: "sahte" });
+    shuffle(tiles);
     hands = players.map(() => []);
     for (let i = 0; i < players.length; i++)
       hands[i] = tiles.splice(0, HAND_SIZE);
@@ -727,14 +802,16 @@ export function startGame(root: HTMLElement): () => void {
       <div class="ok-card">
         <h1 style="font-size:22px">📜 KURALLAR</h1>
         <div class="ok-rules">
-          • <b>108 taş:</b> 1-9 sayıları, 6 renk, 2'şer adet.<br>
+          • <b>108 sayı taşı + 2 sahte Okey:</b> 1-9 sayıları, 6 renk, 2'şer adet.<br>
+          • <b>Gösterge ve OKEY:</b> her tur destekten bir <b>gösterge</b> çekilir; onun <b>bir fazlası</b> (9'un üstü 1) okeydir. Okey her taşın yerine geçer ve set içinde <b>yerine oynadığı sayı</b> kadar sayılır.<br>
+          • <b>Sahte Okey</b> gösterge taşının tıpatıp aynısıdır; sadece yüzündeki taşı dizer.<br>
           • <b>Renk:</b> aynı renkten üst üste 3+ sayı (örn. kırmızı 4-5-6).<br>
           • <b>Karma:</b> aynı sayıdan 3+ farklı renk (örn. 7 kırmızı + 7 mavi + 7 yeşil).<br>
           • <b>Açılış:</b> ilk masaya koyuşun toplamı <b>101+</b> olmalı.<br>
           • Açıldıktan sonra: yeni set kurabilir veya mevcut bir sete <b>tek taş</b> ekleyebilirsin.<br>
           • Sıran: otomatik 1 taş çekilir, oynarsın veya <b>GEÇ</b>ersin. 3 ardışık geçiş = elenme.<br>
           • Destek biterse en düşük toplamı olan turu kazanır.<br>
-          • Ceza: elinde kalan taşların toplamı. <b>-101'e ilk ulaşan maçı kazanır.</b>
+          • Ceza: elinde kalan taşların toplamı (elde kalan okey yüzündeki sayı kadar yazılır). <b>-101'e ilk ulaşan maçı kazanır.</b>
         </div>
         <button class="ok-btn primary" data-ok="close" style="min-width:140px">KAPAT</button>
       </div>`;
@@ -752,7 +829,7 @@ export function startGame(root: HTMLElement): () => void {
     if (sel.length < 3) { toast("En az 3 taş seç"); return; }
     const parts = partitionIntoSets(sel);
     if (!parts) { toast("Seçim geçerli kombinasyon değil"); return; }
-    const sum = sumOf(sel);
+    const sum = parts.reduce((a, s) => a + setScore(s), 0);
     if (!players[hi].opened && sum < OPENING_MIN) {
       toast(`Açılış 101+ olmalı (şu an ${sum})`);
       return;
@@ -806,6 +883,10 @@ export function startGame(root: HTMLElement): () => void {
     const hi = humanIdx();
     $('[data-ok="round"]').textContent = `Tur ${roundNum}`;
     $('[data-ok="pool"]').textContent = `Destek: ${pool.length}`;
+    const gozEl = $('[data-ok="goz"]');
+    gozEl.textContent = goz
+      ? `Gösterge ${goz.n} ${COLOR_NAME[goz.c].toLowerCase()} → Okey ${((goz.n % 9) + 1)} ${COLOR_NAME[goz.c].toLowerCase()}`
+      : "";
     const status =
       phase === "matchEnd" ? "Maç bitti" :
       phase === "roundEnd" ? "Tur bitti" :
@@ -856,7 +937,7 @@ export function startGame(root: HTMLElement): () => void {
     const sorted = [...hands[hi]].sort((a, b) => a.c - b.c || a.n - b.n);
     for (const t of sorted) {
       const isSel = selection.has(t.id);
-      const d = tileEl(t, false, isSel ? "sel" : "");
+      const d = tileEl(t, false, `${isSel ? "sel" : ""}${t.j === "okey" ? " okeytag" : ""}`.trim());
       d.addEventListener("click", () => {
         if (phase !== "play" || busy || turn !== hi) return;
         if (selection.has(t.id)) selection.delete(t.id);
@@ -902,7 +983,8 @@ export function startGame(root: HTMLElement): () => void {
     info.className = "ok-info";
     if (sel.length >= 3) {
       const parts = partitionIntoSets(sel);
-      const sum = sumOf(sel);
+      // Okey, yerine oynadığı sayı kadar sayılır → puan parçaların toplamından gelir
+      const sum = parts ? parts.reduce((a, s) => a + setScore(s), 0) : sumOf(sel);
       const needOpen = !players[hi].opened && sum < OPENING_MIN;
       if (parts && !needOpen) { info.textContent = `✓ ${sel.length} taş, toplam ${sum}`; info.classList.add("good"); }
       else if (!parts) { info.textContent = "Geçersiz kombinasyon"; info.classList.add("bad"); }
@@ -931,10 +1013,11 @@ export function startGame(root: HTMLElement): () => void {
         name: p.name, isHuman: p.isHuman, opened: p.opened, out: p.out,
         passCount: p.passCount, score: p.score, penalty: p.penalty, handSize: hands[i].length,
       })),
-      table: table.map((s) => ({ owner: s.owner, tiles: s.tiles.map((t) => ({ c: t.c, n: t.n })) })),
+      table: table.map((s) => ({ owner: s.owner, tiles: s.tiles.map((t) => ({ c: t.c, n: t.n, j: t.j ?? null })) })),
+      goz: goz ? { c: goz.c, n: goz.n } : null,
     }),
     hand: () =>
-      hands[humanIdx()].map((t) => ({ id: t.id, c: t.c, n: t.n })),
+      hands[humanIdx()].map((t) => ({ id: t.id, c: t.c, n: t.n, j: t.j ?? null })),
     /** Best legal move for the human (same heuristics as AI). */
     suggest: () => {
       const hi = humanIdx();
@@ -986,10 +1069,11 @@ export function startGame(root: HTMLElement): () => void {
     debug: {
       /** Havuzu n taşa indir (destek tükenme akışını test et). */
       setPool: (n: number) => { pool.length = Math.max(0, n | 0); return `pool=${pool.length}`; },
-      /** Oyuncu i'nin elini verilen taşlarla değiştir (test kurulumu). */
-      deal: (i: number, tiles: { c: number; n: number }[]) => {
+      /** Oyuncu i'nin elini verilen taşlarla değiştir (test kurulumu; j:"okey" verilebilir). */
+      deal: (i: number, tiles: { c: number; n: number; j?: "okey" | "sahte" }[]) => {
         let base = 9000 + matchGen * 100;
-        hands[i] = tiles.map((t) => ({ id: base++, c: t.c, n: t.n }));
+        hands[i] = tiles.map((t) => ({ id: base++, c: t.c, n: t.n, j: t.j }));
+        renderAll();
         return `el=${hands[i].length}`;
       },
       /** Bot i açılışını hemen masaya koyar (varsa). */
