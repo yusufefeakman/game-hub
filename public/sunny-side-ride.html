@@ -409,6 +409,11 @@ const ringLen = (() => { let L = 0; for (let i = 0; i < RING_N; i++) L += RING[i
 
 // dünya merkezine göre yükseklik: dışarıda yükselen tepeler, yollarda 0
 const WORLD_R = 232;
+/* Köprü/dere yeri (mainRoad hazır olunca doldurulur; terrainH bunu kullanır).
+   Eskiden köprü, arazinin -2.6'lık dalga çukuruna konuyordu; çevre zemin
+   (-0.4) güvertenin üstünde kaldığı için köprü + dere görünmez, "gömülü"
+   kalıyordu. Şimdi arazi, köprü hattına doğru yumuşak bir kanalla alçalır. */
+let BRIDGE_SITE = null;
 function terrainH(x, z) {
   const d = Math.hypot(x, z);
   let h = 0;
@@ -420,6 +425,17 @@ function terrainH(x, z) {
   h += Math.sin((x + z) * 0.026) * 0.8;
   // iç bahçe hafif eğim
   h -= clamp((104 - d) / 104, 0, 1) * 0.7;
+  // dere kanalı: köprü ekseninde tabana, kenarda 8 m'de yumuşak geçiş
+  if (BRIDGE_SITE && BRIDGE_SITE.floor !== undefined) {
+    const S = BRIDGE_SITE;
+    const dx = x - S.x, dz = z - S.z;
+    const c = Math.cos(S.rotY), s = Math.sin(S.rotY);
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    const along = clamp((26 - Math.abs(lx)) / 6, 0, 1);          // uçlarda sönüm
+    const a = clamp((Math.abs(lz) - 4.5) / 8, 0, 1);
+    const f = (1 - a * a * (3 - 2 * a)) * along;
+    if (f > 0) h += (S.floor - h) * f * 0.98;
+  }
   return h;
 }
 
@@ -441,6 +457,16 @@ function buildPath(points, closed) {
 }
 
 const mainRoad = buildPath(RING, true);
+/* Dere kanalı yerini hemen belirle: sonraki tüm placeH/terrainH çağrıları
+   (ağaç, ev, rampa, köprü) yontulmuş zemini kullansın. */
+{
+  // 13.5 m yetmiyordu: halka dalgası yolun bazı kesimlerini içeri çekiyor,
+  // köprünün ucu yolun ALTINDA kalıyordu. 20 m içeride köprü her kesimde
+  // yoldan ~4 m+ açıkta kalır.
+  const p = mainRoad.pts[150], n = mainRoad.norms[150], tan = mainRoad.tans[150];
+  BRIDGE_SITE = { x: p.x + n.x * 20, z: p.z + n.z * 20, rotY: Math.atan2(tan.x, tan.z) };
+  BRIDGE_SITE.floor = terrainH(BRIDGE_SITE.x, BRIDGE_SITE.z);
+}
 
 /* yan yollar: merkezden dışarı doğru kıvrılan sokaklar */
 const SIDE_ROADS = [];
@@ -617,6 +643,13 @@ function buildTrees() {
   // yerleşim: ana yol boyunca sık, yan yollarda orta, dışarıda seyrek
   const places = [];
   const roadClear = (x, z, pad) => { const nr = nearestRoad(x, z); return nr.dist >= nr.sample.halfW + pad; };
+  const bridgeClear = (x, z) => {
+    if (!BRIDGE_SITE) return true;
+    const dx = x - BRIDGE_SITE.x, dz = z - BRIDGE_SITE.z;
+    const c = Math.cos(BRIDGE_SITE.rotY), s = Math.sin(BRIDGE_SITE.rotY);
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    return !(Math.abs(lx) < 15 && Math.abs(lz) < 7); // kanal + güverte bandı
+  };
   for (let i = 0; i < mainRoad.N; i += 3) {
     const p = mainRoad.pts[i], n = mainRoad.norms[i];
     for (const side of [1, -1]) {
@@ -647,6 +680,7 @@ function buildTrees() {
     const a = Math.random() * TAU, r = rnd(52, WORLD_R - 26);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (!roadClear(x, z, 3.2)) continue;
+    if (!bridgeClear(x, z)) continue;
     places.push({ x, z, s: rnd(0.7, 1.25), canopy: false });
   }
   // Yazılım rasterleştirmede örnek sayısını kıs (görsel yoğunluk korunur, maliyet düşer)
@@ -1156,10 +1190,8 @@ RAMP_SITES.forEach((idx) => {
 /* --- ahşap köprü (dere üzerinde) --- */
 let BRIDGE = null;
 function buildBridge() {
-  const idx = 150;
-  const p = mainRoad.pts[idx], n = mainRoad.norms[idx], tan = mainRoad.tans[idx];
-  const cx = p.x + n.x * 13.5, cz = p.z + n.z * 13.5;
-  const rotY = Math.atan2(tan.x, tan.z);
+  const S = BRIDGE_SITE;
+  const cx = S.x, cz = S.z, rotY = S.rotY;
   const g = new THREE.Group();
   const plankMat = new THREE.MeshLambertMaterial({ color: 0xa87a4a });
   const railMat = new THREE.MeshLambertMaterial({ color: 0x8a6039 });
@@ -1170,24 +1202,39 @@ function buildBridge() {
   brook.rotation.x = -Math.PI / 2; brook.rotation.z = rotY + Math.PI / 2;
   brook.position.set(cx, placeH(cx, cz) + 0.05, cz);
   scene.add(brook);
-  // köprü güvertesi: hafif bombeli
+  // köprü güvertesi: hafif bombeli — KEMER: uçlar zeminle neredeyse hizalı,
+  // orta dere üzerinden yükselir. (Sabit +0.62 taban, köprünün oturduğu arazi
+  // çukurundan (-2.6) yüksek kaldığı için güverte havada kalıyordu; fizikte
+  // de 0.6 m'lik ani adım yaratıyordu.)
+  const deckY = (t) => 0.15 + Math.sin(t * Math.PI) * 0.9;
   for (let i = 0; i <= 16; i++) {
     const t = i / 16;
     const px = -LEN / 2 + t * LEN;
-    const py = 0.62 + Math.sin(t * Math.PI) * 0.55;
+    const py = deckY(t);
     const plank = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.16, W), plankMat);
     plank.position.set(px, py, 0);
     plank.castShadow = true; plank.receiveShadow = true;
     g.add(plank);
   }
+  // korkuluklar: direkler + kiriş SEGMENTLERİ kemeği izler (düz tek kiriş
+  // uçlarda havada kalırdı)
+  const railMat2 = railMat;
   for (const sz of [-W / 2, W / 2]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(LEN, 0.14, 0.14), railMat);
-    rail.position.set(0, 1.42, sz); g.add(rail);
     for (let i = 0; i <= 6; i++) {
       const t = i / 6;
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.95, 0.14), railMat);
-      post.position.set(-LEN / 2 + t * LEN, 0.98 + Math.sin(t * Math.PI) * 0.55, sz);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.0, 0.14), railMat2);
+      post.position.set(-LEN / 2 + t * LEN, deckY(t) + 0.5, sz);
+      post.castShadow = true;
       g.add(post);
+      if (i < 6) {
+        const t2 = (i + 1) / 6;
+        const x1 = -LEN / 2 + t * LEN, x2 = -LEN / 2 + t2 * LEN;
+        const y1 = deckY(t) + 0.95, y2 = deckY(t2) + 0.95;
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(x2 - x1, y2 - y1), 0.14, 0.14), railMat2);
+        seg.position.set((x1 + x2) / 2, (y1 + y2) / 2, sz);
+        seg.rotation.z = -Math.atan2(y2 - y1, x2 - x1);
+        g.add(seg);
+      }
     }
   }
   const y = placeH(cx, cz);
@@ -1195,15 +1242,6 @@ function buildBridge() {
   scene.add(g);
   staticGroups.push(g);
   BRIDGE = { x: cx, z: cz, rotY, w: W, len: LEN, y };
-  /* Güverte yerden 0.62 m yüksek — fizikteki "duvar" sınırı (0.42 m)
-     yüzünden köprü artık tırmanılamaz olurdu; iki ucuna yaklaşma rampası
-     koyuyoruz: profil 0 → 0.63 kesintisiz, hem görsel hem fizik tutarlı. */
-  for (const s of [-1, 1]) {
-    const rl = 2.8;
-    const rx = cx + Math.cos(rotY) * (LEN / 2 + rl / 2) * s;
-    const rz = cz - Math.sin(rotY) * (LEN / 2 + rl / 2) * s;
-    buildRamp(rx, rz, rotY - s * Math.PI / 2, W, rl, 0.63);
-  }
   // korkuluklar: köprü ekseninde iki ince kutu (döndürülmüş çarpışma)
   // Korkuluk güvertenin YANlarında (local ±z) durur; world yönü (sin rotY, cos rotY).
   for (const s of [-1, 1]) {
@@ -1973,7 +2011,7 @@ function bridgeH(x, z) {
   const lx = dx * c - dz * s, lz = dx * s + dz * c;
   if (Math.abs(lx) > BRIDGE.len / 2 || Math.abs(lz) > BRIDGE.w / 2) return null;
   const t = clamp((lx + BRIDGE.len / 2) / BRIDGE.len, 0, 1);
-  return BRIDGE.y + 0.62 + Math.sin(t * Math.PI) * 0.55;
+  return BRIDGE.y + 0.15 + Math.sin(t * Math.PI) * 0.9;
 }
 function groundHeightAt(x, z) {
   let h = surfaceH(x, z);
@@ -2086,7 +2124,9 @@ function updateInput(dt) {
   // Yol yardımı: yoldan çıkmaya başlarsan direksiyon hafifçe yola doğru çeker.
   // Yalnızca gerçekten yoldan çıkınca devreye girer; oyuncu girdisi baskındır.
   let assist = 0;
-  if (!player.airborne && Math.abs(player.speed) > 3.5) {
+  // Köprü civarı: "yola geri çekme" keşfi cezalandırmasın (köprü yolu 13 m açıkta).
+  const nearBridge = BRIDGE_SITE && Math.hypot(player.pos.x - BRIDGE_SITE.x, player.pos.z - BRIDGE_SITE.z) < 22;
+  if (!player.airborne && !nearBridge && Math.abs(player.speed) > 3.5) {
     const nr = nearestRoad(player.pos.x, player.pos.z);
     const overshoot = nr.dist - nr.sample.halfW;
     // Yolun dışına taşınca kademeli olarak güçlenen düzeltme
@@ -2100,7 +2140,11 @@ function updateInput(dt) {
       let diff = tgtYaw - curYaw;
       while (diff > Math.PI) diff -= TAU;
       while (diff < -Math.PI) diff += TAU;
-      const strength = clamp((overshoot - 0.2) / 3, 0, 1) * 0.95;
+      /* Yol kenarında (0–4 m) kuvvetli yardım; 6 m ötede SÖNER. Eskiden
+         uzaklık arttıkça güçleniyordu: köprüye (~10 m) veya yel değirmenine
+         yaklaşırken bisiklet havada yola doğru döndürülüyordu — keşif
+         cezası. Artık kenarda çeker, bilinçli açılmaya izin verir. */
+      const strength = clamp((overshoot - 0.2) / 2.5, 0, 1) * (1 - clamp((overshoot - 6) / 6, 0, 1)) * 0.9;
       assist = clamp(diff * strength, -1, 1);
     }
   }
@@ -2167,8 +2211,10 @@ function updatePhysics(dt) {
          yönden/yardan girmek). Eskiden tırmanma tavanı 2.5 m'di ve bisiklet
          2 m'lik dikey yüzeyden merdiven çıkar gibi geçiyordu — rampa
          "düzgün değil" hissinin asıl sebebi buydu. Şimdi sınır gerçek bir
-         yürünebilir eğim: üstünde duvar, hız kesilir, bisiklet geri iter. */
-      const MAX_CLIMB = 0.42;
+         yürünebilir eğim: üstünde duvar, hız kesilir, bisiklet geri iter.
+         Eşik 0.7 m: köprünün 0.62 m'lik güverte adımı rahat tırmanılır,
+         rampa yüzleri (≥1.15 m) ise hâlâ aşılmaz duvardır. */
+      const MAX_CLIMB = 0.7;
       if (dy > MAX_CLIMB) {
         // duvar: konumu bu adımda geri al, hızı kes (çarpma hissi)
         const push = Math.min(0.35, Math.abs(player.speed) * dt * 1.2 + 0.02);
@@ -2180,7 +2226,7 @@ function updatePhysics(dt) {
         const climb = clamp(dy, 0, MAX_CLIMB);
         player.pos.y = lerp(player.pos.y, gh, clamp(dt * 14, 0, 1));
         player.speed *= (1 - clamp(climb * 0.05, 0, 0.12));
-        if (climb > 0.34 && player.speed > 9) { player.vy = 2.4 + climb * 0.5; player.airborne = true; }
+        if (climb > 0.85 && player.speed > 9) { player.vy = 2.4 + climb * 0.5; player.airborne = true; }
       }
     } else if (dy < -0.30) {   // zemin düştü → havada
       player.airborne = true;
@@ -3148,6 +3194,7 @@ dbg.setPlayer = (x, z, heading, speed) => {
 };
 dbg.playerInfo = () => ({ x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2), heading: +player.heading.toFixed(2), speed: +player.speed.toFixed(2), airborne: player.airborne, vy: +player.vy.toFixed(2) });
 dbg.rampsList = () => ramps.map(r => ({ x: +r.x.toFixed(1), z: +r.z.toFixed(1), rotY: +r.rotY.toFixed(2), w: +r.w.toFixed(2), len: +r.len.toFixed(2), h: +r.h.toFixed(2) }));
+dbg.bridgeInfo = () => BRIDGE && ({ x: +BRIDGE.x.toFixed(1), z: +BRIDGE.z.toFixed(1), rotY: +BRIDGE.rotY.toFixed(3), w: BRIDGE.w, len: BRIDGE.len, y: +BRIDGE.y.toFixed(2) });
 
 /* Derin doğrulama yardımcıları (salt okunur) */
 dbg.sceneStats = () => {
