@@ -50,7 +50,7 @@ const AudioSys = {
   },
   resume() { if (this.ctx && this.ctx.state === "suspended") void this.ctx.resume(); },
   tone(type: OscillatorType, f0: number, f1: number, dur: number, vol = 0.5, delay = 0) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || !this.master || this.muted) return;  // master null olursa fırlatmasın
     const t = this.ctx.currentTime + delay;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -59,7 +59,7 @@ const AudioSys = {
     if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(g); g.connect(this.master!);
+    osc.connect(g); g.connect(this.master);
     osc.start(t); osc.stop(t + dur + 0.02);
   },
   open() { this.tone("square", 300, 340, 0.06, 0.3); },
@@ -282,6 +282,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   function checkWin() {
     if (revealed.size === TOTAL - mines.size) {
       phase = "won";
+      hover = -1;  // bitişte hover vurgusu kalmasın
       AudioSys.win();
       const t = Math.floor(time);
       newRec = !best[diff] || t < best[diff];
@@ -294,6 +295,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }
   function lose() {
     phase = "lost";
+    hover = -1;  // bitişte hover vurgusu kalmasın
     AudioSys.boom();
     showEnd(false);
   }

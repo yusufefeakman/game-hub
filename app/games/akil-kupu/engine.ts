@@ -413,6 +413,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
           else { preview = { x, y, z }; if (!pv.valid) sndBad(); render(); }
         });
         c.addEventListener("pointerleave", () => { if (lp) { clearTimeout(lp); lp = null; } });
+        // Tarayıcı scroll/alınma gibi durumlarda pointer'ı iptal ederse uzun-
+        // basma zamanlayıcısı tetiklenmesin (beklenmedik parça silinmesi olurdu).
+        c.addEventListener("pointercancel", () => { if (lp) { clearTimeout(lp); lp = null; } });
       }
     wrap.appendChild(g);
     boardEl.appendChild(wrap);

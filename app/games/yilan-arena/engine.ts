@@ -298,7 +298,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       if (ghostOn) { nx = (nx + COLS) % COLS; ny = (ny + ROWS) % ROWS; }
       else return die();
     }
-    const hitsSelf = snake.some((s, i) => i < snake.length - 1 && s.x === nx && s.y === ny);
+    // Kuyruk aynı adımda pop edildiği için son segment düşüktedir; ama grow > 0
+    // ise kuyruk bu adımda pop edilmez → kuyruk hâlâ kapalı, çarpışma sayılır.
+    const hitsSelf = snake.some((s, i) => (i < snake.length - 1 || grow > 0) && s.x === nx && s.y === ny);
     if (hitsSelf && !ghostOn) return die();
 
     snake.unshift({ x: nx, y: ny });

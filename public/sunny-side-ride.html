@@ -155,7 +155,7 @@
 <!-- ================= HUD ================= -->
 <div id="hud" class="hidden">
   <div id="hudTop">
-    <div class="panel stat" id="speedBox"><b id="hSpeed">0</b><span>km/s</span></div>
+    <div class="panel stat" id="speedBox"><b id="hSpeed">0</b><span>km/sa</span></div>
     <div class="panel stat"><b id="hScore">0</b><span>Puan</span></div>
     <div class="panel stat"><b id="hTokens">0/0</b><span>Token</span></div>
     <div class="panel stat"><b id="hTime">0:00</b><span>Süre</span></div>
@@ -1761,6 +1761,7 @@ const player = {
   airTime: 0,
   sprint: 100,
   sprinting: false,
+  jumpLatch: false,    // zıplama tuşu latch'ı (tutuklu tutulunca zıplamasın)
   slip: 0,             // su birikintisi kayması
   crashCooldown: 0,
   wheelie: 0
@@ -2368,7 +2369,9 @@ function updateObstacles(dt, t) {
 function updateCamera(dt) {
   const speed01 = clamp(Math.abs(player.speed) / SPRINT_SPEED, 0, 1);
   const back = new THREE.Vector3(Math.sin(player.heading), 0, Math.cos(player.heading));
-  const right = new THREE.Vector3(back.z, 0, -back.x);
+  // Gerçek sağ vektörü = forward × up (sağ el kuralı). Eski (back.z,0,-back.x)
+  // aslında SOL vektördü; yatışta kamera ters tarafa kayıyordu.
+  const right = new THREE.Vector3(-back.z, 0, back.x);
   const yawOnly = player.lean * 0.25;
 
   let desired, lookAt;
