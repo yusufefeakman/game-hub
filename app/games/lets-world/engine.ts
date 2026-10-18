@@ -20,6 +20,7 @@ const FRICTION = 0.88;
 const MAX_FALL = 16;
 
 const START_LIVES = 3;
+const FINAL_LEVEL = 30; // 30. bölümdeki final boss'u yenince oyun biter
 
 /* ================= 2. AUDIO (Web Audio, synthesized) ================= */
 const AudioSys = {
@@ -84,6 +85,10 @@ const AudioSys = {
   bossDefeat() {
     [440, 554, 659, 880, 1108].forEach((f, i) => this.tone("square", f, f, 0.15, 0.35, i * 0.1));
     this.tone("sawtooth", 80, 40, 0.8, 0.4, 0.6);
+  },
+  win() {
+    [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => this.tone("square", f, f, 0.18, 0.4, i * 0.16));
+    this.tone("triangle", 262, 262, 1.6, 0.3, 0.1);
   },
   break() { this.tone("sawtooth", 200, 60, 0.15, 0.3); },
 
@@ -276,6 +281,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (game.state === "gameover" && (e.code === "Space" || e.code === "Enter")) {
       resetGame();
     }
+    if (game.state === "win" && (e.code === "Space" || e.code === "Enter")) {
+      resetGame();
+    }
   }
   function onKeyUp(e: KeyboardEvent) { keys[e.code] = false; }
   function onMouseDown() { mouseDown = true; }
@@ -294,6 +302,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     touchStartY = touch.clientY;
     if (game.state === "menu") startGamePlay();
     if (game.state === "gameover") resetGame();
+    if (game.state === "win") resetGame();
   }, { passive: false });
   canvas.addEventListener("touchmove", (e) => {
     e.preventDefault();
@@ -897,7 +906,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
             AudioSys.bossDefeat();
             spawnParticles(boss.x + boss.w / 2, boss.y + boss.h / 2, 30, "#ff4444", 8);
             spawnParticles(boss.x + boss.w / 2, boss.y + boss.h / 2, 20, "#ffd700", 6);
-            setTimeout(() => { if (game.state === "playing") nextLevel(); }, 2000);
+            if (game.level >= FINAL_LEVEL) {
+              AudioSys.stopMusic();
+              AudioSys.win();
+              game.state = "win";
+              game.stateTimer = 0;
+            } else {
+              setTimeout(() => { if (game.state === "playing") nextLevel(); }, 2000);
+            }
           }
         } else {
           loseLife();
@@ -1640,8 +1656,28 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     // Level
     ctx.fillStyle = "#69dbff";
     ctx.textAlign = "right";
-    const levelText = `Bölüm ${game.level}${game.isBossLevel ? " ⚔️" : ""}`;
+    const levelText = `Bölüm ${game.level}/${FINAL_LEVEL}${game.isBossLevel ? (game.level >= FINAL_LEVEL ? " 👑" : " ⚔️") : ""}`;
     ctx.fillText(levelText, W - 12, 10);
+
+    // Hedef göstergesi: oyuncunun bölüm sonuna ilerlemesi
+    if (goalFlag && levelWidth > 0) {
+      const barW = 170, barX = W / 2 - barW / 2, barY = 34;
+      const prog = Math.min(1, Math.max(0, player.x / (levelWidth - 140)));
+      ctx.fillStyle = "rgba(255,255,255,0.15)";
+      ctx.fillRect(barX, barY, barW, 6);
+      ctx.fillStyle = "#69dbff";
+      ctx.fillRect(barX, barY, barW * prog, 6);
+      ctx.font = "11px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText("🚩", barX + barW + 4, barY - 3);
+      ctx.font = "bold 14px Arial";
+    } else if (game.isBossLevel) {
+      ctx.font = "12px Arial";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ff8866";
+      ctx.fillText(game.level >= FINAL_LEVEL ? "SON BOSS — onu ez!" : "Boss odası ileride…", W / 2, 34);
+      ctx.font = "bold 14px Arial";
+    }
 
     // Score
     ctx.fillStyle = "#aaa";
@@ -1690,6 +1726,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "18px Arial";
     ctx.fillStyle = "#ccc";
     ctx.fillText("← → Tuşları ile koş, SPACE ile zıpla", W / 2, H / 2 + 40);
+    ctx.font = "16px Arial";
+    ctx.fillStyle = "#ffd700";
+    ctx.fillText("🎯 Görev: 30 bölümü aş, 👑 Ultimate Boss'u ez!", W / 2, H / 2 + 75);
     ctx.fillText("🪙 Jetonları topla, düşmanlardan kaç!", W / 2, H / 2 + 70);
     ctx.fillText("💀 Her 10 bölümde BOSS savaşı!", W / 2, H / 2 + 100);
 
@@ -1719,11 +1758,19 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.fillStyle = "#ffd700";
     ctx.shadowColor = "#ffd700";
     ctx.shadowBlur = 15;
-    ctx.fillText(`🎉 BÖLÜM ${game.level} TAMAMLANDI!`, W / 2, H / 2 - 30);
+    ctx.fillText(`🎉 BÖLÜM ${game.level}/${FINAL_LEVEL} TAMAMLANDI!`, W / 2, H / 2 - 30);
     ctx.shadowBlur = 0;
     ctx.font = "22px Arial";
     ctx.fillStyle = "#ccc";
     ctx.fillText(`Skor: ${game.score}  |  Jeton: ${game.coins}`, W / 2, H / 2 + 30);
+    if (game.level === FINAL_LEVEL - 1) {
+      const pulse = 0.6 + Math.sin(game.time * 0.1) * 0.4;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = "#ff6644";
+      ctx.font = "bold 24px Arial";
+      ctx.fillText("⚠️ SONRAKİ: ULTIMATE BOSS 👑", W / 2, H / 2 + 75);
+      ctx.globalAlpha = 1;
+    }
     ctx.restore();
   }
 
@@ -1747,6 +1794,42 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "bold 22px Arial";
     ctx.fillStyle = "#ffd700";
     ctx.fillText("SPACE ile Tekrar Oyna", W / 2, H / 2 + 80);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function drawWin() {
+    ctx.fillStyle = "rgba(5,5,20,0.85)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    // Konfeti
+    const tNow = performance.now() / 16;
+    for (let i = 0; i < 60; i++) {
+      const seed = i * 7919;
+      const cx2 = (seed % W + Math.sin(tNow * 0.02 + i) * 30 + W) % W;
+      const cy2 = ((seed * 13) % H + tNow * (1 + (i % 3))) % H;
+      ctx.fillStyle = ["#ffd700", "#ff5577", "#69dbff", "#7ef29a"][i % 4];
+      ctx.fillRect(cx2, cy2, 5, 8);
+    }
+    ctx.font = "bold 52px Arial";
+    ctx.fillStyle = "#ffd700";
+    ctx.shadowColor = "#ffd700";
+    ctx.shadowBlur = 25;
+    ctx.fillText("🏆 DÜNYAYI BİTİRDİN!", W / 2, H / 2 - 70);
+    ctx.shadowBlur = 0;
+    ctx.font = "bold 26px Arial";
+    ctx.fillStyle = "#fff";
+    ctx.fillText("Ultimate Boss devrildi — LET'S WORLD özgür!", W / 2, H / 2 - 10);
+    ctx.font = "22px Arial";
+    ctx.fillStyle = "#ffd700";
+    ctx.fillText(`Final Skoru: ${game.score}  |  🪙 ${game.coins}  |  ❤️ ${game.lives}`, W / 2, H / 2 + 40);
+    const alpha2 = 0.5 + Math.sin(tNow * 0.06) * 0.5;
+    ctx.globalAlpha = alpha2;
+    ctx.font = "bold 22px Arial";
+    ctx.fillStyle = "#69dbff";
+    ctx.fillText("SPACE ile Baştan Oyna", W / 2, H / 2 + 100);
     ctx.globalAlpha = 1;
     ctx.restore();
   }
@@ -1835,6 +1918,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     // Overlays
     if (game.state === "levelComplete") drawLevelComplete();
     if (game.state === "gameover") drawGameOver();
+    if (game.state === "win") drawWin();
 
     ctx.restore();
   }
@@ -1855,9 +1939,23 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   // Start the loop immediately for menu
   rafId = requestAnimationFrame(loop);
 
+  // Test kancası: durum + level + hedef ilerlemesi (headless doğrulama)
+  (window as unknown as Record<string, unknown>).__lwDbg = () => ({
+    state: game.state, level: game.level, lives: game.lives, score: game.score,
+    boss: boss && boss.alive ? boss.hp : null,
+    goalPct: goalFlag ? Math.round((player.x / (levelWidth - 140)) * 100) : null,
+    px: Math.round(player.x),
+    // Test yardımcıları
+    setLevel: (n: number) => { game.level = Math.max(1, Math.min(FINAL_LEVEL, n | 0)); generateLevel(game.level); game.state = "playing"; return game.level; },
+    hurtBoss: () => { if (boss && boss.alive) boss.hp--; return boss ? boss.hp : null; },
+    toBossRoom: () => { if (boss) player.x = boss.x - 60; return player.x; },
+    stomp: () => { if (boss && boss.alive) { player.x = boss.x + boss.w / 2 - player.w / 2; player.y = boss.y - player.h - 14; player.vy = 6; } return boss ? boss.hp : null; },
+  });
+
   // --- Cleanup ---
   return () => {
     cancelAnimationFrame(rafId);
+    delete (window as unknown as Record<string, unknown>).__lwDbg;
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     canvas.removeEventListener("mousedown", onMouseDown);
