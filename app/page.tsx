@@ -9,22 +9,22 @@ const GAMES = [
   {
     id: "pixel-pals",
     title: "Pixel Pals",
-    subtitle: "Quest for the Star",
+    subtitle: "Yıldızın Peşinde",
     emoji: "🌟",
     artClass: "art-1",
     description:
-      "Help Bloop the little blue critter cross the meadow, smash the grumps, grab every coin, and defeat the boss Gloom to claim the Golden Star.",
+      "Minik mavi yaratık Bloop'a çayırı geçmesinde yardım et: huysuz yaratıkları ez, bütün paraları topla ve patron Gloom'u yenerek Altın Yıldız'ı kap.",
     route: "/games/pixel-pals",
     status: "playable" as const,
   },
   {
     id: "world-war-z",
     title: "World War Z",
-    subtitle: "Zombie Survival",
+    subtitle: "Zombi Sürüsü Hayatta Kalma",
     emoji: "🧟",
     artClass: "art-2",
     description:
-      "3D FPS zombie shooter. Survive endless waves of the horde in a dark arena. WASD + mouse, click to shoot. How long can you last?",
+      "3D zombi FPS'i. Karanlık arenada durmadan gelen sürüleri püskürt; ne kadar dayanabilirsin? WASD + fare ile ateş et, mobilde dokunmatik kontrollerle oyna.",
     route: "/games/world-war-z",
     status: "playable" as const,
   },
@@ -86,11 +86,11 @@ const GAMES = [
   {
     id: "chess",
     title: "Royal Chess",
-    subtitle: "3D Strategy Classic",
+    subtitle: "3D Strateji Klasiği",
     emoji: "♞",
     artClass: "art-11",
     description:
-      "Full 3D chess with complete rules: castling, en passant, promotion, checkmate and draw detection. Play a friend locally or challenge the built-in computer. Drag to orbit, scroll to zoom, click to move.",
+      "Tam kurallı 3D satranç: roş, pastan geçme, vezire yükseltme, şah mat ve berabere tespiti. Yerel olarak bir arkadaşınla oyna ya da yapay zekâ rakibe meydan oku. Sürükleyerek döndür, tekerlekle yakınlaş, hamle için tıkla.",
     route: "/games/chess",
     status: "playable" as const,
   },
@@ -207,8 +207,8 @@ export default function Home() {
         <section className="hero">
         <h1>PIXEL ARCADE</h1>
         <p>
-          A growing collection of original browser games. No downloads, no
-          accounts — just play. New games added regularly.
+          Orijinal tarayıcı oyunlarının büyüyen koleksiyonu. İndirme yok,
+          üyelik yok — sadece oyna. Düzenli olarak yeni oyunlar ekleniyor.
         </p>
         <Link href="/arcade" className="hero-cta">
           🎮 Arcade Portal — Hemen Oyna
@@ -257,7 +257,7 @@ export default function Home() {
       </section>
 
       <footer className="footer">
-        Pixel Arcade — original games, built with Next.js &amp; Canvas
+        Pixel Arcade — özgün oyunlar; Next.js ve Canvas ile geliştirildi
       </footer>
       </main>
     </>
