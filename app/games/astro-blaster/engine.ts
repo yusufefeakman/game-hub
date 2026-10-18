@@ -359,9 +359,9 @@ const game = {
       AudioSys.gameover();
       checkBest();
       const el = document.getElementById("final-stats");
-      if (el) el.innerHTML = `Score: ${this.score} &nbsp; Level: ${this.level}` + (newBest ? ` &nbsp; <span style="color:#7ee081">★ NEW BEST!</span>` : "");
+      if (el) el.innerHTML = `Skor: ${this.score} &nbsp; Bölüm: ${this.level}` + (newBest ? ` &nbsp; <span style="color:#7ee081">★ YENİ REKOR!</span>` : "");
       const goBest = document.getElementById("go-best");
-      if (goBest) goBest.textContent = `BEST: ${best}`;
+      if (goBest) goBest.textContent = `REKOR: ${best}`;
       show("screen-gameover");
     } else {
       AudioSys.hurt();
@@ -385,9 +385,9 @@ const game = {
       this.score += bonus;
       checkBest();
       const el = document.getElementById("final-stats-v");
-      if (el) el.innerHTML = `Score: ${this.score} (bonus +${bonus}) &nbsp; Level: ${this.level}` + (newBest ? ` &nbsp; <span style="color:#7ee081">★ NEW BEST!</span>` : "");
+      if (el) el.innerHTML = `Skor: ${this.score} (bonus +${bonus}) &nbsp; Bölüm: ${this.level}` + (newBest ? ` &nbsp; <span style="color:#7ee081">★ YENİ REKOR!</span>` : "");
       const vBest = document.getElementById("v-best");
-      if (vBest) vBest.textContent = `BEST: ${best}`;
+      if (vBest) vBest.textContent = `REKOR: ${best}`;
       show("screen-victory");
       return;
     }
@@ -694,7 +694,7 @@ function updateHUD() {
   const hearts = document.getElementById("hud-lives");
   if (hearts) hearts.innerHTML = '<span class="ab-heart">&#10022;</span>'.repeat(Math.max(0, game.lives));
   const sb = document.getElementById("start-best");
-  if (sb) sb.textContent = best > 0 ? `BEST: ${best}` : "";
+  if (sb) sb.textContent = best > 0 ? `REKOR: ${best}` : "";
 }
 
 /* ================= 6. RENDERING ================= */
@@ -935,7 +935,7 @@ function drawLevelClearBanner() {
   ctx.font = "bold 44px monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("LEVEL CLEAR!", W / 2, H / 2 - 14);
+  ctx.fillText("BÖLÜM TAMAMLANDI!", W / 2, H / 2 - 14);
   ctx.fillStyle = "#7ee081";
   ctx.font = "bold 18px monospace";
   ctx.fillText(`+${500 + game.level * 100} bonus`, W / 2, H / 2 + 26);
@@ -988,13 +988,13 @@ function buildOverlayUI(container: HTMLElement) {
   hud.className = "ab-hud";
   hud.innerHTML = `
     <div class="ab-hud-box">
-      <span>SCORE <span id="hud-score">0</span></span>
-      <span>LVL <span id="hud-level">1</span></span>
+      <span>SKOR <span id="hud-score">0</span></span>
+      <span>BÖLÜM <span id="hud-level">1</span></span>
     </div>
     <div class="ab-hud-box">
       <span id="hud-lives"><span class="ab-heart">&#10022;</span><span class="ab-heart">&#10022;</span><span class="ab-heart">&#10022;</span></span>
     </div>
-    <button id="mute-btn" class="ab-mute-btn" title="Mute (M)">&#128266;</button>`;
+    <button id="mute-btn" class="ab-mute-btn" title="Ses aç/kapat (M)">&#128266;</button>`;
   container.appendChild(hud);
 
   const mk = (id: string, inner: string, hidden = false) => {
@@ -1009,36 +1009,36 @@ function buildOverlayUI(container: HTMLElement) {
   mk("screen-start", `
     <h1>ASTRO BLASTER</h1>
     <h2>Uzay Blok Patlatma</h2>
-    <p>Guide your plasma ship and shatter the cosmic blocks!<br>
-       Gold blocks shower points, tough blocks need two hits,<br>
-       and diamond blocks are indestructible.</p>
-    <p style="color:#7ee081">Catch falling power-ups: <b style="color:#4dd0e1">W</b> wide &middot; <b style="color:#ffd23f">M</b> multi-ball &middot; <b style="color:#7ee081">S</b> slow-mo &middot; <b style="color:#ff5d73">E</b> extra life</p>
+    <p>Plazma gemini yönlendir ve kozmik blokları parçala!<br>
+       Altın bloklar puan yağdırır, sert bloklar iki vuruş ister,<br>
+       elmas bloklar ise kırılmaz.</p>
+    <p style="color:#7ee081">Düşen güçleri yakala: <b style="color:#4dd0e1">W</b> wide &middot; <b style="color:#ffd23f">M</b> multi-ball &middot; <b style="color:#7ee081">S</b> slow-mo &middot; <b style="color:#ff5d73">E</b> extra life</p>
     <p id="start-best" style="color:#ffd23f;font-weight:bold;letter-spacing:2px;"></p>
-    <button class="big-btn" id="btn-start">START MISSION</button>
+    <button class="big-btn" id="btn-start">GÖREVE BAŞLA</button>
     <div class="keys">
-      <b>&#8592;/&#8594; or A/D</b> move &nbsp; &middot; &nbsp; <b>Space / Click</b> launch &nbsp; &middot; &nbsp; <b>P</b> pause &nbsp; &middot; &nbsp; <b>M</b> mute<br>
-      Mobile: drag to move, tap to launch
+      <b>&#8592;/&#8594; veya A/D</b> hareket &nbsp; &middot; &nbsp; <b>Space / Tık</b> topu fırlat &nbsp; &middot; &nbsp; <b>P</b> duraklat &nbsp; &middot; &nbsp; <b>M</b> ses<br>
+      Mobilde: sürükleyerek hareket et, dokunarak fırlat
     </div>`);
 
   mk("screen-pause", `
-    <h2>PAUSED</h2>
-    <p>The cosmos waits for no one... except you.</p>
-    <button class="big-btn" id="btn-resume">RESUME</button>
-    <button class="big-btn" id="btn-restart-pause" style="background:linear-gradient(#9aa5d1,#5c6bc0);box-shadow:0 0 14px rgba(154,165,209,0.6),0 5px 0 #283593;color:#fff">RESTART</button>`, true);
+    <h2>DURAKLATILDI</h2>
+    <p>Kozmos kimseyi beklemez... ama seni bekliyor.</p>
+    <button class="big-btn" id="btn-resume">DEVAM ET</button>
+    <button class="big-btn" id="btn-restart-pause" style="background:linear-gradient(#9aa5d1,#5c6bc0);box-shadow:0 0 14px rgba(154,165,209,0.6),0 5px 0 #283593;color:#fff">YENİDEN BAŞLAT</button>`, true);
 
   mk("screen-gameover", `
-    <h2 style="color:#ff5d73">GAME OVER</h2>
-    <p>Your ship drifts into the void...</p>
+    <h2 style="color:#ff5d73">OYUN BİTTİ</h2>
+    <p>Gemin boşlukta sürükleniyor...</p>
     <div id="final-stats" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
     <div id="go-best" style="color:#4dd0e1;font-weight:bold;margin:4px 0;letter-spacing:1px;"></div>
-    <button class="big-btn" id="btn-retry">TRY AGAIN</button>`, true);
+    <button class="big-btn" id="btn-retry">TEKRAR DENE</button>`, true);
 
   mk("screen-victory", `
-    <h1>MISSION COMPLETE!</h1>
-    <p>All cosmic blocks shattered. The galaxy is safe!</p>
+    <h1>GÖREV TAMAMLANDI!</h1>
+    <p>Tüm kozmik bloklar paramparça. Galaksi güvende!</p>
     <div id="final-stats-v" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
     <div id="v-best" style="color:#4dd0e1;font-weight:bold;margin:4px 0;letter-spacing:1px;"></div>
-    <button class="big-btn" id="btn-play-again">PLAY AGAIN</button>`, true);
+    <button class="big-btn" id="btn-play-again">TEKRAR OYNA</button>`, true);
 
   const on = (id: string, fn: () => void) => {
     const el = document.getElementById(id);
