@@ -34,8 +34,23 @@ const COLOR_NAME = ["Kırmızı", "Mavi", "Yeşil", "Kahve", "Pembe", "Siyah"];
 const PLAYER_TAG = ["#fbbf24", "#94a3b8", "#c084fc", "#4ade80"];
 const HUMAN_NAME = "Sen";
 const BOT_NAMES = ["Bot", "Bot", "Bot"];
-const OPENING_MIN = 101;
-const MATCH_TARGET = -101;
+/* Ev kuralı ayarları (menüden seçilir, localStorage'da saklanır) */
+const SETTINGS = { openMin: 101, jokerOpen: true, target: -101 };
+const SET_KEY = "okey-ev-kurallari";
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SET_KEY) || "null");
+    if (s && typeof s === "object") {
+      if (s.openMin === 51 || s.openMin === 101) SETTINGS.openMin = s.openMin;
+      if (s.jokerOpen === false) SETTINGS.jokerOpen = false;
+      if (s.target === -51 || s.target === -101) SETTINGS.target = s.target;
+    }
+  } catch { /* bozuk kayıt → varsayılan */ }
+}
+function saveSettings() {
+  try { localStorage.setItem(SET_KEY, JSON.stringify(SETTINGS)); } catch { /* gizli mod */ }
+}
+loadSettings();
 const HAND_SIZE = 14;
 
 function sleep(ms: number) {
@@ -230,21 +245,23 @@ function allSetsInHand(hand: Tile[]): Tile[][] {
 
 const sumOf = (tiles: Tile[]) => tiles.reduce((a, t) => a + t.n, 0);
 
-/** Best opening combination (disjoint sets totalling >= 101, max total). */
-function findBestOpening(hand: Tile[]): { sets: Tile[][]; sum: number } | null {
-  const sets = allSetsInHand(hand);
+/** Best opening combination (disjoint sets totalling >= min, max total).
+ *  jokerAllowed=false → "okey ile açılışamaz" ev kuralı. */
+function findBestOpening(hand: Tile[], jokerAllowed = SETTINGS.jokerOpen, min = SETTINGS.openMin): { sets: Tile[][]; sum: number } | null {
+  let sets = allSetsInHand(hand);
+  if (!jokerAllowed) sets = sets.filter((s) => !s.some(isOkey));
   const sums = sets.map(setScore);
   let best: { sets: Tile[][]; sum: number } | null = null;
   // id-tabanlı kaplılık (bitmask 32+ taşta çakışıyor — el zamanla büyür)
   const used = new Set<number>();
   // avoid duplicate combos: enforce ascending index order
   const recAsc = (start: number, total: number, chosen: number[]) => {
-    if (total >= OPENING_MIN && (!best || total > best.sum)) {
+    if (total >= min && (!best || total > best.sum)) {
       best = { sets: chosen.map((i) => sets[i]), sum: total };
     }
     let rem = 0;
-    for (const t of hand) if (!used.has(t.id)) rem += isOkey(t) ? 9 : t.n; // okey en kötü 9 oynar → budama güvenli
-    if (total + rem <= (best?.sum ?? OPENING_MIN - 1)) return;
+    for (const t of hand) if (!used.has(t.id)) rem += isOkey(t) ? (jokerAllowed ? 9 : 0) : t.n; // okey en kötü 9 oynar → budama güvenli
+    if (total + rem <= (best?.sum ?? min - 1)) return;
     for (let i = start; i < sets.length; i++) {
       if (sets[i].some((t) => used.has(t.id))) continue;
       for (const t of sets[i]) used.add(t.id);
@@ -384,6 +401,10 @@ export function startGame(root: HTMLElement): () => void {
   .ok-pick { display:flex; gap:10px; justify-content:center; margin:18px 0; }
   .ok-pick .ok-btn { min-width:96px; }
   .ok-pick .ok-btn.on { background:linear-gradient(180deg,#f59e0b,#d97706); color:#1f2937; border-color:#fbbf24; }
+  .ok-sets { margin:4px 0 14px; }
+  .ok-set { display:flex; align-items:center; justify-content:center; gap:8px; margin:6px 0; font-size:11px; color:#9ca3af; letter-spacing:1px; flex-wrap:wrap; }
+  .ok-set .ok-btn { min-width:110px; padding:7px 12px; font-size:12px; }
+  .ok-set .ok-btn.on { background:linear-gradient(180deg,#f59e0b,#d97706); color:#1f2937; border-color:#fbbf24; }
   .ok-rules { text-align:left; font-size:13px; color:#d1d5db; line-height:1.65; background:#ffffff08;
     border:1px solid #ffffff14; border-radius:12px; padding:14px 16px; margin:14px 0; }
   .ok-rules b { color:#fbbf24; }
@@ -434,9 +455,23 @@ export function startGame(root: HTMLElement): () => void {
           <button class="ok-btn on" data-n="3">3 OYUNCU</button>
           <button class="ok-btn" data-n="4">4 OYUNCU</button>
         </div>
+        <div class="ok-sets" data-ok="sets">
+          <div class="ok-set"><span>AÇILIŞ PUANI</span>
+            <button class="ok-btn" data-set="openMin" data-v="101">101 (klasik)</button>
+            <button class="ok-btn" data-set="openMin" data-v="51">51 (kolay)</button>
+          </div>
+          <div class="ok-set"><span>OKEYLE AÇILIŞ</span>
+            <button class="ok-btn" data-set="jokerOpen" data-v="1">SERBEST</button>
+            <button class="ok-btn" data-set="jokerOpen" data-v="0">YASAK</button>
+          </div>
+          <div class="ok-set"><span>MAÇ HEDEFİ</span>
+            <button class="ok-btn" data-set="target" data-v="-101">-101 (klasik)</button>
+            <button class="ok-btn" data-set="target" data-v="-51">-51 (hızlı)</button>
+          </div>
+        </div>
         <button class="ok-btn primary" data-ok="start" style="min-width:160px">▶ BAŞLA</button>
         <div style="margin-top:10px"><button class="ok-btn" data-ok="rules" style="font-size:12px">📜 KURALLAR</button></div>
-        <div class="ok-menufoot">Kazanan: -101 ceza puanına ilk ulaşan oyuncu</div>
+        <div class="ok-menufoot" data-ok="mfoot"></div>
       </div>
     </div>
     <div class="ok-ov" data-ok="modal" style="display:none"></div>
@@ -457,6 +492,31 @@ export function startGame(root: HTMLElement): () => void {
     pickN = +b.dataset.n!;
     pickBox.querySelectorAll("[data-n]").forEach((x) => x.classList.toggle("on", x === b));
   });
+
+  // Ev kuralı ayarları
+  const setsBox = $('[data-ok="sets"]');
+  const syncSetUI = () => {
+    setsBox.querySelectorAll("[data-set]").forEach((x) => {
+      const b = x as HTMLElement;
+      const v = b.dataset.v!;
+      const cur = SETTINGS[b.dataset.set as keyof typeof SETTINGS];
+      const on = b.dataset.set === "jokerOpen" ? (v === "1") === SETTINGS.jokerOpen : +v === cur;
+      b.classList.toggle("on", on);
+    });
+    $('[data-ok="mfoot"]').textContent =
+      `Kazanan: ${SETTINGS.target} puana ilk ulaşan · Açılış ${SETTINGS.openMin}${SETTINGS.jokerOpen ? "" : " · okeyle açılamaz"}`;
+  };
+  setsBox.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest("[data-set]") as HTMLElement | null;
+    if (!b) return;
+    const k = b.dataset.set as "openMin" | "jokerOpen" | "target";
+    const v = b.dataset.v!;
+    if (k === "jokerOpen") SETTINGS.jokerOpen = v === "1";
+    else SETTINGS[k] = +v;
+    saveSettings();
+    syncSetUI();
+  });
+  syncSetUI();
   $('[data-ok="start"]').addEventListener("click", () => newMatch(pickN));
   $('[data-ok="rules"]').addEventListener("click", () => showRules());
   $('[data-ok="menu"]').addEventListener("click", () => backToMenu());
@@ -743,7 +803,7 @@ export function startGame(root: HTMLElement): () => void {
       }
       p.score -= p.penalty;
     });
-    const matchOver = players.some((p) => p.score <= MATCH_TARGET);
+    const matchOver = players.some((p) => p.score <= SETTINGS.target);
     // Maç bittiğinde faz ayrıdır — test kancaları (state) maç sonunu görebilsin.
     phase = matchOver ? "matchEnd" : "roundEnd";
     busy = true;
@@ -807,11 +867,12 @@ export function startGame(root: HTMLElement): () => void {
           • <b>Sahte Okey</b> gösterge taşının tıpatıp aynısıdır; sadece yüzündeki taşı dizer.<br>
           • <b>Renk:</b> aynı renkten üst üste 3+ sayı (örn. kırmızı 4-5-6).<br>
           • <b>Karma:</b> aynı sayıdan 3+ farklı renk (örn. 7 kırmızı + 7 mavi + 7 yeşil).<br>
-          • <b>Açılış:</b> ilk masaya koyuşun toplamı <b>101+</b> olmalı.<br>
+          • <b>Açılış:</b> ilk masaya koyuşun toplamı <b>${SETTINGS.openMin}+</b> olmalı.<br>
           • Açıldıktan sonra: yeni set kurabilir veya mevcut bir sete <b>tek taş</b> ekleyebilirsin.<br>
           • Sıran: otomatik 1 taş çekilir, oynarsın veya <b>GEÇ</b>ersin. 3 ardışık geçiş = elenme.<br>
           • Destek biterse en düşük toplamı olan turu kazanır.<br>
-          • Ceza: elinde kalan taşların toplamı (elde kalan okey yüzündeki sayı kadar yazılır). <b>-101'e ilk ulaşan maçı kazanır.</b>
+          • Ceza: elinde kalan taşların toplamı (elde kalan okey yüzündeki sayı kadar yazılır). <b>${SETTINGS.target} puana ilk ulaşan maçı kazanır.</b><br>
+          • <b>Ev kuralları:</b> menüden açılış eşiği (101/51), okeyle açılış yasağı ve maç hedefi (-101/-51) seçilebilir; ayarlar saklanır.
         </div>
         <button class="ok-btn primary" data-ok="close" style="min-width:140px">KAPAT</button>
       </div>`;
@@ -830,9 +891,15 @@ export function startGame(root: HTMLElement): () => void {
     const parts = partitionIntoSets(sel);
     if (!parts) { toast("Seçim geçerli kombinasyon değil"); return; }
     const sum = parts.reduce((a, s) => a + setScore(s), 0);
-    if (!players[hi].opened && sum < OPENING_MIN) {
-      toast(`Açılış 101+ olmalı (şu an ${sum})`);
-      return;
+    if (!players[hi].opened) {
+      if (!SETTINGS.jokerOpen && parts.some((s) => s.some(isOkey))) {
+        toast("Ev kuralı: okey ile açılamaz — okeysiz kombinasyon seç");
+        return;
+      }
+      if (sum < SETTINGS.openMin) {
+        toast(`Açılış ${SETTINGS.openMin}+ olmalı (şu an ${sum})`);
+        return;
+      }
     }
     sfx("play");
     applyPlay(hi, { kind: "sets", sets: parts });
@@ -928,7 +995,7 @@ export function startGame(root: HTMLElement): () => void {
       handBox.appendChild(wrap);
     }
     const meta = handHead.querySelector(".hh-meta")!;
-    meta.textContent = hp.out ? "çıkış" : hp.opened ? "açıldı" : `açılış ${OPENING_MIN}+ gerekli`;
+    meta.textContent = hp.out ? "çıkış" : hp.opened ? "açıldı" : `açılış ${SETTINGS.openMin}+ gerekli`;
     handHead.querySelector(".hh-score")!.textContent = String(hp.score);
 
     // hand tiles
@@ -985,7 +1052,7 @@ export function startGame(root: HTMLElement): () => void {
       const parts = partitionIntoSets(sel);
       // Okey, yerine oynadığı sayı kadar sayılır → puan parçaların toplamından gelir
       const sum = parts ? parts.reduce((a, s) => a + setScore(s), 0) : sumOf(sel);
-      const needOpen = !players[hi].opened && sum < OPENING_MIN;
+      const needOpen = !players[hi].opened && (sum < SETTINGS.openMin || (!SETTINGS.jokerOpen && parts && parts.some((s) => s.some(isOkey))));
       if (parts && !needOpen) { info.textContent = `✓ ${sel.length} taş, toplam ${sum}`; info.classList.add("good"); }
       else if (!parts) { info.textContent = "Geçersiz kombinasyon"; info.classList.add("bad"); }
       else { info.textContent = `Açılış 101+ olmalı (şu an ${sum})`; info.classList.add("bad"); }
@@ -1018,6 +1085,17 @@ export function startGame(root: HTMLElement): () => void {
     }),
     hand: () =>
       hands[humanIdx()].map((t) => ({ id: t.id, c: t.c, n: t.n, j: t.j ?? null })),
+    /** Ev kuralı ayarlarını oku/yaz (test yardımcısı). */
+    settings: (patch?: Record<string, unknown>) => {
+      if (patch) {
+        if (patch.openMin === 51 || patch.openMin === 101) SETTINGS.openMin = patch.openMin;
+        if (typeof patch.jokerOpen === "boolean") SETTINGS.jokerOpen = patch.jokerOpen;
+        if (patch.target === -51 || patch.target === -101) SETTINGS.target = patch.target;
+        saveSettings();
+        syncSetUI();
+      }
+      return { ...SETTINGS };
+    },
     /** Best legal move for the human (same heuristics as AI). */
     suggest: () => {
       const hi = humanIdx();
@@ -1049,7 +1127,7 @@ export function startGame(root: HTMLElement): () => void {
         for (const t of all) { if (seen.has(t.id)) return "dup"; seen.add(t.id); }
         for (const s of sets) if (!isValidSet(s)) return "invalid-set";
         const sum = sumOf(all);
-        if (!players[hi].opened && sum < OPENING_MIN) return "need-101";
+        if (!players[hi].opened && (sum < SETTINGS.openMin || (!SETTINGS.jokerOpen && sets.some((s) => s.some(isOkey))))) return "need-101";
         applyPlay(hi, { kind: "sets", sets });
       }
       return "ok";
