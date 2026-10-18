@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
+import { getArcadeBests } from "../lib/hiscore";
 
 /* =====================================================================
    PIXEL ARCADE — Lagged tarzı oyun portalı
@@ -144,6 +145,7 @@ const GAMES: ArcadeGame[] = [
 
 const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade"];
 const FAV_TAB = "❤️ Favorilerim";
+const BEST_TAB = "🏆 Rekorlarım";
 const LS = { favs: "arcade_favs", recent: "arcade_recent", plays: "arcade_plays", ratings: "arcade_ratings" };
 
 /** GitHub Pages bu repoyu /game-hub/ altında sunar; iframe/standalone
@@ -183,6 +185,7 @@ export default function ArcadePage() {
   const [recent, setRecent] = useState<string[]>([]);
   const [plays, setPlays] = useState<Record<string, number>>({});
   const [ratings, setRatings] = useState<Record<string, { sum: number; count: number; mine: number }>>({});
+  const [bests, setBests] = useState<Record<string, string>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const [slide, setSlide] = useState(0);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -194,6 +197,7 @@ export default function ArcadePage() {
       setRecent(JSON.parse(localStorage.getItem(LS.recent) || "[]") as string[]);
       setPlays(JSON.parse(localStorage.getItem(LS.plays) || "{}") as Record<string, number>);
       setRatings(JSON.parse(localStorage.getItem(LS.ratings) || "{}") as Record<string, { sum: number; count: number; mine: number }>);
+      setBests(getArcadeBests());
     } catch { /* localStorage kapalı olabilir */ }
   }, []);
 
@@ -244,7 +248,10 @@ export default function ArcadePage() {
     });
   }, [persist]);
 
-  const closeGame = useCallback(() => setOpenId(null), []);
+  const closeGame = useCallback(() => {
+    setOpenId(null);
+    try { setBests(getArcadeBests()); } catch { /* yok */ }
+  }, []);
 
   /* --- hero slider otomatik geçiş --- */
   const featured = useMemo(() => GAMES.filter((g) => g.featured), []);
@@ -275,6 +282,7 @@ export default function ArcadePage() {
     const needle = normalizeTr(q.trim());
     let list = GAMES.filter((g) => {
       if (tab === FAV_TAB) return favs.includes(g.id);
+      if (tab === BEST_TAB) return Boolean(bests[g.id]);
       if (tab !== "Tümü" && g.category !== tab) return false;
       return true;
     });
@@ -290,7 +298,7 @@ export default function ArcadePage() {
     else if (sort === "rate") list.sort((a, b) => avgOf(b).avg - avgOf(a).avg || b.pop - a.pop);
     else list.sort((a, b) => score(b) - score(a));
     return list;
-  }, [q, tab, sort, favs, score, avgOf]);
+  }, [q, tab, sort, favs, bests, score, avgOf]);
 
   /* Filtre/arama aktifken vitrin satırları (Son Oynadıkların/Trend/Yeni)
      gizlenir — portal yalnızca sonuç listesini gösterir, böylece pillin
@@ -331,6 +339,7 @@ export default function ArcadePage() {
         <div className="arc-thumb" style={{ background: g.art }}>
           <span className="arc-emoji">{g.emoji}</span>
           <span className="arc-play">▶ OYNA</span>
+          {bests[g.id] ? <span className="arc-best" title="Kişisel rekorun">🏆 {bests[g.id]}</span> : null}
         </div>
         {g.isNew ? <span className="arc-badge new">YENİ</span>
           : g.pop >= 90 ? <span className="arc-badge hot">🔥 POPÜLER</span> : null}
@@ -388,6 +397,11 @@ export default function ArcadePage() {
         <button type="button" className={`arc-pill${tab === FAV_TAB ? " on" : ""}`} onClick={() => setTab(FAV_TAB)}>
           {FAV_TAB} <b>{favs.length}</b>
         </button>
+        {Object.keys(bests).length > 0 ? (
+          <button type="button" className={`arc-pill${tab === BEST_TAB ? " on" : ""}`} onClick={() => setTab(BEST_TAB)}>
+            {BEST_TAB} <b>{Object.keys(bests).length}</b>
+          </button>
+        ) : null}
         {CATEGORIES.map((c) => {
           const n = GAMES.filter((g) => g.category === c).length;
           return (

@@ -36,3 +36,45 @@ export function bestText(gameId: string, label: string, kind: BestKind = "high",
   if (b === null) return "";
   return `${label}: ${b}${unit}`;
 }
+
+/* ---- Arcade kart vitrini: oyun kimliği → rekor rozeti metni ----
+   Her oyun rekorunu kendi (tarihsel) anahtarında tutuyor; burada tek
+   yerden okunup tr-TR biçimli görüntü metnine çevrilir. */
+const numFmt = new Intl.NumberFormat("tr-TR");
+function rawKey(key: string): number | null {
+  try {
+    const v = Number(localStorage.getItem(key));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+function secs(v: number): string {
+  return `${Math.round(v * 10) / 10} sn`;
+}
+
+export function getArcadeBests(): Record<string, string> {
+  const out: Record<string, string> = {};
+  const put = (id: string, v: number | null, fmt: (n: number) => string = (n) => numFmt.format(Math.round(n))) => {
+    if (v !== null) out[id] = fmt(v);
+  };
+  // skor tabanlı (büyük iyi)
+  put("world-war-z", rawKey("hub-best:world-war-z"));
+  put("lets-world", rawKey("hub-best:lets-world"));
+  put("pixel-pals", rawKey("hub-best:pixel-pals"));
+  put("yilan-arena", rawKey("yilan-arena-best"));
+  put("spaceship", rawKey("ss-best"));
+  put("candy-burst", rawKey("candy-burst-best"));
+  put("astro-blaster", rawKey("astro-blaster-best"));
+  put("doping-runner", rawKey("doping-best"), (n) => `${numFmt.format(Math.round(n))} m`);
+  // süre tabanlı (küçük iyi)
+  put("powerboat", rawKey("hub-best:powerboat"), secs);
+  put("akil-kupu", rawKey("akilkupu_best"), secs);
+  // mayın: zorluk bazlı JSON — kayıtlı en hızlı süre
+  try {
+    const m = JSON.parse(localStorage.getItem("mayin-tarlasi-best") || "{}") as Record<string, number>;
+    const vals = Object.values(m).map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    if (vals.length) out["mayin-tarlasi"] = secs(Math.min(...vals));
+  } catch { /* bozuk kayıt */ }
+  return out;
+}
