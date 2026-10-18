@@ -234,6 +234,76 @@ interface PlayerState {
 }
 
 /* ================= 4. GAME ENGINE ================= */
+/* --- Mobil dokunmatik kontroller: sol/sağ/zıplama butonları (desen: Pixel Pals ile aynı) ---
+   Swipe-sürüklenme tek başına platformer için yetersizdi; parmak basılı
+   tutuldukça yürüyen, ayrı ZIPLA butonu olan bir katman eklenir. */
+const LW_TOUCH_CSS = `
+.lw-touchui { position:absolute; left:0; right:0; bottom:0; display:none; justify-content:space-between; align-items:flex-end; padding:12px 16px; z-index:8; pointer-events:none; }
+body.lw-touch .lw-touchui { display:flex; }
+.lw-tbtn { pointer-events:auto; width:70px; height:70px; border-radius:50%; background:rgba(20,30,20,0.45); border:3px solid rgba(255,255,255,0.55); color:#fff; font-size:26px; font-weight:bold; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; touch-action:none; user-select:none; }
+.lw-tbtn.pressed { background:rgba(255,255,255,0.42); }
+.lw-tbtn.lw-jump { width:86px; height:86px; font-size:15px; letter-spacing:1px; }
+.lw-tcluster { display:flex; gap:12px; }
+.lw-thint { position:absolute; left:50%; transform:translateX(-50%); bottom:112px; z-index:9; padding:6px 14px; border-radius:10px; background:rgba(4,7,16,0.75); color:#ffe9a8; font-size:13px; font-weight:700; letter-spacing:0.4px; pointer-events:none; opacity:0; white-space:nowrap; }
+body.lw-touch .lw-thint.show { animation: lwHint 8s ease forwards; }
+@keyframes lwHint { 0%{opacity:0} 8%{opacity:1} 75%{opacity:1} 100%{opacity:0} }
+`;
+
+function buildLwTouchUI(
+  canvas: HTMLCanvasElement,
+  keys: Record<string, boolean>,
+  tapStart: () => void,
+): () => void {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:relative;display:inline-block;";
+  canvas.parentNode?.insertBefore(wrap, canvas);
+  wrap.appendChild(canvas);
+  const style = document.createElement("style");
+  style.textContent = LW_TOUCH_CSS;
+  wrap.appendChild(style);
+  const ui = document.createElement("div");
+  ui.className = "lw-touchui";
+  ui.innerHTML = `
+    <div class="lw-tcluster">
+      <div class="lw-tbtn" id="lw-t-left">◀</div>
+      <div class="lw-tbtn" id="lw-t-right">▶</div>
+    </div>
+    <div class="lw-tbtn lw-jump" id="lw-t-jump">ZIPLA</div>`;
+  wrap.appendChild(ui);
+  const hint = document.createElement("div");
+  hint.className = "lw-thint";
+  hint.textContent = "◀ ▶ ile yürü · ZIPLA ile zıpla";
+  wrap.appendChild(hint);
+  requestAnimationFrame(() => hint.classList.add("show"));
+
+  const bind = (id: string, key: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const on = (e: Event) => {
+      e.preventDefault();
+      el.classList.add("pressed");
+      keys[key] = true;
+      tapStart();
+    };
+    const off = (e: Event) => {
+      e.preventDefault();
+      el.classList.remove("pressed");
+      keys[key] = false;
+    };
+    el.addEventListener("touchstart", on, { passive: false });
+    el.addEventListener("touchend", off, { passive: false });
+    el.addEventListener("touchcancel", off, { passive: false });
+  };
+  bind("lw-t-left", "ArrowLeft");
+  bind("lw-t-right", "ArrowRight");
+  bind("lw-t-jump", "Space");
+  document.body.classList.add("lw-touch");
+  return () => {
+    document.body.classList.remove("lw-touch");
+    wrap.remove();
+  };
+}
+
 export function startGame(canvas: HTMLCanvasElement): () => void {
   const ctx = canvas.getContext("2d")!;
   canvas.width = W;
@@ -298,7 +368,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
 
-  // Touch controls
+  // Touch controls (swipe yedek; dokunmatik butonlar aktifse devre dışı)
+  let touchUI = false;
+  let touchUiOff: () => void = () => {};
   canvas.addEventListener("touchstart", (e) => {
     e.preventDefault();
     const touch = e.touches[0];
@@ -310,6 +382,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }, { passive: false });
   canvas.addEventListener("touchmove", (e) => {
     e.preventDefault();
+    if (touchUI) return;
     const touch = e.touches[0];
     const dx = touch.clientX - touchStartX;
     if (dx > 20) { keys["ArrowRight"] = true; keys["ArrowLeft"] = false; }
@@ -318,6 +391,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   }, { passive: false });
   canvas.addEventListener("touchend", (e) => {
     e.preventDefault();
+    if (touchUI) return;
     keys["ArrowLeft"] = false;
     keys["ArrowRight"] = false;
     if (Math.abs(e.changedTouches[0].clientY - touchStartY) > 30) {
@@ -325,6 +399,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       setTimeout(() => { keys["Space"] = false; }, 100);
     }
   }, { passive: false });
+
+  // Dokunmatik cihaz: kalıcı sol/sağ/zıplama butonları
+  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+    touchUI = true;
+    touchUiOff = buildLwTouchUI(canvas, keys, () => {
+      if (game.state === "menu") startGamePlay();
+      else if (game.state === "gameover" || game.state === "win") resetGame();
+    });
+  }
 
   // --- Prosedürel Dokular (harici asset yok, offscreen canvas) ---
   // Düz renk platformlar yerine toprak/çim/ağaç/tuğla/metal dokulu, daha
@@ -1976,11 +2059,16 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     stomp: () => { if (boss && boss.alive) { player.x = boss.x + boss.w / 2 - player.w / 2; player.y = boss.y - player.h - 14; player.vy = 6; } return boss ? boss.hp : null; },
     forceOver: () => { for (let i = 0; i < 10 && game.state === "playing"; i++) { player.invincible = 0; loseLife(); } return game.state; },
     setScore: (n: number) => { game.score = n; },
+    setPos: (x: number) => { player.x = x; player.y = 300; player.vx = 0; player.vy = 0; player.onGround = false; return Math.round(player.x); },
+    py: () => Math.round(player.y),
+    vy: () => Math.round(player.vy),
+    grounded: () => player.onGround,
   });
 
   // --- Cleanup ---
   return () => {
     cancelAnimationFrame(rafId);
+    touchUiOff();
     delete (window as unknown as Record<string, unknown>).__lwDbg;
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
