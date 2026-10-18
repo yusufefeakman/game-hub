@@ -8,6 +8,7 @@ import { AudioSys } from "./audio";
 import { Input } from "./input";
 import { FIGHTERS } from "./characters";
 import type { FighterCfg, Keybind } from "./types";
+import { loadBest } from "../../lib/hiscore";
 
 let ui: HTMLDivElement | null = null;
 let canvasElRef: HTMLCanvasElement | null = null;
@@ -128,6 +129,11 @@ export function showMenu() {
   const mk = $id("menu-keys");
   if (mk) {
     mk.innerHTML = `P1: <b>${keyRow(0)}</b><br>P2: <b>${keyRow(1)}</b><br><b>S + special</b> = 2nd special &nbsp;·&nbsp; <b>M</b> sound &nbsp;·&nbsp; <b>Esc/P</b> pause`;
+  }
+  const mb = $id("menu-best");
+  if (mb) {
+    const w = loadBest("fighting");
+    mb.textContent = w !== null && w > 0 ? `🏆 Toplam galibiyetin: ${w}` : "";
   }
 }
 
@@ -510,6 +516,7 @@ export function initHud(wrapEl: HTMLDivElement, canvasEl: HTMLCanvasElement) {
   <button class="nr-btn" id="nr-btn-settings">⚙ SETTINGS</button>
   <a class="nr-linkbtn" href="/">🏠 BACK TO GAME HUB</a>
   <div class="nr-keys" id="nr-menu-keys"></div>
+  <div id="nr-menu-best" style="margin-top:10px;font-size:13px;letter-spacing:2px;color:#7ae8ff"></div>
 </div>
 <div id="nr-select" class="nr-screen" style="display:none">
   <div id="nr-select-title">SELECT YOUR FIGHTER</div>

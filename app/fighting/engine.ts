@@ -14,6 +14,7 @@ import { FIGHTERS } from "./core/characters";
 import { setupLights, createComposer, type ComposerWrap } from "../lib/visuals";
 import { HUD, hideScreens, showBanner, showHud, updateHud, initHud, loadSettings, showMenu, showSelect, showEnd, showPause, showSettings, updateSelectCursor, pickFighter, toggleSound } from "./core/hud";
 import type { FighterCfg, GameStateName } from "./core/types";
+import { loadBest, submitBest } from "../lib/hiscore";
 
 let renderer: THREE.WebGLRenderer;
 let canvasEl: HTMLCanvasElement | null = null;
@@ -219,7 +220,19 @@ function update(dt: number, rdt: number) {
       const winner = G.fighters.find((f) => f.wins >= WINS_NEEDED);
       if (winner) {
         G.state = "matchEnd";
-        showEnd(G.fighters.indexOf(winner));
+        const wi = G.fighters.indexOf(winner);
+        showEnd(wi);
+        // Rekor: CPU modunda insan galibiyetleri toplamı
+        if (G.mode === "cpu") {
+          const sub = document.getElementById("nr-end-sub");
+          if (wi === 0) {
+            const r = submitBest("fighting", (loadBest("fighting") ?? 0) + 1);
+            if (sub) sub.textContent += ` · 🏆 Toplam galibiyet: ${r.best}`;
+          } else {
+            const prev = loadBest("fighting") ?? 0;
+            if (prev > 0 && sub) sub.textContent += ` · Rekor: ${prev} galibiyet`;
+          }
+        }
       } else {
         startRound(G.round + 1);
       }
@@ -341,6 +354,12 @@ function loop(ts: number) {
 /* ---------------- public API ---------------- */
 export function startGame(canvas: HTMLCanvasElement): () => void {
   canvasEl = canvas;
+  // Test kancası: deterministik maç sonu (diğer savaşçı sıfırlanır)
+  (window as unknown as Record<string, unknown>).__nrDbg = {
+    state: () => G.state,
+    winMatch: () => { G.fighters[1].wins = 0; G.fighters[0].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
+    loseMatch: () => { G.fighters[0].wins = 0; G.fighters[1].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
+  };
   canvas.style.imageRendering = "auto";
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setSize(canvas.width, canvas.height);
@@ -454,6 +473,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   raf = requestAnimationFrame(loop);
 
   return () => {
+    delete (window as unknown as Record<string, unknown>).__nrDbg;
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     window.removeEventListener("pointerdown", unlock);

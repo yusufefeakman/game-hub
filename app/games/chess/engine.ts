@@ -12,6 +12,7 @@
 import * as THREE from "three";
 import * as Core from "./chess-core";
 import { bestMove, aiPromotion, DIFFICULTY, Difficulty } from "./ai";
+import { loadBest, submitBest } from "../../lib/hiscore";
 
 /* ================= types & settings ================= */
 
@@ -620,6 +621,14 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
   }
 
   let settings: GameSettings = { mode: "ai", aiColor: "b", tc: "10", difficulty: "medium" };
+
+// Rekor: yapay zekâya karşı toplam insan galibiyeti (mat/terk/süre)
+let chessBest = 0;
+function countAiWin(winner: Core.Color) {
+  if (settings.mode === "ai" && winner !== settings.aiColor)
+    chessBest = submitBest("chess", (loadBest("chess") ?? 0) + 1).best;
+  else chessBest = loadBest("chess") ?? 0;
+}
   let menuOpen = true; // start at the main menu
   let gameActive = false; // clock/AI run only while in a game
   let pos: Core.Position = Core.initialPosition();
@@ -1331,6 +1340,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
         reason: `${winnerName(status.winner)} kazandı`,
       };
       gameResult = status.winner === "w" ? "1-0" : "0-1";
+      countAiWin(status.winner);
       Snd.end();
     } else if (status.state === "stalemate") {
       gameOver = { result: "PAT", reason: "Berabere" };
@@ -1646,10 +1656,21 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       reason: `${loser === "w" ? "Siyah" : "Beyaz"} kazandı`,
     };
     gameResult = loser === "w" ? "0-1" : "1-0";
+    countAiWin(loser === "w" ? "b" : "w");
     Snd.end();
     updateHUD();
     refreshOverlays(null);
     showGameOverModal();
+  };
+
+  (window as unknown as Record<string, unknown>).__chDbg = {
+    mode: () => settings.mode,
+    aiColor: () => settings.aiColor,
+    turn: () => pos.turn,
+    resign: () => resign(),
+    aiResign: () => { pos.turn = settings.aiColor; resign(); },
+    startAi: () => { (hud?.querySelector('[data-act="startai"]') as HTMLElement | null)?.click(); },
+    best: () => chessBest,
   };
 
   const newGame = () => {
@@ -1778,6 +1799,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       <div class="rch-modal-card rch-over">
         <div class="rch-over-title">${gameOver.result}</div>
         <div class="rch-over-reason">${gameOver.reason}</div>
+        ${chessBest > 0 ? `<div class="rch-over-reason">🏆 Yapay zekâya karşı toplam galibiyet: ${chessBest}</div>` : ""}
         <div class="rch-over-btns">
           <button class="rch-btn rch-btn-primary" data-act="rematch">Tekrar Oyna</button>
           <button class="rch-btn" data-act="pgn">📄 PGN</button>
@@ -2339,6 +2361,7 @@ export function startGame(canvas: HTMLCanvasElement): GameHandle {
       } else {
         gameOver = { result: "SÜRE DOLDU", reason: `${loserName} süreyi aştı` };
         gameResult = loser === "w" ? "0-1" : "1-0";
+        countAiWin(loser === "w" ? "b" : "w");
       }
       Snd.end();
       updateHUD();

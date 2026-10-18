@@ -35,6 +35,8 @@ const PLAYER_TAG = ["#fbbf24", "#94a3b8", "#c084fc", "#4ade80"];
 const HUMAN_NAME = "Sen";
 const BOT_NAMES = ["Bot", "Bot", "Bot"];
 /* Ev kuralı ayarları (menüden seçilir, localStorage'da saklanır) */
+import { loadBest, submitBest } from "../../lib/hiscore";
+
 const SETTINGS = { openMin: 101, jokerOpen: true, target: -101 };
 const SET_KEY = "okey-ev-kurallari";
 function loadSettings() {
@@ -472,6 +474,7 @@ export function startGame(root: HTMLElement): () => void {
         <button class="ok-btn primary" data-ok="start" style="min-width:160px">▶ BAŞLA</button>
         <div style="margin-top:10px"><button class="ok-btn" data-ok="rules" style="font-size:12px">📜 KURALLAR</button></div>
         <div class="ok-menufoot" data-ok="mfoot"></div>
+        <div class="ok-menufoot" data-ok="mbest" style="color:#fbbf24"></div>
       </div>
     </div>
     <div class="ok-ov" data-ok="modal" style="display:none"></div>
@@ -503,6 +506,7 @@ export function startGame(root: HTMLElement): () => void {
       const on = b.dataset.set === "jokerOpen" ? (v === "1") === SETTINGS.jokerOpen : +v === cur;
       b.classList.toggle("on", on);
     });
+    updateMenuBest();
     $('[data-ok="mfoot"]').textContent =
       `Kazanan: ${SETTINGS.target} puana ilk ulaşan · Açılış ${SETTINGS.openMin}${SETTINGS.jokerOpen ? "" : " · okeyle açılamaz"}`;
   };
@@ -804,15 +808,22 @@ export function startGame(root: HTMLElement): () => void {
       p.score -= p.penalty;
     });
     const matchOver = players.some((p) => p.score <= SETTINGS.target);
+    // Rekor: insan oyuncu (0) maçı hedefe ulaşarak bitirdiyse galibiyet sayacını artır.
+    let matchWins = 0;
+    if (matchOver) {
+      if (players.findIndex((p) => p.score <= SETTINGS.target) === 0)
+        matchWins = submitBest("okey", (loadBest("okey") ?? 0) + 1).best;
+      updateMenuBest();
+    }
     // Maç bittiğinde faz ayrıdır — test kancaları (state) maç sonunu görebilsin.
     phase = matchOver ? "matchEnd" : "roundEnd";
     busy = true;
     sfx("win");
     renderAll();
-    showRoundModal(winner, why, matchOver);
+    showRoundModal(winner, why, matchOver, matchWins);
   }
 
-  function showRoundModal(winner: number, why: string, matchOver: boolean) {
+  function showRoundModal(winner: number, why: string, matchOver: boolean, matchWins = 0) {
     const title = matchOver ? "🏆 MAÇ BİTTİ!" : `🔥 TUR BİTTİ!`;
     const reason =
       why === "empty" ? `${players[winner].name} elini bitirdi!` :
@@ -835,6 +846,7 @@ export function startGame(root: HTMLElement): () => void {
         <h1>${title}</h1>
         <h2>${reason}</h2>
         <div class="ok-scores">${rows}</div>
+        ${matchOver ? `<div class="ok-menufoot">🏆 ${matchWins > 0 ? "Toplam maç galibiyetin: " + matchWins : "Maçı rakip kazandı — rekor: " + (loadBest("okey") ?? 0) + " galibiyet"}</div>` : ""}
         <button class="ok-btn primary" data-ok="next" style="min-width:180px">
           ${matchOver ? "🔄 YENİ MAÇ" : "▶ SONRAKİ TUR"}
         </button>
@@ -1066,6 +1078,13 @@ export function startGame(root: HTMLElement): () => void {
   renderAll();
   void busy;
 
+  function updateMenuBest() {
+    const el = $('[data-ok="mbest"]') as HTMLElement | null;
+    if (!el) return;
+    const w = loadBest("okey");
+    el.textContent = w !== null && w > 0 ? `🏆 Toplam maç galibiyetin: ${w}` : "";
+  }
+
   /* ---------- debug/test hook ---------- */
   (window as unknown as Record<string, unknown>).__okey = {
     state: () => ({
@@ -1154,6 +1173,13 @@ export function startGame(root: HTMLElement): () => void {
         renderAll();
         return `el=${hands[i].length}`;
       },
+      /** İnsanın maçı kazanmasını tetikler (test). */
+      matchWin: () => {
+        players[0].score = SETTINGS.target - 1;
+        roundEnd(0, "out");
+        return phase;
+      },
+
       /** Bot i açılışını hemen masaya koyar (varsa). */
       openBot: (i: number) => {
         const s = aiChoose(i);

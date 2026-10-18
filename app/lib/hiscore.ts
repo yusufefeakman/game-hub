@@ -69,6 +69,15 @@ export function getArcadeBests(): Record<string, string> {
   put("doping-runner", rawKey("doping-best"), (n) => `${numFmt.format(Math.round(n))} m`);
   put("anime-legends", rawKey("hub-best:anime-legends"));
   put("fighter", rawKey("hub-best:fighter"), (n) => `${numFmt.format(Math.round(n))} galibiyet`);
+  put("fighting", rawKey("hub-best:fighting"), (n) => `${numFmt.format(Math.round(n))} galibiyet`);
+  put("okey", rawKey("hub-best:okey"), (n) => `${numFmt.format(Math.round(n))} maç galibiyeti`);
+  put("chess", rawKey("hub-best:chess"), (n) => `${numFmt.format(Math.round(n))} galibiyet`);
+  // sunny-side-ride: kendi HTML belgesinin JSON kaydı ({score, tokens})
+  try {
+    const ssr = JSON.parse(localStorage.getItem("sunnySideRide.best.v1") || "null") as { score?: number } | null;
+    if (ssr && Number.isFinite(Number(ssr.score)) && Number(ssr.score) > 0)
+      out["sunny-side-ride"] = `${numFmt.format(Math.round(Number(ssr.score)))} puan`;
+  } catch { /* bozuk kayıt */ }
   // süre tabanlı (küçük iyi)
   put("powerboat", rawKey("hub-best:powerboat"), secs);
   put("akil-kupu", rawKey("akilkupu_best"), secs);
