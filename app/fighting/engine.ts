@@ -12,7 +12,7 @@ import { disposeFighter, makeFighter, updateFighter } from "./core/fighter";
 import * as Combat from "./core/combat";
 import { FIGHTERS } from "./core/characters";
 import { setupLights, createComposer, type ComposerWrap } from "../lib/visuals";
-import { HUD, hideScreens, showBanner, showHud, updateHud, initHud, loadSettings, showMenu, showSelect, showEnd, showPause, showSettings, updateSelectCursor, pickFighter, toggleSound } from "./core/hud";
+import { HUD, hideScreens, showBanner, showHud, updateHud, initHud, loadSettings, showMenu, showSelect, showEnd, showPause, showSettings, updateSelectCursor, pickFighter, toggleSound, initTouchUI } from "./core/hud";
 import type { FighterCfg, GameStateName } from "./core/types";
 import { loadBest, submitBest } from "../lib/hiscore";
 
@@ -357,6 +357,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   // Test kancası: deterministik maç sonu (diğer savaşçı sıfırlanır)
   (window as unknown as Record<string, unknown>).__nrDbg = {
     state: () => G.state,
+    p1x: () => (G.fighters[0] ? Math.round(G.fighters[0].x * 100) / 100 : null),
+    p1y: () => (G.fighters[0] ? Math.round(G.fighters[0].y * 100) / 100 : null),
+    keys: () => [...Input.keys],
     winMatch: () => { G.fighters[1].wins = 0; G.fighters[0].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
     loseMatch: () => { G.fighters[0].wins = 0; G.fighters[1].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
   };
@@ -393,6 +396,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.parentNode?.insertBefore(wrap, canvas);
   wrap.appendChild(canvas);
   initHud(wrap, canvas);
+  // Dokunmatik cihaz: dövüş butonları + duraklat
+  let nrTouchOff: () => void = () => {};
+  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) nrTouchOff = initTouchUI();
   showMenu();
   spawnDemoFighters();
 
@@ -474,6 +480,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   return () => {
     delete (window as unknown as Record<string, unknown>).__nrDbg;
+    nrTouchOff();
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     window.removeEventListener("pointerdown", unlock);

@@ -115,9 +115,75 @@ export function hideScreens() {
   });
 }
 
+/* ---- Mobil dokunmatik kontroller (yalnız P1; tuşu kimseye bağlasa da
+   mevcut Keybind üzerinden Input'a sentetik kod enjekte eder) ---- */
+const NR_HELD_ACTS: (keyof Keybind)[] = ["left", "right", "crouch", "block"];
+
+export function initTouchUI(): () => void {
+  if (!ui) return () => {};
+  const style = document.createElement("style");
+  style.textContent = `
+.nr-touchui { position:absolute; left:0; right:0; bottom:0; display:none; justify-content:space-between; align-items:flex-end; padding:10px 12px; z-index:9; pointer-events:none; }
+.nr-touchcol { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+.nr-touchcol.right { align-items:flex-end; }
+.nr-touchrow { display:flex; gap:10px; align-items:flex-end; }
+.nr-tbtn { pointer-events:auto; width:62px; height:62px; border-radius:50%; background:rgba(10,8,24,0.55); border:3px solid rgba(122,232,255,0.5); color:#cfefff; font-size:22px; font-weight:800; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; touch-action:none; user-select:none; }
+.nr-tbtn.pressed { background:rgba(122,232,255,0.35); }
+.nr-tbtn.small { width:48px; height:48px; font-size:15px; }
+.nr-tbtn.big { width:76px; height:76px; font-size:16px; letter-spacing:0.5px; }
+.nr-tpause { position:absolute; top:44px; right:8px; width:40px; height:40px; font-size:16px; border-color:rgba(255,255,255,0.35); color:rgba(255,255,255,0.75); }
+`;
+  ui.appendChild(style);
+  const box = document.createElement("div");
+  box.className = "nr-touchui";
+  box.innerHTML = `
+    <div class="nr-touchcol">
+      <div class="nr-touchrow"><div class="nr-tbtn small" data-act="block">🛡</div><div class="nr-tbtn small" data-act="crouch">▼</div></div>
+      <div class="nr-touchrow"><div class="nr-tbtn" data-act="left">◀</div><div class="nr-tbtn" data-act="right">▶</div></div>
+    </div>
+    <div class="nr-touchcol right">
+      <div class="nr-touchrow"><div class="nr-tbtn big" data-act="jump">JUMP</div></div>
+      <div class="nr-touchrow"><div class="nr-tbtn" data-act="light">👊</div><div class="nr-tbtn" data-act="heavy">🦵</div><div class="nr-tbtn" data-act="special">✦</div></div>
+    </div>`;
+  ui.appendChild(box);
+  const pause = document.createElement("div");
+  pause.className = "nr-tbtn nr-tpause";
+  pause.textContent = "⏸";
+  pause.addEventListener("touchstart", (e) => { e.preventDefault(); Input.onPause?.(); }, { passive: false });
+  ui.appendChild(pause);
+
+  box.querySelectorAll<HTMLElement>(".nr-tbtn[data-act]").forEach((btn) => {
+    const act = btn.dataset.act as keyof Keybind;
+    const press = (e: Event) => {
+      e.preventDefault();
+      btn.classList.add("pressed");
+      const code = G.settings.keys[0][act];
+      Input.keys.add(code);
+      Input.pressed.add(code);
+    };
+    const release = (e: Event) => {
+      e.preventDefault();
+      btn.classList.remove("pressed");
+      if (NR_HELD_ACTS.includes(act)) Input.keys.delete(G.settings.keys[0][act]);
+    };
+    btn.addEventListener("touchstart", press, { passive: false });
+    btn.addEventListener("touchend", release, { passive: false });
+    btn.addEventListener("touchcancel", release, { passive: false });
+  });
+  document.body.classList.add("nr-touch");
+  return () => {
+    document.body.classList.remove("nr-touch");
+    box.remove();
+    pause.remove();
+    style.remove();
+  };
+}
+
 export function showHud(v: boolean) {
   const el = $id("hud");
   if (el) el.style.display = v ? "block" : "none";
+  const t = ui?.querySelector<HTMLElement>(".nr-touchui");
+  if (t) t.style.display = v ? "flex" : "none";
 }
 
 export function showMenu() {
