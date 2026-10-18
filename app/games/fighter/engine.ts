@@ -1658,6 +1658,9 @@ function hideScreens() {
 function showHud(v: boolean) {
   const el = $id("hud");
   if (el) el.style.display = v ? "block" : "none";
+
+  const t = document.querySelector<HTMLElement>(".ft-touchui");
+  if (t) t.style.display = v ? "flex" : "none";
 }
 
 const CSS = `
@@ -1728,6 +1731,69 @@ function updateBestLine() {
   if (!el) return;
   const w = loadBest("fighter");
   el.textContent = w !== null && w > 0 ? `🏆 Toplam galibiyetin: ${w}` : "";
+}
+
+/* ---- Mobil dokunmatik dövüş kontrolleri (P1): mevcut P1 tuş haritası
+   üzerinden Input'a sentetik kod enjekte eder (Neon Rivals deseni). ---- */
+const FT_HELD = ["left", "right", "block"] as const;
+
+function buildFtTouchUI(wrap: HTMLDivElement): () => void {
+  const style = document.createElement("style");
+  style.textContent = `
+.ft-touchui { position:absolute; left:0; right:0; bottom:0; display:none; justify-content:space-between; align-items:flex-end; padding:10px 12px; z-index:9; pointer-events:none; }
+.ft-touchcol { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+.ft-touchcol.right { align-items:flex-end; }
+.ft-touchrow { display:flex; gap:10px; align-items:flex-end; }
+.ft-tbtn { pointer-events:auto; width:62px; height:62px; border-radius:50%; background:rgba(24,8,12,0.55); border:3px solid rgba(255,106,74,0.55); color:#ffd9c9; font-size:22px; font-weight:800; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; touch-action:none; user-select:none; }
+.ft-tbtn.pressed { background:rgba(255,106,74,0.4); }
+.ft-tbtn.small { width:48px; height:48px; font-size:15px; }
+.ft-tbtn.big { width:76px; height:76px; font-size:16px; letter-spacing:0.5px; }
+.ft-tpause { position:absolute; top:44px; right:8px; width:40px; height:40px; font-size:16px; border-color:rgba(255,255,255,0.35); color:rgba(255,255,255,0.75); }
+`;
+  wrap.appendChild(style);
+  const box = document.createElement("div");
+  box.className = "ft-touchui";
+  box.innerHTML = `
+    <div class="ft-touchcol">
+      <div class="ft-touchrow"><div class="ft-tbtn small" data-act="block">🛡</div></div>
+      <div class="ft-touchrow"><div class="ft-tbtn" data-act="left">◀</div><div class="ft-tbtn" data-act="right">▶</div></div>
+    </div>
+    <div class="ft-touchcol right">
+      <div class="ft-touchrow"><div class="ft-tbtn big" data-act="jump">JUMP</div></div>
+      <div class="ft-touchrow"><div class="ft-tbtn" data-act="punch">👊</div><div class="ft-tbtn" data-act="kick">🦵</div><div class="ft-tbtn" data-act="special">✦</div></div>
+    </div>`;
+  wrap.appendChild(box);
+  const pause = document.createElement("div");
+  pause.className = "ft-tbtn ft-tpause";
+  pause.textContent = "⏸";
+  pause.addEventListener("touchstart", (e) => { e.preventDefault(); Input.onPause?.(); }, { passive: false });
+  wrap.appendChild(pause);
+
+  box.querySelectorAll<HTMLElement>(".ft-tbtn[data-act]").forEach((btn) => {
+    const act = btn.dataset.act as keyof typeof P1;
+    const code = P1[act];
+    const press = (e: Event) => {
+      e.preventDefault();
+      btn.classList.add("pressed");
+      Input.keys.add(code);
+      Input.pressed.add(code);
+    };
+    const release = (e: Event) => {
+      e.preventDefault();
+      btn.classList.remove("pressed");
+      if ((FT_HELD as readonly string[]).includes(act)) Input.keys.delete(code);
+    };
+    btn.addEventListener("touchstart", press, { passive: false });
+    btn.addEventListener("touchend", release, { passive: false });
+    btn.addEventListener("touchcancel", release, { passive: false });
+  });
+  document.body.classList.add("ft-touch");
+  return () => {
+    document.body.classList.remove("ft-touch");
+    box.remove();
+    pause.remove();
+    style.remove();
+  };
 }
 
 function buildUI(wrapEl: HTMLDivElement) {
@@ -2203,10 +2269,16 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   canvas.parentNode?.insertBefore(wrap, canvas);
   wrap.appendChild(canvas);
   buildUI(wrap);
+  // Dokunmatik cihaz: dövüş butonları + duraklat
+  let ftTouchOff: () => void = () => {};
+  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) ftTouchOff = buildFtTouchUI(wrap);
 
   // Test kancası: maç sonunu tetikle (headless rekor doğrulama)
   (window as unknown as Record<string, unknown>).__ftDbg = {
     state: () => G.state,
+    p1x: () => (G.fighters[0] ? Math.round(G.fighters[0].x * 100) / 100 : null),
+    p1y: () => (G.fighters[0] ? Math.round(G.fighters[0].y * 100) / 100 : null),
+    keys: () => [...Input.keys],
     winMatch: () => { G.fighters[1].wins = 0; G.fighters[0].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
     loseMatch: () => { G.fighters[0].wins = 0; G.fighters[1].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
   };
@@ -2243,8 +2315,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   Input.init(
     () => {
-      // pause toggle
-      if (G.state === "fight") {
+      // pause toggle (intro sırasında da duraklatılabilir — mobil ⏸ için şart)
+      if (G.state === "fight" || G.state === "intro") {
         G.state = "paused";
         const el = $id("pause");
         if (el) el.style.display = "flex";
@@ -2262,6 +2334,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   return () => {
     delete (window as unknown as Record<string, unknown>).__ftDbg;
+    ftTouchOff();
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     window.removeEventListener("pointerdown", unlock);
