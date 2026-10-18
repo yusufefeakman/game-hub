@@ -11,6 +11,8 @@
      startGame(canvas) -> () => void   (returns a stop/cleanup function)
    ===================================================================== */
 
+import { loadBest, submitBest } from "../../lib/hiscore";
+
 /* ================= 1. SETUP & CONSTANTS ================= */
 const W = 960;
 const H = 540;
@@ -554,8 +556,10 @@ const game = {
         if (roundCount >= TOURNAMENT_SIZE) {
           this.state = "victory";
           AudioSys.victory();
+          const r = submitBest("anime-legends", this.score);
           const el = document.getElementById("final-stats-v");
-          if (el) el.innerHTML = `Champion! &nbsp; Score: ${this.score}`;
+          if (el) el.innerHTML = `Champion! &nbsp; Score: ${this.score}` +
+            (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : ` &nbsp; Rekor: ${r.best}`);
           show("screen-victory");
         } else {
           // heal 35% between rounds
@@ -566,8 +570,10 @@ const game = {
       } else {
         this.state = "gameover";
         AudioSys.gameover();
+        const r = submitBest("anime-legends", this.score);
         const el = document.getElementById("final-stats");
-        if (el) el.innerHTML = `Rounds won: ${roundCount} &nbsp; Score: ${this.score}`;
+        if (el) el.innerHTML = `Rounds won: ${roundCount} &nbsp; Score: ${this.score}` +
+          (r.best > 0 ? (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : ` &nbsp; Rekor: ${r.best}`) : "");
         show("screen-gameover");
       }
     }, 1400);
@@ -1132,7 +1138,13 @@ function buildOverlayUI(container: HTMLElement) {
     <div class="keys">
       <b>A/D or &#8592;/&#8594;</b> move &nbsp; &middot; &nbsp; <b>W/Space</b> jump &nbsp; &middot; &nbsp; <b>Q/E</b> dash<br>
       <b>J / K / L</b> moves 1-2-3 &nbsp; &middot; &nbsp; <b>U</b> ultimate &nbsp; &middot; &nbsp; <b>P</b> pause &nbsp; &middot; &nbsp; <b>M</b> mute
-    </div>`);
+    </div>
+    <div id="al-start-best" style="margin-top:10px;font-size:clamp(14px,2.4vw,18px);color:#ffd700"></div>`);
+  {
+    const sb = document.getElementById("al-start-best");
+    const b = loadBest("anime-legends");
+    if (sb && b !== null && b > 0) sb.textContent = `🏆 Rekor skor: ${b}`;
+  }
 
   mk("screen-select", `
     <h2 style="margin-bottom:2px">CHOOSE YOUR FIGHTER</h2>
@@ -1217,6 +1229,16 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   wrap.appendChild(canvas);
   buildOverlayUI(wrap);
 
+  // Test kancası: skor + roundEnd tetikleme (headless rekor doğrulama)
+  (window as unknown as Record<string, unknown>).__alDbg = {
+    state: () => game.state,
+    score: () => game.score,
+    setScore: (n: number) => { game.score = n; },
+    winRound: () => game.roundEnd(player, enemy),
+    winTournament: () => { roundCount = TOURNAMENT_SIZE - 1; game.roundEnd(player, enemy); },
+    loseRound: () => game.roundEnd(enemy, player),
+  };
+
   const resize = () => {
     const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
     canvas.style.width = W * scale + "px";
@@ -1239,6 +1261,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   raf = requestAnimationFrame(loop);
 
   return () => {
+    delete (window as unknown as Record<string, unknown>).__alDbg;
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     wrap.remove();

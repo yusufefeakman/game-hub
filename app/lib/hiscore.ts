@@ -67,6 +67,8 @@ export function getArcadeBests(): Record<string, string> {
   put("candy-burst", rawKey("candy-burst-best"));
   put("astro-blaster", rawKey("astro-blaster-best"));
   put("doping-runner", rawKey("doping-best"), (n) => `${numFmt.format(Math.round(n))} m`);
+  put("anime-legends", rawKey("hub-best:anime-legends"));
+  put("fighter", rawKey("hub-best:fighter"), (n) => `${numFmt.format(Math.round(n))} galibiyet`);
   // süre tabanlı (küçük iyi)
   put("powerboat", rawKey("hub-best:powerboat"), secs);
   put("akil-kupu", rawKey("akilkupu_best"), secs);

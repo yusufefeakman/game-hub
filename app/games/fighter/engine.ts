@@ -14,6 +14,7 @@
    ===================================================================== */
 import * as THREE from "three";
 import { buildHumanoid, setupLights, createComposer, type HumanoidPalette, type ComposerWrap } from "../../lib/visuals";
+import { loadBest, submitBest } from "../../lib/hiscore";
 
 /* ================= 1. CONSTANTS ================= */
 const ARENA_HALF = 7.6;      // walkable x range
@@ -1721,6 +1722,14 @@ const CSS = `
 .ft-pause-title { font-size:44px; font-weight:900; letter-spacing:8px; text-shadow:0 0 24px rgba(255,90,30,0.7); margin-bottom:18px; }
 `;
 
+// menüdeki galibiyet rekoru satırı (modül kapsağı: toMenu da çağırır)
+function updateBestLine() {
+  const el = document.getElementById("ft-menu-best");
+  if (!el) return;
+  const w = loadBest("fighter");
+  el.textContent = w !== null && w > 0 ? `🏆 Toplam galibiyetin: ${w}` : "";
+}
+
 function buildUI(wrapEl: HTMLDivElement) {
   ui = document.createElement("div");
   ui.id = "ft-ui";
@@ -1754,6 +1763,7 @@ function buildUI(wrapEl: HTMLDivElement) {
   <button class="ft-btn" id="ft-btn-1p">⚔ 1 OYUNCU — BİLGİSAYARA KARŞI</button>
   <button class="ft-btn" id="ft-btn-2p">👥 2 OYUNCU — YEREL</button>
   <button class="ft-btn ghost small" id="ft-btn-mute-menu">🔊 SES: AÇIK</button>
+  <div id="ft-menu-best" style="font-size:13px;letter-spacing:2px;color:#ffd9a0"></div>
   <div class="ft-keys">
     <b>P1:</b> A/D hareket · W zıpla · S blok · J yumruk · K tekme · L özel saldırı<br>
     <b>P2:</b> ←/→ hareket · ↑ zıpla · ↓ blok · 1 yumruk · 2 tekme · 3 özel saldırı<br>
@@ -1784,6 +1794,8 @@ function buildUI(wrapEl: HTMLDivElement) {
 </div>
 `;
   wrapEl.appendChild(ui);
+
+  updateBestLine();
 
   // wire buttons
   const on = (id: string, fn: () => void) => {
@@ -1908,6 +1920,7 @@ function toMenu() {
   showHud(false);
   const el = $id("menu");
   if (el) el.style.display = "flex";
+  updateBestLine();
   // reset lingering fighters visually
   G.fighters.forEach((f) => {
     f.root.rotation.z = 0;
@@ -2002,8 +2015,19 @@ function update(dt: number, rdt: number) {
           nm.textContent = winner.cfg.name;
           nm.style.color = "#" + winner.cfg.colors.primary.toString(16).padStart(6, "0");
         }
+        // Rekor: 1P modunda CPU'ya karşı toplam galibiyet sayacı
+        let winsLine = "";
+        if (G.mode === "1p") {
+          if (winner.idx === 0) {
+            const r = submitBest("fighter", (loadBest("fighter") ?? 0) + 1);
+            winsLine = ` · 🏆 Toplam galibiyet: ${r.best}`;
+          } else {
+            const prev = loadBest("fighter") ?? 0;
+            if (prev > 0) winsLine = ` · Rekor: ${prev} galibiyet`;
+          }
+        }
         const sb = $id("end-sub");
-        if (sb) sb.textContent = winner.cfg.title + " — " + winner.wins + " tur kazandı!";
+        if (sb) sb.textContent = winner.cfg.title + " — " + winner.wins + " tur kazandı!" + winsLine;
       } else {
         startRound(G.round + 1);
       }
@@ -2180,6 +2204,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   wrap.appendChild(canvas);
   buildUI(wrap);
 
+  // Test kancası: maç sonunu tetikle (headless rekor doğrulama)
+  (window as unknown as Record<string, unknown>).__ftDbg = {
+    state: () => G.state,
+    winMatch: () => { G.fighters[1].wins = 0; G.fighters[0].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
+    loseMatch: () => { G.fighters[0].wins = 0; G.fighters[1].wins = WINS_NEEDED; G.state = "roundEnd"; G.roundEndT = 0.05; },
+  };
+
   const resize = () => {
     const scale = Math.min(window.innerWidth / 960, window.innerHeight / 540);
     canvas.style.width = 960 * scale + "px";
@@ -2230,6 +2261,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   raf = requestAnimationFrame(loop);
 
   return () => {
+    delete (window as unknown as Record<string, unknown>).__ftDbg;
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
     window.removeEventListener("pointerdown", unlock);
