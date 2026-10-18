@@ -9,6 +9,7 @@
      startGame(canvas) -> () => void   (returns a stop/cleanup function)
    ===================================================================== */
 import * as THREE from "three";
+import { loadBest, submitBest } from "../../lib/hiscore";
 
 /* ================= 1. CONSTANTS ================= */
 const ARENA = 220;             // playable half-size (square bounds)
@@ -1649,7 +1650,11 @@ const game = {
     MusicSys.stop();
     AudioSys.gameover();
     const el = document.getElementById("pb-stats");
-    if (el) el.innerHTML = `Süre: ${(this.time + this.penalty).toFixed(1)}s &nbsp; Kontrol Noktası: ${this.checkpointsPassed}/${this.totalCheckpoints}`;
+    if (el) {
+      const b = loadBest("powerboat", "low");
+      el.innerHTML = `Süre: ${(this.time + this.penalty).toFixed(1)}s &nbsp; Kontrol Noktası: ${this.checkpointsPassed}/${this.totalCheckpoints}` +
+        (b !== null ? ` &nbsp; 🏆 Rekor süre: ${b}s` : "");
+    }
     show("pb-screen-gameover");
   },
   levelComplete() {
@@ -1683,8 +1688,11 @@ const game = {
     MusicSys.stop();
     AudioSys.victory();
     const total = this.time + this.penalty;
+    const rt = Math.round(total * 10) / 10;
+    const r = submitBest("powerboat", rt, "low");
     const el = document.getElementById("pb-stats-v");
-    if (el) el.innerHTML = `Final Süre: ${total.toFixed(1)}s (ceza +${this.penalty.toFixed(1)}s) &nbsp; Sıra: P${this.position}/${RIVAL_COUNT + 1}`;
+    if (el) el.innerHTML = `Final Süre: ${total.toFixed(1)}s (ceza +${this.penalty.toFixed(1)}s) &nbsp; Sıra: P${this.position}/${RIVAL_COUNT + 1}` +
+      (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : ` &nbsp; Rekor: ${r.best}s`);
     show("pb-screen-victory");
   },
   update(dt: number) {
@@ -2025,7 +2033,11 @@ function buildOverlayUI(container: HTMLElement) {
     <div class="keys">
       <b>W / &#8593;</b> gaz &nbsp; <b>S / &#8595;</b> fren &nbsp; <b>A D / &#8592; &#8594;</b> direksiyon<br>
       <b>Space</b> nitro &nbsp; <b>P</b> duraklat &nbsp; <b>R</b> yeniden başlat &nbsp; <b>M</b> ses kapat
-    </div>`);
+    </div>
+    <div class="pb-stats" id="pb-start-best" style="margin-top:14px"></div>`);
+  const sb = document.getElementById("pb-start-best");
+  const bestRace = loadBest("powerboat", "low");
+  if (sb && bestRace !== null) sb.textContent = `🏆 En iyi yarış süresi: ${bestRace}s`;
 
   mk("pb-screen-pause", `
     <h2>DURAKLATILDI</h2>
@@ -2234,6 +2246,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   wrap.appendChild(canvas);
   buildOverlayUI(wrap);
 
+  // Test kancası: oyun nesnesi + rekor yardımcıları (headless doğrulama)
+  (window as unknown as Record<string, unknown>).__pbDbg = {
+    state: () => game.state,
+    time: () => Math.round((game.time + game.penalty) * 10) / 10,
+    gameOver: () => game.gameOver(),
+    victory: () => game.victory(),
+  };
+
   const resize = () => {
     const scale = Math.min(window.innerWidth / 960, window.innerHeight / 540);
     canvas.style.width = 960 * scale + "px";
@@ -2264,6 +2284,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   return () => {
     cancelAnimationFrame(raf);
     if (levelBannerTimer !== 0) { clearTimeout(levelBannerTimer); levelBannerTimer = 0; }
+    delete (window as unknown as Record<string, unknown>).__pbDbg;
     window.removeEventListener("resize", resize);
     Input.cleanup();
     AudioSys.stopEngine();

@@ -9,6 +9,7 @@
    ===================================================================== */
 
 import { saveScore } from "../../lib/auth";
+import { loadBest, submitBest } from "../../lib/hiscore";
 
 /* ================= 1. SETUP & CONSTANTS ================= */
 const W = 960;
@@ -962,7 +963,11 @@ const game = {
     saveScore("pixel-pals", this.score);
     AudioSys.gameover();
     const el = document.getElementById("final-stats");
-    if (el) el.innerHTML = `Score: ${this.score} &nbsp; Coins: ${this.coins}`;
+    if (el) {
+      const r = submitBest("pixel-pals", this.score);
+      el.innerHTML = `Score: ${this.score} &nbsp; Coins: ${this.coins}` +
+        (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : r.best > 0 ? ` &nbsp; Rekor: ${r.best}` : "");
+    }
     show("screen-gameover");
   },
   victory() {
@@ -972,7 +977,11 @@ const game = {
     this.score += bonus;
     saveScore("pixel-pals", this.score);
     const el = document.getElementById("final-stats-v");
-    if (el) el.innerHTML = `Score: ${this.score} (time bonus +${bonus}) &nbsp; Coins: ${this.coins} &nbsp; Lives left: ${this.lives}`;
+    if (el) {
+      const r = submitBest("pixel-pals", this.score);
+      el.innerHTML = `Score: ${this.score} (time bonus +${bonus}) &nbsp; Coins: ${this.coins} &nbsp; Lives left: ${this.lives}` +
+        (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : ` &nbsp; Rekor: ${r.best}`);
+    }
     show("screen-victory");
   },
   addMessage(text: string, x: number, y: number, big = false) { messages.push({ text, x, y, t: 0, big }); },
@@ -1880,7 +1889,13 @@ function buildOverlayUI(container: HTMLElement) {
     <div class="keys">
       <b>&#8592;/&#8594; or A/D</b> move &nbsp; &middot; &nbsp; <b>Space / W / &#8593;</b> jump (hold = higher)<br>
       <b>P</b> pause &nbsp; &middot; &nbsp; <b>M</b> mute &nbsp; &middot; &nbsp; touch controls on mobile
-    </div>`);
+    </div>
+    <div id="pp-start-best" style="margin-top:10px;font-size:clamp(14px,2.2vw,18px);color:#ffd23f"></div>`);
+  {
+    const sb = document.getElementById("pp-start-best");
+    const b = loadBest("pixel-pals");
+    if (sb && b !== null && b > 0) sb.textContent = `🏆 Rekor skor: ${b}`;
+  }
 
   mk("screen-pause", `
     <h2>PAUSED</h2>
@@ -1949,6 +1964,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   wrap.appendChild(canvas);
   buildOverlayUI(wrap);
 
+  // Test kancası: skor + gameOver/victory tetikleme (headless rekor doğrulama)
+  (window as unknown as Record<string, unknown>).__ppDbg = {
+    state: () => game.state,
+    score: () => game.score,
+    setScore: (n: number) => { game.score = n; },
+    over: () => game.gameOver(),
+    vic: () => game.victory(),
+  };
+
   // Fit canvas to window while keeping aspect ratio
   const resize = () => {
     const fit = Math.min(window.innerWidth / W, window.innerHeight / H);
@@ -1993,6 +2017,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   return () => {
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
+    delete (window as unknown as Record<string, unknown>).__ppDbg;
     wrap.remove();
     document.body.classList.remove("touch");
   };

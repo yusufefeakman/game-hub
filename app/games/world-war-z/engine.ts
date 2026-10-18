@@ -10,6 +10,7 @@
      startGame(canvas) -> () => void   (returns a stop/cleanup function)
    ===================================================================== */
 import * as THREE from "three";
+import { loadBest, submitBest } from "../../lib/hiscore";
 
 /* ================= 1. CONSTANTS ================= */
 const ARENA = 60;            // arena half-size (playable square: -60..60)
@@ -419,7 +420,11 @@ const game = {
     this.hitMarkerT = 0;
     AudioSys.playerHurt();
     const el = document.getElementById("wwz-stats");
-    if (el) el.innerHTML = `Score: ${this.score} &nbsp; Waves: ${this.wave} &nbsp; Zombies: ${this.zombiesKilled}`;
+    if (el) {
+      const r = submitBest("world-war-z", this.score);
+      el.innerHTML = `Score: ${this.score} &nbsp; Waves: ${this.wave} &nbsp; Zombies: ${this.zombiesKilled}` +
+        (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : r.best > 0 ? ` &nbsp; Rekor: ${r.best}` : "");
+    }
     closeInventory(); // hide the inventory panel on gameover
     show("wwz-screen-gameover");
     updateHUD();
@@ -430,7 +435,11 @@ const game = {
     this.hitMarkerT = 0;
     AudioSys.victory();
     const el = document.getElementById("wwz-victory-stats");
-    if (el) el.innerHTML = `Score: ${this.score} &nbsp; Waves: ${this.wave} &nbsp; Zombies: ${this.zombiesKilled}`;
+    if (el) {
+      const r = submitBest("world-war-z", this.score);
+      el.innerHTML = `Score: ${this.score} &nbsp; Waves: ${this.wave} &nbsp; Zombies: ${this.zombiesKilled}` +
+        (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : ` &nbsp; Rekor: ${r.best}`);
+    }
     closeInventory(); // hide the inventory panel on victory
     show("wwz-screen-victory");
     updateHUD();
@@ -1862,7 +1871,13 @@ function buildOverlayUI(container: HTMLElement) {
       <b>WASD / Arrows</b> move &nbsp; &middot; &nbsp; <b>Mouse</b> aim &nbsp; &middot; &nbsp; <b>Click</b> shoot<br>
       <b>Space</b> jump &nbsp; &middot; &nbsp; <b>R</b> reload &nbsp; &middot; &nbsp; <b>1-5 / Wheel</b> weapons &nbsp; &middot; &nbsp; <b>Q</b> medkit<br>
       <b>Tab / B</b> inventory &nbsp; &middot; &nbsp; <b>M</b> mute
-    </div>`);
+    </div>
+    <div class="wwz-stats" id="wwz-start-best" style="margin-top:10px"></div>`);
+  {
+    const sb = document.getElementById("wwz-start-best");
+    const b = loadBest("world-war-z");
+    if (sb && b !== null && b > 0) sb.textContent = `🏆 Rekor skor: ${b}`;
+  }
 
   mk("wwz-screen-gameover", `
     <h1>YOU DIED</h1>
@@ -1990,6 +2005,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     px: Math.round(player.position.x * 10) / 10,
     pz: Math.round(player.position.z * 10) / 10,
     yaw: Math.round(yaw * 1000) / 1000,
+    over: () => game.gameOver(),
+    vic: () => game.victory(),
+    addScore: (n: number) => { game.score += n; return game.score; },
   });
 
   // Cached fx elements (toggled per-frame below)

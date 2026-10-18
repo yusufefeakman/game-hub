@@ -9,6 +9,8 @@
    ===================================================================== */
 
 /* ================= 1. SETUP & CONSTANTS ================= */
+import { loadBest, submitBest } from "../../lib/hiscore";
+
 const W = 900;
 const H = 600;
 
@@ -21,6 +23,8 @@ const MAX_FALL = 16;
 
 const START_LIVES = 3;
 const FINAL_LEVEL = 30; // 30. bölümdeki final boss'u yenince oyun biter
+let bestScore = loadBest("lets-world") ?? 0;
+let newRecord = false;
 
 /* ================= 2. AUDIO (Web Audio, synthesized) ================= */
 const AudioSys = {
@@ -687,6 +691,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     spawnParticles(player.x + player.w / 2, player.y + player.h / 2, 15, "#ff4444", 5);
 
     if (game.lives <= 0) {
+      const r = submitBest("lets-world", game.score);
+      bestScore = r.best; newRecord = r.isNew;
       game.state = "gameover";
       game.stateTimer = 0;
       AudioSys.stopMusic();
@@ -909,6 +915,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
             if (game.level >= FINAL_LEVEL) {
               AudioSys.stopMusic();
               AudioSys.win();
+              const r = submitBest("lets-world", game.score);
+              bestScore = r.best; newRecord = r.isNew;
               game.state = "win";
               game.stateTimer = 0;
             } else {
@@ -1729,6 +1737,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "16px Arial";
     ctx.fillStyle = "#ffd700";
     ctx.fillText("🎯 Görev: 30 bölümü aş, 👑 Ultimate Boss'u ez!", W / 2, H / 2 + 75);
+    if (bestScore > 0) {
+      ctx.fillStyle = "#69dbff";
+      ctx.fillText(`🏆 Rekor: ${bestScore} puan`, W / 2, H / 2 + 105);
+    }
     ctx.fillText("🪙 Jetonları topla, düşmanlardan kaç!", W / 2, H / 2 + 70);
     ctx.fillText("💀 Her 10 bölümde BOSS savaşı!", W / 2, H / 2 + 100);
 
@@ -1789,6 +1801,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "24px Arial";
     ctx.fillStyle = "#fff";
     ctx.fillText(`Skor: ${game.score}  |  Bölüm: ${game.level}  |  🪙 ${game.coins}`, W / 2, H / 2 + 20);
+    if (newRecord) {
+      ctx.fillStyle = "#ffd700";
+      ctx.font = "bold 24px Arial";
+      ctx.fillText(`🏆 YENİ REKOR: ${game.score}!`, W / 2, H / 2 + 52);
+    } else if (bestScore > 0) {
+      ctx.fillStyle = "#ffd700";
+      ctx.font = "20px Arial";
+      ctx.fillText(`Rekor: ${bestScore}`, W / 2, H / 2 + 52);
+    }
     const alpha = 0.5 + Math.sin(game.time * 0.06) * 0.5;
     ctx.globalAlpha = alpha;
     ctx.font = "bold 22px Arial";
@@ -1825,6 +1846,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     ctx.font = "22px Arial";
     ctx.fillStyle = "#ffd700";
     ctx.fillText(`Final Skoru: ${game.score}  |  🪙 ${game.coins}  |  ❤️ ${game.lives}`, W / 2, H / 2 + 40);
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "bold 22px Arial";
+    ctx.fillText(newRecord ? `🏆 YENİ REKOR: ${game.score}!` : `Rekor: ${bestScore}`, W / 2, H / 2 + 70);
     const alpha2 = 0.5 + Math.sin(tNow * 0.06) * 0.5;
     ctx.globalAlpha = alpha2;
     ctx.font = "bold 22px Arial";
@@ -1950,6 +1974,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     hurtBoss: () => { if (boss && boss.alive) boss.hp--; return boss ? boss.hp : null; },
     toBossRoom: () => { if (boss) player.x = boss.x - 60; return player.x; },
     stomp: () => { if (boss && boss.alive) { player.x = boss.x + boss.w / 2 - player.w / 2; player.y = boss.y - player.h - 14; player.vy = 6; } return boss ? boss.hp : null; },
+    forceOver: () => { for (let i = 0; i < 10 && game.state === "playing"; i++) { player.invincible = 0; loseLife(); } return game.state; },
+    setScore: (n: number) => { game.score = n; },
   });
 
   // --- Cleanup ---
