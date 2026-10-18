@@ -54,11 +54,11 @@ interface WeaponDef {
   splash?: number;     // blast radius (m) — rockets detonate on impact/timeout
 }
 const WEAPONS: WeaponDef[] = [
-  { name: "RIFLE",   fireRate: 0.18, magSize: 30, reloadTime: 1.6, pellets: 1, spread: 0.012, damage: 1, bulletSpeed: 90,  bulletLife: 2,    tracerColor: 0xffdd44, flashColor: 0xffaa33, flashIntensity: 3, flashDur: 0.06, reserveMax: Infinity, recoil: 0.05 },
-  { name: "SHOTGUN", fireRate: 0.9,  magSize: 8,  reloadTime: 2.2, pellets: 8, spread: 0.1,   damage: 1, bulletSpeed: 75,  bulletLife: 0.35, tracerColor: 0xffaa66, flashColor: 0xff7722, flashIntensity: 5, flashDur: 0.09, reserveMax: 40,       recoil: 0.14 },
-  { name: "SNIPER",  fireRate: 1.2,  magSize: 5,  reloadTime: 2.4, pellets: 1, spread: 0.002, damage: 3, bulletSpeed: 160, bulletLife: 1.2,  tracerColor: 0x66ddff, flashColor: 0x88ccff, flashIntensity: 6, flashDur: 0.1,  reserveMax: 24,       recoil: 0.2 },
-  { name: "SMG",     fireRate: 0.08, magSize: 40, reloadTime: 1.5, pellets: 1, spread: 0.03,  damage: 1, bulletSpeed: 80,  bulletLife: 1.6,  tracerColor: 0xffee77, flashColor: 0xffbb44, flashIntensity: 2.5, flashDur: 0.05, reserveMax: 200,      recoil: 0.04 },
-  { name: "ROCKET",  fireRate: 1.8,  magSize: 1,  reloadTime: 2.8, pellets: 1, spread: 0,     damage: 3, bulletSpeed: 45,  bulletLife: 3,    tracerColor: 0xff8833, flashColor: 0xff6622, flashIntensity: 5, flashDur: 0.12, reserveMax: 12,       recoil: 0.25, splash: 4 },
+  { name: "TÜFEK",   fireRate: 0.18, magSize: 30, reloadTime: 1.6, pellets: 1, spread: 0.012, damage: 1, bulletSpeed: 90,  bulletLife: 2,    tracerColor: 0xffdd44, flashColor: 0xffaa33, flashIntensity: 3, flashDur: 0.06, reserveMax: Infinity, recoil: 0.05 },
+  { name: "POMPALI", fireRate: 0.9,  magSize: 8,  reloadTime: 2.2, pellets: 8, spread: 0.1,   damage: 1, bulletSpeed: 75,  bulletLife: 0.35, tracerColor: 0xffaa66, flashColor: 0xff7722, flashIntensity: 5, flashDur: 0.09, reserveMax: 40,       recoil: 0.14 },
+  { name: "NİŞANCI",  fireRate: 1.2,  magSize: 5,  reloadTime: 2.4, pellets: 1, spread: 0.002, damage: 3, bulletSpeed: 160, bulletLife: 1.2,  tracerColor: 0x66ddff, flashColor: 0x88ccff, flashIntensity: 6, flashDur: 0.1,  reserveMax: 24,       recoil: 0.2 },
+  { name: "MK",     fireRate: 0.08, magSize: 40, reloadTime: 1.5, pellets: 1, spread: 0.03,  damage: 1, bulletSpeed: 80,  bulletLife: 1.6,  tracerColor: 0xffee77, flashColor: 0xffbb44, flashIntensity: 2.5, flashDur: 0.05, reserveMax: 200,      recoil: 0.04 },
+  { name: "ROKETAR",  fireRate: 1.8,  magSize: 1,  reloadTime: 2.8, pellets: 1, spread: 0,     damage: 3, bulletSpeed: 45,  bulletLife: 3,    tracerColor: 0xff8833, flashColor: 0xff6622, flashIntensity: 5, flashDur: 0.12, reserveMax: 12,       recoil: 0.25, splash: 4 },
 ];
 
 /* Zombie variants: walker (default), runner (fast/weak), brute (slow/tanky) */
@@ -389,8 +389,8 @@ const game = {
   },
   useMedkit() {
     if (this.state !== "playing") return;
-    if (this.medkits <= 0) { AudioSys.empty(); pickupMsg("NO MEDKITS LEFT"); return; }
-    if (this.hp >= 100) { pickupMsg("HP ALREADY FULL"); return; }
+    if (this.medkits <= 0) { AudioSys.empty(); pickupMsg("SAĞLIK ÇANTASI KALMADI"); return; }
+    if (this.hp >= 100) { pickupMsg("CAN ZATEN DOLU"); return; }
     this.medkits--;
     this.hp = Math.min(100, this.hp + MEDKIT_HEAL);
     AudioSys.medkit();
@@ -762,10 +762,10 @@ const tmpSkyA = new THREE.Color(), tmpSkyB = new THREE.Color(); // sky/sun color
 interface SkyKey { label: string; sky: number; sun: number; sunI: number; hemiI: number; ambI: number; night: number; }
 // Keyframes around the cycle: t=0 dawn -> day -> dusk -> night -> wraps back to dawn
 const SKY_KEYS: SkyKey[] = [
-  { label: "DAWN",  sky: 0x5a3a4a, sun: 0xff9a66, sunI: 0.55, hemiI: 0.7,  ambI: 0.9,  night: 0.3 },
-  { label: "DAY",   sky: 0x87a6c8, sun: 0xfff2cc, sunI: 1.0,  hemiI: 1.0,  ambI: 1.2,  night: 0 },
-  { label: "DUSK",  sky: 0x4a2a3a, sun: 0xff6644, sunI: 0.45, hemiI: 0.6,  ambI: 0.8,  night: 0.5 },
-  { label: "NIGHT", sky: 0x0d0d1e, sun: 0x8899ff, sunI: 0.3,  hemiI: 0.35, ambI: 0.5,  night: 1 },
+  { label: "ŞAFAK",  sky: 0x5a3a4a, sun: 0xff9a66, sunI: 0.55, hemiI: 0.7,  ambI: 0.9,  night: 0.3 },
+  { label: "GÜNDÜZ",   sky: 0x87a6c8, sun: 0xfff2cc, sunI: 1.0,  hemiI: 1.0,  ambI: 1.2,  night: 0 },
+  { label: "ALACAKARANLIK",  sky: 0x4a2a3a, sun: 0xff6644, sunI: 0.45, hemiI: 0.6,  ambI: 0.8,  night: 0.5 },
+  { label: "GECE", sky: 0x0d0d1e, sun: 0x8899ff, sunI: 0.3,  hemiI: 0.35, ambI: 0.5,  night: 1 },
 ];
 
 function updateDayNight() {
@@ -1581,17 +1581,17 @@ function applyPickup(kind: PickupKind) {
     const wasOwned = game.weapons[wi].owned;
     game.weapons[wi].owned = true;
     game.weapons[wi].reserve = Math.min(WEAPONS[wi].reserveMax, game.weapons[wi].reserve + WEAPONS[wi].magSize * 3);
-    if (!wasOwned) { game.switchWeapon(wi); pickupMsg(`PICKED UP ${WEAPONS[wi].name} — PRESS ${wi + 1}`); }
-    else pickupMsg(`+${WEAPONS[wi].magSize * 3} ${WEAPONS[wi].name} AMMO`);
+    if (!wasOwned) { game.switchWeapon(wi); pickupMsg(`ALINDI: ${WEAPONS[wi].name} — ${wi + 1} TUŞUNA BAS`); }
+    else pickupMsg(`+${WEAPONS[wi].magSize * 3} ${WEAPONS[wi].name} MERMİ`);
   } else if (kind === "ammo") {
     for (let i = 0; i < WEAPONS.length; i++) {
       if (game.weapons[i].owned) game.weapons[i].reserve = Math.min(WEAPONS[i].reserveMax, game.weapons[i].reserve + WEAPONS[i].magSize * 2);
     }
-    pickupMsg("+AMMO FOR ALL WEAPONS");
+    pickupMsg("TÜM SİLAHLARA MERMİ");
   } else {
     // Health crates now hand out a medkit instead of healing instantly
     game.medkits = Math.min(MEDKIT_MAX, game.medkits + 1);
-    pickupMsg("+MEDKIT");
+    pickupMsg("+SAĞLIK ÇANTASI");
   }
   updateHUD();
 }
@@ -1779,13 +1779,13 @@ function buildOverlayUI(container: HTMLElement) {
       <span id="wwz-hp-num">100</span>
     </div>
     <div class="wwz-hud-box">
-      <span>WAVE <span id="wwz-wave">0/5</span></span>
-      <span>SCORE <span id="wwz-score">0</span></span>
+      <span>DALGA <span id="wwz-wave">0/5</span></span>
+      <span>SKOR <span id="wwz-score">0</span></span>
       <span id="wwz-level">BÖLÜM 1 — YIKIK ŞEHİR</span>
       <span id="wwz-daynight" class="wwz-daynight">&#9728;&#65039; DAWN</span>
     </div>
     <div class="wwz-weapon-box">
-      <span class="wwz-weapon-name" id="wwz-weapon">RIFLE</span>
+      <span class="wwz-weapon-name" id="wwz-weapon">TÜFEK</span>
       <span id="wwz-ammo">30</span>
       <span class="wwz-weapon-slots">
         <span class="wwz-slot owned active" id="wwz-slot-0">1</span>
@@ -1795,7 +1795,7 @@ function buildOverlayUI(container: HTMLElement) {
         <span class="wwz-slot" id="wwz-slot-4">5</span>
       </span>
     </div>
-    <button id="wwz-mute" class="wwz-mute" title="Mute (M)">&#128266;</button>`;
+    <button id="wwz-mute" class="wwz-mute" title="Ses aç/kapat (M)">&#128266;</button>`;
   container.appendChild(hud);
 
   const crosshair = document.createElement("div");
@@ -1862,15 +1862,15 @@ function buildOverlayUI(container: HTMLElement) {
 
   mk("wwz-screen-start", `
     <h1>WORLD WAR Z</h1>
-    <h2>Zombie Survival</h2>
-    <p>The horde is coming. Clear 5 waves in each of three levels: ruined city, dark forest, military base.</p>
-    <p>Each wave brings more zombies — fast runners and armored brutes join later.</p>
-    <p>Grab weapon crates, ammo and medkits between waves.</p>
-    <button class="big-btn" id="wwz-btn-start">START</button>
+    <h2>Zombi Sürüsü Hayatta Kalma</h2>
+    <p>Sürü geliyor. Üç bölümün (yıkık şehir, karanlık orman, askeri üs) her birinde 5 dalgayı püskürt.</p>
+    <p>Her dalga daha çok zombi getirir — sonra hızlı koşucular ve zırhlı devler katılır.</p>
+    <p>Dalgalar arasında silah sandığı, mermi ve sağlık çantası kap.</p>
+    <button class="big-btn" id="wwz-btn-start">BAŞLA</button>
     <div class="keys">
-      <b>WASD / Arrows</b> move &nbsp; &middot; &nbsp; <b>Mouse</b> aim &nbsp; &middot; &nbsp; <b>Click</b> shoot<br>
-      <b>Space</b> jump &nbsp; &middot; &nbsp; <b>R</b> reload &nbsp; &middot; &nbsp; <b>1-5 / Wheel</b> weapons &nbsp; &middot; &nbsp; <b>Q</b> medkit<br>
-      <b>Tab / B</b> inventory &nbsp; &middot; &nbsp; <b>M</b> mute
+      <b>WASD / Oklar</b> hareket &nbsp; &middot; &nbsp; <b>Fare</b> nişan &nbsp; &middot; &nbsp; <b>Tık</b> ateş<br>
+      <b>Space</b> zıpla &nbsp; &middot; &nbsp; <b>R</b> şarjör &nbsp; &middot; &nbsp; <b>1-5 / Tekerlek</b> silah &nbsp; &middot; &nbsp; <b>Q</b> sağlık çantası<br>
+      <b>Tab / B</b> envanter &nbsp; &middot; &nbsp; <b>M</b> ses
     </div>
     <div class="wwz-stats" id="wwz-start-best" style="margin-top:10px"></div>`);
   {
@@ -1880,10 +1880,10 @@ function buildOverlayUI(container: HTMLElement) {
   }
 
   mk("wwz-screen-gameover", `
-    <h1>YOU DIED</h1>
-    <p>The horde got you...</p>
+    <h1>ÖLDÜN</h1>
+    <p>Sürü seni yuttu...</p>
     <div class="wwz-stats" id="wwz-stats"></div>
-    <button class="big-btn" id="wwz-btn-retry">TRY AGAIN</button>`, true);
+    <button class="big-btn" id="wwz-btn-retry">TEKRAR DENE</button>`, true);
 
   mk("wwz-screen-victory", `
     <h1>ZAFER!</h1>
@@ -1913,7 +1913,7 @@ function showBanner(text: string, ms = 2000) {
   setTimeout(() => el.classList.remove("show"), ms);
 }
 function showWaveBanner(wave: number, incoming = false) {
-  showBanner(incoming ? `WAVE ${wave} INCOMING` : `WAVE ${wave}`, 2000);
+  showBanner(incoming ? `DALGA ${wave} GELİYOR` : `DALGA ${wave}`, 2000);
 }
 function pickupMsg(text: string) {
   const el = document.getElementById("wwz-pickup-msg");
@@ -1932,7 +1932,7 @@ function updateInventory() {
     const reserve = a.reserve === Infinity ? "\u221e" : a.reserve;
     return `<div class="wwz-inv-row${i === game.weapon ? " active" : ""}" data-inv="${i}"><span><span class="wwz-inv-key">${i + 1}</span>${w.name}</span><span>${a.mag}/${reserve}</span></div>`;
   }).join("");
-  el.innerHTML = `<h3>INVENTORY</h3>${rows}<div class="wwz-inv-row" data-inv="medkit"><span><span class="wwz-inv-key">Q</span>MEDKIT</span><span>x${game.medkits}</span></div><div class="wwz-inv-hint">TAB / B close &middot; click canvas to resume</div>`;
+  el.innerHTML = `<h3>ENVANTER</h3>${rows}<div class="wwz-inv-row" data-inv="medkit"><span><span class="wwz-inv-key">Q</span>SAĞLIK ÇANTASI</span><span>x${game.medkits}</span></div><div class="wwz-inv-hint">TAB / B ile kapat &middot; devam için ekrana tıkla</div>`;
 }
 function closeInventory() {
   if (!game.inventoryOpen) return;

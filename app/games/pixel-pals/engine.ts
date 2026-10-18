@@ -585,7 +585,7 @@ const Player = {
           Level.secret.revealed = true;
           Level.coins.push(...Level.secret.coins);
           AudioSys.powerup();
-          game.addMessage("Hidden coins found!", Level.secret.x, Level.secret.y - 40);
+          game.addMessage("Gizli paralar bulundu!", Level.secret.x, Level.secret.y - 40);
         }
       }
     } else if (t === 3) {
@@ -617,7 +617,7 @@ const Player = {
       this.invuln = 1.2;
       AudioSys.shieldPop();
       spawnPickupFlash(this.x + PLAYER_W / 2, this.y + PLAYER_H / 2, PU_COLORS.shield);
-      game.addMessage("SHIELD SAVED!", this.x + PLAYER_W / 2, this.y - 16, true);
+      game.addMessage("KALKAN KURTARDI!", this.x + PLAYER_W / 2, this.y - 16, true);
       return;
     }
     this.die();
@@ -761,7 +761,7 @@ function updateBoss(dt: number) {
         b.alive = false; b.deadT = 0;
         AudioSys.bossDie();
         game.score += 2000;
-        game.addMessage("GLOOM DEFEATED! +2000", b.x + b.w / 2, b.y - 30);
+        game.addMessage("GLOOM YENİLDİ! +2000", b.x + b.w / 2, b.y - 30);
         spawnStarBurst(b.x + b.w / 2, b.y + b.h / 2);
       }
     } else {
@@ -823,13 +823,13 @@ function updatePickups(dt: number) {
       spawnPickupFlash(pu.x, pu.y, PU_COLORS[pu.kind]);
       if (pu.kind === "double") {
         p.powerDJ = POWER_TIME; p.extraJumpUsed = false;
-        game.addMessage("DOUBLE JUMP!", pu.x, pu.y - 20, true);
+        game.addMessage("ÇİFT ZIPLAMA!", pu.x, pu.y - 20, true);
       } else if (pu.kind === "shield") {
         p.powerShield = POWER_TIME;
-        game.addMessage("SHIELD!", pu.x, pu.y - 20, true);
+        game.addMessage("KALKAN!", pu.x, pu.y - 20, true);
       } else {
         p.powerMagnet = POWER_TIME;
-        game.addMessage("COIN MAGNET!", pu.x, pu.y - 20, true);
+        game.addMessage("PARA MIKNATISI!", pu.x, pu.y - 20, true);
       }
       game.addMessage("+200", pu.x, pu.y + 10);
     }
@@ -838,7 +838,7 @@ function updatePickups(dt: number) {
     if (!cp.active && p.x + PLAYER_W > cp.x && p.x < cp.x + TILE && p.y + PLAYER_H > cp.y) {
       cp.active = true;
       AudioSys.checkpoint();
-      game.addMessage("CHECKPOINT!", cp.x + TILE / 2, cp.y - 20);
+      game.addMessage("KONTROL NOKTASI!", cp.x + TILE / 2, cp.y - 20);
     }
   }
   const f = Level.finish;
@@ -1857,15 +1857,15 @@ function buildOverlayUI(container: HTMLElement) {
   hud.className = "pp-hud";
   hud.innerHTML = `
     <div class="pp-hud-box">
-      <span>SCORE <span id="hud-score">0</span></span>
+      <span>SKOR <span id="hud-score">0</span></span>
       <span><span class="coin-ico"></span> <span id="hud-coins">0</span></span>
       <span id="hud-powers"></span>
     </div>
     <div class="pp-hud-box">
       <span id="hud-lives"><span class="heart">&#9829;</span><span class="heart">&#9829;</span><span class="heart">&#9829;</span></span>
-      <span>TIME <span id="hud-time">180</span></span>
+      <span>SÜRE <span id="hud-time">180</span></span>
     </div>
-    <button id="mute-btn" title="Mute (M)">&#128266;</button>`;
+    <button id="mute-btn" title="Ses aç/kapat (M)">&#128266;</button>`;
   container.appendChild(hud);
 
   const mk = (id: string, inner: string, hidden = false) => {
@@ -1879,16 +1879,16 @@ function buildOverlayUI(container: HTMLElement) {
 
   mk("screen-start", `
     <h1>PIXEL PALS</h1>
-    <h2>Quest for the Star</h2>
-    <p>Help <b style="color:#7ee081">Bloop</b> the little blue critter cross the meadow,<br>
-       smash the grumps, grab every coin, and reach the Golden Star!</p>
-    <p style="color:#ff9db0">Beware the boss <b style="color:#c792ea">Gloom</b> at the end of the path!</p>
-    <p style="color:#9be8ff">Grab bird wings, shield bubbles and coin magnets for temporary powers &mdash;<br>
-       chain stomps for combo points, and remember: <b style="color:#c792ea">bats</b> can't be stomped!</p>
-    <button class="big-btn" id="btn-start">START GAME</button>
+    <h2>Yıldızın Peşinde</h2>
+    <p><b style="color:#7ee081">Bloop</b> adlı minik mavi yaratığa çayırı geçmesinde yardım et,<br>
+       huysuz yaratıkları ez, bütün paraları topla ve Altın Yıldız'a ulaş!</p>
+    <p style="color:#ff9db0">Yolun sonunda patron <b style="color:#c792ea">Gloom</b> seni bekliyor — dikkat!</p>
+    <p style="color:#9be8ff">Kuş kanatları, kalkan balonları ve para mıknatısları geçici güçler verir &mdash;<br>
+       art arda ezerek kombo puanı yap; ve hatırla: <b style="color:#c792ea">yarasalar</b> ezilemez!</p>
+    <button class="big-btn" id="btn-start">OYUNA BAŞLA</button>
     <div class="keys">
-      <b>&#8592;/&#8594; or A/D</b> move &nbsp; &middot; &nbsp; <b>Space / W / &#8593;</b> jump (hold = higher)<br>
-      <b>P</b> pause &nbsp; &middot; &nbsp; <b>M</b> mute &nbsp; &middot; &nbsp; touch controls on mobile
+      <b>&#8592;/&#8594; veya A/D</b> hareket &nbsp; &middot; &nbsp; <b>Space / W / &#8593;</b> zıpla (basılı tut = daha yükseğe)<br>
+      <b>P</b> duraklat &nbsp; &middot; &nbsp; <b>M</b> ses &nbsp; &middot; &nbsp; mobilde dokunmatik kontroller
     </div>
     <div id="pp-start-best" style="margin-top:10px;font-size:clamp(14px,2.2vw,18px);color:#ffd23f"></div>`);
   {
@@ -1898,22 +1898,22 @@ function buildOverlayUI(container: HTMLElement) {
   }
 
   mk("screen-pause", `
-    <h2>PAUSED</h2>
-    <p>Take a breath, Bloop is waiting.</p>
-    <button class="big-btn" id="btn-resume">RESUME</button>
-    <button class="big-btn" id="btn-restart-pause" style="background:linear-gradient(#9aa5d1,#5c6bc0);box-shadow:0 5px 0 #283593;color:#fff">RESTART LEVEL</button>`, true);
+    <h2>DURAKLATILDI</h2>
+    <p>Bir nefes al, Bloop seni bekliyor.</p>
+    <button class="big-btn" id="btn-resume">DEVAM ET</button>
+    <button class="big-btn" id="btn-restart-pause" style="background:linear-gradient(#9aa5d1,#5c6bc0);box-shadow:0 5px 0 #283593;color:#fff">BÖLÜMÜ YENİDEN BAŞLAT</button>`, true);
 
   mk("screen-gameover", `
-    <h2 style="color:#ff5d73">GAME OVER</h2>
-    <p>Bloop tumbled into the void...</p>
+    <h2 style="color:#ff5d73">OYUN BİTTİ</h2>
+    <p>Bloop boşluğa yuvarlandı...</p>
     <div id="final-stats" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
-    <button class="big-btn" id="btn-retry">TRY AGAIN</button>`, true);
+    <button class="big-btn" id="btn-retry">TEKRAR DENE</button>`, true);
 
   mk("screen-victory", `
-    <h1>YOU WIN!</h1>
-    <p>Bloop claimed the Golden Star! The meadow is safe again.</p>
+    <h1>KAZANDIN!</h1>
+    <p>Bloop Altın Yıldız'ı kaptı! Çayır yeniden güvende.</p>
     <div id="final-stats-v" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
-    <button class="big-btn" id="btn-play-again">PLAY AGAIN</button>`, true);
+    <button class="big-btn" id="btn-play-again">TEKRAR OYNA</button>`, true);
 
   const touch = document.createElement("div");
   touch.className = "pp-touch";
@@ -1922,7 +1922,7 @@ function buildOverlayUI(container: HTMLElement) {
       <div class="pp-tbtn" id="t-left">&#9664;</div>
       <div class="pp-tbtn" id="t-right">&#9654;</div>
     </div>
-    <div class="pp-tbtn pp-jump" id="t-jump">JUMP</div>`;
+    <div class="pp-tbtn pp-jump" id="t-jump">ZIPLA</div>`;
   container.appendChild(touch);
 
   // Wire buttons
