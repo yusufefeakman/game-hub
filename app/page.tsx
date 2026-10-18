@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AmbientArcade from "./components/AmbientArcade";
 import MembershipUI from "./components/MembershipUI";
+import BestShelf from "./components/BestShelf";
 
 // Game catalog — add new games here as they are built.
 // `route` is the Next.js route; `status` controls the card state.
@@ -195,6 +196,9 @@ const GAMES = [
 ];
 
 export default function Home() {
+  // Rekor rafı: oyun kimliği → rota/başlık (yalnız oynanabilir oyunlar)
+  const bestGames: Record<string, { route: string; title: string }> = {};
+  for (const g of GAMES) if (g.route) bestGames[g.id] = { route: g.route, title: g.title };
   return (
     <>
       <AmbientArcade />
@@ -210,6 +214,8 @@ export default function Home() {
           🎮 Arcade Portal — Hemen Oyna
         </Link>
       </section>
+
+      <BestShelf games={bestGames} />
 
       <section className="game-grid">
         {GAMES.map((game) =>

@@ -239,6 +239,51 @@ main {
 .auth-link:hover { text-decoration: underline; }
 .auth-ok { color: var(--green); font-size: 13px; margin: 8px 0; }
 
+.best-shelf {
+  margin: 4px clamp(16px, 4vw, 48px) 0;
+  padding: 14px 18px;
+  border: 1px solid rgba(255, 213, 79, 0.35);
+  border-radius: 14px;
+  background: rgba(255, 213, 79, 0.06);
+}
+.best-shelf h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: #ffd54f;
+}
+.best-count {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: rgba(255, 213, 79, 0.18);
+  font-size: 12px;
+}
+.best-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.best-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 213, 79, 0.4);
+  background: rgba(4, 7, 16, 0.55);
+  color: inherit;
+  font-size: 12.5px;
+  transition: transform 0.12s, box-shadow 0.15s;
+}
+.best-chip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 12px rgba(255, 213, 79, 0.3);
+}
+.best-chip b { font-weight: 800; }
+.best-chip span { color: #ffd54f; font-weight: 800; }
+
 .game-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
