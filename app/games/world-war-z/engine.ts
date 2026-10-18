@@ -1633,7 +1633,129 @@ const OVERLAY_CSS = `
 .wwz-inv-row.active { background:rgba(255,170,100,0.35); color:#ffdd44; }
 .wwz-inv-key { color:#ffaa66; margin-right:6px; }
 .wwz-inv-hint { margin-top:10px; text-align:center; font-size:11px; color:#9aa5d1; }
+.wwz-touchui { display:none; position:absolute; inset:0; z-index:6; pointer-events:none; }
+body.wwz-touch .wwz-touchui { display:block; }
+.wwz-stick { position:absolute; left:16px; bottom:16px; width:120px; height:120px; border-radius:50%; background:rgba(255,255,255,0.07); border:2px solid rgba(255,255,255,0.25); pointer-events:auto; touch-action:none; }
+.wwz-stick-knob { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.6); pointer-events:none; }
+.wwz-tbtn { position:absolute; pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; font-family:'Courier New',monospace; font-weight:900; color:#fff; background:rgba(180,40,40,0.5); border:2px solid rgba(255,120,90,0.65); border-radius:14px; display:flex; align-items:center; justify-content:center; text-shadow:1px 1px 0 #000; }
+.wwz-tbtn:active { background:rgba(255,90,60,0.65); }
+#wwz-t-fire { right:18px; bottom:22px; width:98px; height:98px; border-radius:50%; font-size:17px; letter-spacing:1px; }
+#wwz-t-reload { right:130px; bottom:80px; width:58px; height:46px; font-size:11px; }
+#wwz-t-weapon { right:130px; bottom:24px; width:58px; height:46px; font-size:11px; }
+#wwz-t-med { right:20px; bottom:132px; width:58px; height:46px; font-size:11px; background:rgba(40,110,60,0.5); border-color:rgba(120,220,140,0.6); }
 `;
+
+let touchHintStart = 0;
+
+/** Mobil/dokunmatik kontrol katmanı: sol stick hareket, canvas sürükleme nişan, ATEŞ/DOLDUR/SİLAH/SARGI. */
+function initTouchControls(canvas: HTMLCanvasElement): () => void {
+  document.body.classList.add("wwz-touch");
+  touchHintStart = performance.now();
+  const hint = document.getElementById("wwz-aim-hint");
+  if (hint) hint.textContent = "Sol stick: hareket · Ekrana sürükle: nişan · ATEŞ basılı: ateş et · DOLDUR / SİLAH / SARGI";
+
+  const stick = document.getElementById("wwz-stick")!;
+  const knob = document.getElementById("wwz-stick-knob")!;
+  const fire = document.getElementById("wwz-t-fire")!;
+  const dead = { left: false, right: false, forward: false, back: false };
+  Object.assign(Input, dead);
+
+  let stickId: number | null = null, scx = 0, scy = 0;
+  const R = 36;
+  const onStickStart = (e: TouchEvent) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const r = stick.getBoundingClientRect();
+    scx = r.left + r.width / 2; scy = r.top + r.height / 2;
+    stickId = t.identifier;
+    onStickMove(e);
+  };
+  const onStickMove = (e: TouchEvent) => {
+    if (stickId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== stickId) continue;
+      let dx = t.clientX - scx, dy = t.clientY - scy;
+      const len = Math.hypot(dx, dy);
+      if (len > R) { dx *= R / len; dy *= R / len; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      Input.left = dx < -9; Input.right = dx > 9;
+      Input.forward = dy < -9; Input.back = dy > 9;
+    }
+  };
+  const onStickEnd = (e: TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === stickId) stickId = null;
+    if (stickId === null) {
+      knob.style.transform = "";
+      Object.assign(Input, dead);
+    }
+  };
+  stick.addEventListener("touchstart", onStickStart, { passive: false });
+  stick.addEventListener("touchmove", onStickMove, { passive: false });
+  stick.addEventListener("touchend", onStickEnd);
+  stick.addEventListener("touchcancel", onStickEnd);
+
+  // Kamera: canvas üzerinde parmak sürükleme (nişan)
+  let viewId: number | null = null, lx = 0, ly = 0;
+  const onViewStart = (e: TouchEvent) => {
+    if (game.state !== "playing") return;
+    e.preventDefault();
+    if (viewId !== null) return;
+    const t = e.changedTouches[0];
+    viewId = t.identifier; lx = t.clientX; ly = t.clientY;
+  };
+  const onViewMove = (e: TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== viewId) continue;
+      Input.mouseDX += (t.clientX - lx) * 1.4;
+      Input.mouseDY += (t.clientY - ly) * 1.4;
+      lx = t.clientX; ly = t.clientY;
+    }
+  };
+  const onViewEnd = (e: TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === viewId) viewId = null;
+  };
+  canvas.addEventListener("touchstart", onViewStart, { passive: false });
+  canvas.addEventListener("touchmove", onViewMove, { passive: false });
+  canvas.addEventListener("touchend", onViewEnd);
+  canvas.addEventListener("touchcancel", onViewEnd);
+
+  // ATEŞ: basılı tut = otomatik ateş
+  const onFireStart = (e: TouchEvent) => { e.preventDefault(); Input.shooting = true; };
+  const onFireEnd = () => { Input.shooting = false; };
+  fire.addEventListener("touchstart", onFireStart, { passive: false });
+  fire.addEventListener("touchend", onFireEnd);
+  fire.addEventListener("touchcancel", onFireEnd);
+
+  const taps: Array<() => void> = [];
+  const tap = (el: HTMLElement, fn: () => void) => {
+    const h = (e: TouchEvent) => { e.preventDefault(); fn(); };
+    el.addEventListener("touchstart", h, { passive: false });
+    taps.push(() => el.removeEventListener("touchstart", h));
+  };
+  tap(document.getElementById("wwz-t-reload")!, () => game.reload());
+  tap(document.getElementById("wwz-t-weapon")!, () => game.cycleWeapon(1));
+  tap(document.getElementById("wwz-t-med")!, () => game.useMedkit());
+
+  return () => {
+    document.body.classList.remove("wwz-touch");
+    stick.removeEventListener("touchstart", onStickStart);
+    stick.removeEventListener("touchmove", onStickMove);
+    stick.removeEventListener("touchend", onStickEnd);
+    stick.removeEventListener("touchcancel", onStickEnd);
+    canvas.removeEventListener("touchstart", onViewStart);
+    canvas.removeEventListener("touchmove", onViewMove);
+    canvas.removeEventListener("touchend", onViewEnd);
+    canvas.removeEventListener("touchcancel", onViewEnd);
+    fire.removeEventListener("touchstart", onFireStart);
+    fire.removeEventListener("touchend", onFireEnd);
+    fire.removeEventListener("touchcancel", onFireEnd);
+    for (const off of taps) off();
+    Input.shooting = false;
+    Object.assign(Input, dead);
+  };
+}
 
 function buildOverlayUI(container: HTMLElement) {
   const style = document.createElement("style");
@@ -1708,6 +1830,17 @@ function buildOverlayUI(container: HTMLElement) {
   aimHint.id = "wwz-aim-hint";
   aimHint.textContent = "Click to start — WASD move, Mouse aim, Click shoot, R reload, 1-5 weapons, Q medkit, Tab inventory";
   container.appendChild(aimHint);
+
+  // Dokunmatik kontroller (yalnız touch cihazlarında görünür — body.wwz-touch)
+  const touchUI = document.createElement("div");
+  touchUI.className = "wwz-touchui";
+  touchUI.innerHTML = `
+    <div class="wwz-stick" id="wwz-stick"><div class="wwz-stick-knob" id="wwz-stick-knob"></div></div>
+    <div class="wwz-tbtn" id="wwz-t-med">SARGI</div>
+    <div class="wwz-tbtn" id="wwz-t-reload">DOLDUR</div>
+    <div class="wwz-tbtn" id="wwz-t-weapon">SİLAH</div>
+    <div class="wwz-tbtn" id="wwz-t-fire">ATEŞ</div>`;
+  container.appendChild(touchUI);
 
   const mk = (id: string, inner: string, hidden = false) => {
     const el = document.createElement("div");
@@ -1813,7 +1946,11 @@ function updateHUD() {
   const vignette = document.getElementById("wwz-vignette");
   if (vignette) vignette.style.opacity = game.hurtFlash > 0 ? "1" : "0";
   const hint = document.getElementById("wwz-aim-hint");
-  if (hint) hint.style.display = game.state === "playing" && Input.locked ? "none" : (game.state === "playing" ? "block" : "none");
+  if (hint) {
+    if (game.state !== "playing") hint.style.display = "none";
+    else if (document.body.classList.contains("wwz-touch")) hint.style.display = performance.now() - touchHintStart > 7000 ? "none" : "block";
+    else hint.style.display = Input.locked ? "none" : "block";
+  }
   if (game.inventoryOpen) updateInventory(); // keep rows fresh while the panel is open
 }
 
@@ -1843,7 +1980,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   window.addEventListener("resize", resize);
 
   Input.init(canvas, (locked) => { if (locked) closeInventory(); updateHUD(); }); // hide panel when lock acquired
+  const touchOff = "ontouchstart" in window || navigator.maxTouchPoints > 0 ? initTouchControls(canvas) : () => {};
   updateHUD();
+
+  // Test kancası: girdi bayrakları + oyuncu konumu (headless doğrulama için)
+  (window as unknown as Record<string, unknown>).__wwzDbg = () => ({
+    state: game.state,
+    input: { f: Input.forward, b: Input.back, l: Input.left, r: Input.right, shoot: Input.shooting },
+    px: Math.round(player.position.x * 10) / 10,
+    pz: Math.round(player.position.z * 10) / 10,
+    yaw: Math.round(yaw * 1000) / 1000,
+  });
 
   // Cached fx elements (toggled per-frame below)
   const hitMarkerEl = document.getElementById("wwz-hitmarker");
@@ -1874,6 +2021,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   return () => {
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", resize);
+    touchOff();
+    delete (window as unknown as Record<string, unknown>).__wwzDbg;
     Input.cleanup();
     wrap.remove();
     renderer.dispose();
