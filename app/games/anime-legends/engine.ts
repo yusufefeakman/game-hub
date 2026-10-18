@@ -111,9 +111,17 @@ const Input = {
       }
       if (k === "p") game.togglePause();
       if (k === "m") game.toggleMute();
-      if (k === "enter") {
-        if (game.state === "start" || game.state === "gameover" || game.state === "victory") game.startSelect();
+      if (k === "enter" || k === " ") {
+        if (game.state === "start" || game.state === "gameover" || game.state === "victory") { game.startSelect(); return; }
         if (game.state === "pause") game.togglePause();
+      }
+      if (game.state === "select") {
+        if (k === "arrowleft" || k === "a") moveSel(-1);
+        else if (k === "arrowright" || k === "d") moveSel(1);
+        else if (k === "arrowup" || k === "w") moveSel(-6);
+        else if (k === "arrowdown" || k === "s") moveSel(6);
+        else if (k === "enter" || k === " " || k === "j") pickSel();
+        return;
       }
       if (k === "j" || k === "1") game.playerAttack(0);
       if (k === "k" || k === "2") game.playerAttack(1);
@@ -558,7 +566,7 @@ const game = {
           AudioSys.victory();
           const r = submitBest("anime-legends", this.score);
           const el = document.getElementById("final-stats-v");
-          if (el) el.innerHTML = `Champion! &nbsp; Score: ${this.score}` +
+          if (el) el.innerHTML = `Şampiyon! &nbsp; Skor: ${this.score}` +
             (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : ` &nbsp; Rekor: ${r.best}`);
           show("screen-victory");
         } else {
@@ -572,7 +580,7 @@ const game = {
         AudioSys.gameover();
         const r = submitBest("anime-legends", this.score);
         const el = document.getElementById("final-stats");
-        if (el) el.innerHTML = `Rounds won: ${roundCount} &nbsp; Score: ${this.score}` +
+        if (el) el.innerHTML = `Kazanılan tur: ${roundCount} &nbsp; Skor: ${this.score}` +
           (r.best > 0 ? (r.isNew ? " &nbsp; 🏆 YENİ REKOR!" : ` &nbsp; Rekor: ${r.best}`) : "");
         show("screen-gameover");
       }
@@ -635,7 +643,7 @@ function startFight() {
   screenShake = 0;
   game.state = "playing";
   hideAllScreens();
-  messages.push({ text: `ROUND ${roundCount + 1}`, x: W / 2, y: H / 2 - 60, t: 0, color: "#ffd23f", big: true });
+  messages.push({ text: `TUR ${roundCount + 1}`, x: W / 2, y: H / 2 - 60, t: 0, color: "#ffd23f", big: true });
   messages.push({ text: `${ec.name} vs ${pc.name}`, x: W / 2, y: H / 2 - 24, t: 0, color: "#4dd0e1" });
   AudioSys.roundWin();
   updateHUD();
@@ -725,7 +733,7 @@ function updateFighter(f: Fighter, dt: number, isPlayer: boolean) {
   for (let i = 0; i < 3; i++) if (f.cds[i] > 0) f.cds[i] -= dt;
   if (!f.ultReady) {
     f.ultCharge += dt;
-    if (f.ultCharge >= 6) { f.ultReady = true; f.ultCharge = 0; if (isPlayer) messages.push({ text: "ULT READY!", x: f.x + f.w / 2, y: f.y - 30, t: 0, color: "#ffd23f" }); }
+    if (f.ultCharge >= 6) { f.ultReady = true; f.ultCharge = 0; if (isPlayer) messages.push({ text: "ULTIMATE HAZIR!", x: f.x + f.w / 2, y: f.y - 30, t: 0, color: "#ffd23f" }); }
   }
 
   if (isPlayer) {
@@ -1095,6 +1103,7 @@ const OVERLAY_CSS = `
 .al-select-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; max-width:820px; width:90%; max-height:52vh; overflow-y:auto; margin-top:14px; padding:10px; }
 .al-char-card { background:rgba(30,15,60,0.9); border:2px solid rgba(255,255,255,0.25); border-radius:10px; padding:10px 6px; cursor:pointer; color:#fff; transition:transform .1s, border-color .1s; }
 .al-char-card:hover { transform:scale(1.06); border-color:#ffd23f; }
+.al-char-card.cc-sel { transform:scale(1.06); border-color:#ffd23f; box-shadow:0 0 14px rgba(255,210,63,0.65); }
 .al-char-card .cc-name { font-weight:bold; font-size:13px; color:#ffd23f; }
 .al-char-card .cc-series { font-size:10px; color:#a99ad8; }
 .al-char-card .cc-dot { display:inline-block; width:12px; height:12px; border-radius:50%; border:2px solid #fff; margin-bottom:2px; }
@@ -1115,10 +1124,10 @@ function buildOverlayUI(container: HTMLElement) {
   hud.className = "al-hud";
   hud.innerHTML = `
     <div class="al-hud-box">
-      <span>ROUND <span id="hud-round">1/8</span></span>
-      <span>SCORE <span id="hud-score">0</span></span>
+      <span>TUR <span id="hud-round">1/8</span></span>
+      <span>SKOR <span id="hud-score">0</span></span>
     </div>
-    <button id="mute-btn" class="al-mute-btn" title="Mute (M)">&#128266;</button>`;
+    <button id="mute-btn" class="al-mute-btn" title="Ses aç/kapat (M)">&#128266;</button>`;
   container.appendChild(hud);
 
   const mk = (id: string, inner: string, hidden = false) => {
@@ -1134,10 +1143,10 @@ function buildOverlayUI(container: HTMLElement) {
     <h1>ANIME LEGENDS</h1>
     <h2>Ultimate Arena</h2>
     <p>24 ikonik anime karakteri. Turnuvada 8 rakibi yen, şampiyon ol! 🏆</p>
-    <button class="big-btn" id="btn-start">SELECT FIGHTER</button>
+    <button class="big-btn" id="btn-start">SAVAŞÇINI SEÇ</button>
     <div class="keys">
-      <b>A/D or &#8592;/&#8594;</b> move &nbsp; &middot; &nbsp; <b>W/Space</b> jump &nbsp; &middot; &nbsp; <b>Q/E</b> dash<br>
-      <b>J / K / L</b> moves 1-2-3 &nbsp; &middot; &nbsp; <b>U</b> ultimate &nbsp; &middot; &nbsp; <b>P</b> pause &nbsp; &middot; &nbsp; <b>M</b> mute
+      <b>A/D veya &#8592;/&#8594;</b> hareket &nbsp; &middot; &nbsp; <b>W/Space</b> zıpla &nbsp; &middot; &nbsp; <b>Q/E</b> atılma<br>
+      <b>J / K / L</b> vuruş 1-2-3 &nbsp; &middot; &nbsp; <b>U</b> ultimate &nbsp; &middot; &nbsp; <b>ENTER</b> başla/seç &nbsp; &middot; &nbsp; <b>P</b> duraklat &nbsp; &middot; &nbsp; <b>M</b> ses
     </div>
     <div id="al-start-best" style="margin-top:10px;font-size:clamp(14px,2.4vw,18px);color:#ffd700"></div>`);
   {
@@ -1147,27 +1156,27 @@ function buildOverlayUI(container: HTMLElement) {
   }
 
   mk("screen-select", `
-    <h2 style="margin-bottom:2px">CHOOSE YOUR FIGHTER</h2>
+    <h2 style="margin-bottom:2px">SAVAŞÇINI SEÇ</h2>
     <div class="al-select-grid" id="select-grid"></div>
-    <div class="keys" style="margin-top:8px">Tap a card to fight through the tournament</div>`, true);
+    <div class="keys" style="margin-top:8px">Karta dokun &mdash; ya da ok tuşlarıyla gez, ENTER/J ile onayla</div>`, true);
 
   mk("screen-pause", `
-    <h2>PAUSED</h2>
-    <p>The arena awaits...</p>
-    <button class="big-btn" id="btn-resume">RESUME</button>
-    <button class="big-btn" id="btn-restart-pause" style="background:linear-gradient(#9aa5d1,#5c6bc0);box-shadow:0 0 14px rgba(154,165,209,0.6),0 5px 0 #283593;color:#fff">RESTART</button>`, true);
+    <h2>DURAKLATILDI</h2>
+    <p>Arena seni bekliyor...</p>
+    <button class="big-btn" id="btn-resume">DEVAM ET</button>
+    <button class="big-btn" id="btn-restart-pause" style="background:linear-gradient(#9aa5d1,#5c6bc0);box-shadow:0 0 14px rgba(154,165,209,0.6),0 5px 0 #283593;color:#fff">YENİDEN BAŞLAT</button>`, true);
 
   mk("screen-gameover", `
-    <h2 style="color:#ff5d73">DEFEATED!</h2>
-    <p>Your legend ends here... for now.</p>
+    <h2 style="color:#ff5d73">YENİLDİN!</h2>
+    <p>Efsanen burada bitiyor... şimdilik.</p>
     <div id="final-stats" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
-    <button class="big-btn" id="btn-retry">TRY AGAIN</button>`, true);
+    <button class="big-btn" id="btn-retry">TEKRAR DENE</button>`, true);
 
   mk("screen-victory", `
-    <h1>CHAMPION!</h1>
-    <p>You defeated every rival in the arena! 🏆</p>
+    <h1>ŞAMPİYON!</h1>
+    <p>Arenadaki tüm rakiplerini devirdin! 🏆</p>
     <div id="final-stats-v" style="font-size:clamp(15px,2.6vw,20px);color:#ffd23f;margin:6px 0;"></div>
-    <button class="big-btn" id="btn-play-again">PLAY AGAIN</button>`, true);
+    <button class="big-btn" id="btn-play-again">TEKRAR OYNA</button>`, true);
 
   const touch = document.createElement("div");
   touch.className = "al-touch";
@@ -1197,10 +1206,28 @@ function buildOverlayUI(container: HTMLElement) {
   on("mute-btn", () => game.toggleMute());
 }
 
+let selCursor = 0;
+function markSel() {
+  const cards = [...document.querySelectorAll(".al-char-card")];
+  cards.forEach((el, i) => el.classList.toggle("cc-sel", i === selCursor));
+  (cards[selCursor] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+}
+function moveSel(d: number) {
+  const n = document.querySelectorAll(".al-char-card").length;
+  if (!n) return;
+  selCursor = ((selCursor + d) % n + n) % n;
+  markSel();
+}
+function pickSel() {
+  const cards = [...document.querySelectorAll(".al-char-card")];
+  if (cards[selCursor]) (cards[selCursor] as HTMLElement).click();
+}
+
 function buildSelectGrid() {
   const grid = document.getElementById("select-grid");
   if (!grid) return;
   grid.innerHTML = "";
+  selCursor = 0;
   for (const c of CHARACTERS) {
     const card = document.createElement("div");
     card.className = "al-char-card";
@@ -1211,6 +1238,7 @@ function buildSelectGrid() {
     card.addEventListener("click", () => game.pickCharacter(c));
     grid.appendChild(card);
   }
+  markSel();
 }
 
 function show(id: string) { document.getElementById(id)?.classList.remove("hidden"); }
