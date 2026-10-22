@@ -6,6 +6,7 @@ import AmbientArcade from "./components/AmbientArcade";
 import MembershipUI from "./components/MembershipUI";
 import BestShelf from "./components/BestShelf";
 import RecentlyShelf from "./components/RecentlyShelf";
+import FavShelf from "./components/FavShelf";
 import SiteFooter from "./components/SiteFooter";
 import { GAMES, type GameCategory } from "./lib/games";
 
@@ -79,6 +80,7 @@ export default function Home() {
         </section>
 
         <BestShelf games={bestGames} />
+        <FavShelf />
         <RecentlyShelf />
 
         <section className="catalog" id="katalog">

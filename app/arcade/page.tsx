@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { GAMES as GAMES_LIB } from "../lib/games";
+import { recordPlay } from "../lib/playtrack";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
 import { getArcadeBests } from "../lib/hiscore";
@@ -144,6 +145,7 @@ export default function ArcadePage() {
     setRecent((prev) => {
       const next = [g.id, ...prev.filter((x) => x !== g.id)].slice(0, 12);
       persist(LS.recent, next);
+      recordPlay(g.id); // portal içi oynama da ortak "son oynananlar"a yazılır
       return next;
     });
   }, [persist]);
