@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { GAMES as GAMES_LIB } from "../lib/games";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
 import { getArcadeBests } from "../lib/hiscore";
@@ -34,114 +35,13 @@ interface ArcadeGame {
   standalone?: string;
 }
 
-const GAMES: ArcadeGame[] = [
-  {
-    id: "sunny-side-ride", title: "Sunny Side Ride", emoji: "🚲", category: "Yarış",
-    tags: ["3D", "Bisiklet", "Keşif"], route: "/games/sunny-side-ride", pop: 92, isNew: true, featured: true,
-    standalone: "/sunny-side-ride.html",
-    description: "Açık dünya 3D bisiklet macerası! Ağaç tünelleriyle kaplı kıvrımlı sokaklarda pedal çevir, rampalardan zıpla, tokenları topla ve checkpointleri geç. Prosedürel mahalle: tepeler, ahşap köprü, parklar, yayalar ve trafik.",
-    art: "linear-gradient(135deg,#7dd3fc 0%,#22c55e 100%)",
-  },
-  {
-    id: "akil-kupu", title: "Akıl Küpü", emoji: "🧠", category: "Bulmaca",
-    tags: ["SOMA", "3D", "Dokunmatik"], route: "/games/akil-kupu", pop: 86, isNew: true, featured: true,
-    standalone: "/akil-kupu.html",
-    description: "Klasik SOMA bulmacası: 7 renkli parçayı 3×3×3 küpe yerleştirip tamamla. Dokunmatik kontroller, 3D önizleme, animasyonlu çözücü ve en iyi süre takibi.",
-    art: "linear-gradient(135deg,#22d3ee 0%,#a855f7 100%)",
-  },
-  {
-    id: "anime-legends", title: "Anime Legends", emoji: "🥷", category: "Dövüş",
-    tags: ["Turnuva", "Combo", "1P"], route: "/games/anime-legends", pop: 93,
-    standalone: "/anime-legends.html",
-    description: "24 karakterli dövüş turnuvası: karakterini seç, 8 rakibi yen ve şampiyon ol. A/D hareket, J/K/L saldırı, U ultimate.",
-    art: "linear-gradient(135deg,#ff6f00 0%,#c62828 100%)",
-  },
-  {
-    id: "world-war-z", title: "World War Z", emoji: "🧟", category: "Aksiyon",
-    tags: ["FPS", "3D", "Zombi"], route: "/games/world-war-z", pop: 91,
-    description: "3D birinci şahıs zombi hayatta kalma: karanlık arenada sonsuz dalgalara karşı koy. WASD + fare, ateş etmek için tıkla.",
-    art: "linear-gradient(135deg,#2d2d44 0%,#4a4a6a 100%)",
-  },
-  {
-    id: "chess", title: "Royal Chess", emoji: "♞", category: "Strateji",
-    tags: ["Satranç", "3D", "2P"], route: "/games/chess", pop: 90,
-    description: "Tam kurallı 3D satranç: rok, en passant, terfi ve şah mat. Arkadaşınla ya da dahili bilgisayara karşı oyna. Döndürmek için sürükle, hamle için tıkla.",
-    art: "linear-gradient(135deg,#a1887f 0%,#5d4037 100%)",
-  },
-  {
-    id: "doping-runner", title: "Doping Runner", emoji: "⚡", category: "Arcade",
-    tags: ["Sonsuz Koşu", "Refleks", "Mobil"], route: "/games/doping-runner", pop: 89,
-    description: "Neon şehirde sonsuz koşu: doping kapsüllerini topla, süper hıza ulaş, engellerden kaç ve rekor kır. Space ile zıpla (çift zıplama var).",
-    art: "linear-gradient(135deg,#ff2d78 0%,#7a1fa2 100%)",
-  },
-  {
-    id: "fighting", title: "Neon Rivals", emoji: "🥋", category: "Dövüş",
-    tags: ["3D", "Yapay Zekâ", "Kombo"], route: "/fighting", pop: 88,
-    description: "4 savaşçı, 2'şer özel saldırı, 3 arena ve EASY/NORMAL/HARD yapay zekâ. Eğitim modu ve stamina sistemiyle tam bir dövüş deneyimi.",
-    art: "linear-gradient(135deg,#00e5ff 0%,#004d40 100%)",
-  },
-  {
-    id: "candy-burst", title: "Candy Burst", emoji: "🍬", category: "Bulmaca",
-    tags: ["Eşleştirme", "Zincir", "Mobil"], route: "/games/candy-burst", pop: 87,
-    description: "Şeker patlatma! 3+ aynı renkleri eşleştir, zincirleme patlamalar yap ve her 10 bölümde boss'u yen. Tıkla & sürükle ile takas et.",
-    art: "linear-gradient(135deg,#ff4081 0%,#4a148c 100%)",
-  },
-  {
-    id: "okey", title: "101 Okey", emoji: "🀄", category: "Strateji",
-    tags: ["Klasik", "Bot", "108 Taş"], route: "/games/okey", pop: 86,
-    description: "Klasik Türk okeyi: 108 taş, renk ve karma setler, 101+ açılış, 3 geçiş kuralı, akıllı bot rakipler ve -101 hedefli maçlar. Tamamen Türkçe.",
-    art: "linear-gradient(135deg,#7cb342 0%,#1b5e20 100%)",
-  },
-  {
-    id: "fighter", title: "Dövüş Arenası", emoji: "🥊", category: "Dövüş",
-    tags: ["2P", "Enerji", "3D"], route: "/games/fighter", pop: 85,
-    description: "4 efsane savaşçı (Kor, Bora, Çelik, Gölge), yumruk-tekme-blok ve enerjiyle güçlenen özel saldırılar. 1P vs CPU ya da 2 oyuncu.",
-    art: "linear-gradient(135deg,#ff1744 0%,#880e4f 100%)",
-  },
-  {
-    id: "spaceship", title: "Yıldız Vurucu", emoji: "🚀", category: "Aksiyon",
-    tags: ["Uzay", "Nişancı", "3D"], route: "/games/spaceship", pop: 84,
-    description: "Asteroid alanlarında hayatta kal: kayaları ve düşman filolarını patlat. WASD ile hareket, Space ile ateş, Shift ile hızlan.",
-    art: "linear-gradient(135deg,#0b0b2b 0%,#3a1a6a 100%)",
-  },
-  {
-    id: "astro-blaster", title: "Astro Blaster", emoji: "🛸", category: "Arcade",
-    tags: ["Breakout", "5 Seviye", "Güçlendirme"], route: "/games/astro-blaster", pop: 82,
-    standalone: "/astro-blaster.html",
-    description: "Uzay temalı blok kırma: 5 seviye, 4 blok tipi ve güçlendirmeler. Altın bloklar ekstra puan, elmas bloklar kırılmaz.",
-    art: "linear-gradient(135deg,#5e35b1 0%,#1a237e 100%)",
-  },
-  {
-    id: "powerboat", title: "Sürat Teknesi Hücumu", emoji: "🚤", category: "Yarış",
-    tags: ["3D", "Engel", "Nitro"], route: "/games/powerboat", pop: 80,
-    description: "Okyanusta 3 boyutlu sürat teknesi yarışı: mayınlardan, kayalardan ve girdaplardan kaçın. WASD + Space ile hareket ve nitro.",
-    art: "linear-gradient(135deg,#1e88e5 0%,#0d47a1 100%)",
-  },
-  {
-    id: "lets-world", title: "Let's World", emoji: "🌍", category: "Platform",
-    tags: ["Macera", "Boss", "Klasik"], route: "/games/lets-world", pop: 79,
-    description: "Klasik platform macerası: koş, zıpla, jeton topla ve düşmanları ezip geç. Her 10 bölümde dev boss seni bekliyor.",
-    art: "linear-gradient(135deg,#42a5f5 0%,#1b5e20 100%)",
-  },
-  {
-    id: "pixel-pals", title: "Pixel Pals", emoji: "🌟", category: "Platform",
-    tags: ["Retro", "Boss", "Macera"], route: "/games/pixel-pals", pop: 76,
-    description: "Küçük mavi yaratık Bloop ile çayırı geç, grump'ları ez, tüm paraları topla ve boss Gloom'u yenerek Altın Yıldız'ı kazan.",
-    art: "linear-gradient(135deg,#6fc3e8 0%,#5cb874 100%)",
-  },
-  {
-    id: "yilan-arena", title: "Yılan Arena", emoji: "🐍", category: "Arcade",
-    tags: ["Neon", "Klasik", "Dokunmatik"], route: "/games/yilan-arena", pop: 88, isNew: true,
-    description: "Neon yılan arenasında klasik yılan: elmalar, altın elma + hayalet modu, hızlanma ve rekor takibi. Oklar/WASD veya kaydırma; mobilde ekran butonları.",
-    art: "linear-gradient(135deg,#34d399 0%,#0891b2 100%)",
-  },
-  {
-    id: "mayin-tarlasi", title: "Mayın Tarlası", emoji: "💣", category: "Strateji",
-    tags: ["Klasik", "Bayrak", "3 Zorluk"], route: "/games/mayin-tarlasi", pop: 85, isNew: true,
-    description: "Klasik mayın oyunu: ilk tık güvenli, komşu sayılarını oku, bayraklarla mayınları işaretle ve tarlayı temizle. Kolay/Orta/Zor + en iyi süre takibi; sağ tık veya 🚩 bayrak modu.",
-    art: "linear-gradient(135deg,#fb7185 0%,#312e81 100%)",
-  },
-];
+// Merkezi katalogdan beslenir — yeni oyun tek yerde (app/lib/games.ts) tanımlanır.
+const GAMES: ArcadeGame[] = GAMES_LIB.map((g) => ({
+  id: g.id, title: g.title, emoji: g.emoji, category: g.category, tags: g.tags,
+  description: g.description, route: g.route, art: g.art, pop: g.pop,
+  isNew: g.isNew, featured: g.featured, standalone: g.standalone,
+}));
+
 
 const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade"];
 const FAV_TAB = "❤️ Favorilerim";

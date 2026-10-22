@@ -268,7 +268,18 @@ export default function AmbientArcade() {
 
     resize();
     initParticles();
-    raf = requestAnimationFrame(frame);
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      // tek statik kare çiz, döngüyü başlatma (frame() kendi kuyruğuna yazmasın)
+      const origRaf = window.requestAnimationFrame;
+      window.requestAnimationFrame = () => 0;
+      frame(performance.now());
+      window.requestAnimationFrame = origRaf;
+    } else {
+      raf = requestAnimationFrame(frame);
+    }
     window.addEventListener("resize", onResize);
 
     return () => {
