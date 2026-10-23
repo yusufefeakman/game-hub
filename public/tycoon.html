@@ -1,0 +1,971 @@
+<!-- Pixel Arcade - Pixel Tycoon | game-hub'a eklenecek -->
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Tycoon - Pixel Arcade</title>
+<style>
+  /* ============ Neon / pixel estetiği ============ */
+  :root {
+    --bg: #0a0a12;
+    --panel: #12132a;
+    --line: #2a2d4a;
+    --cyan: #00f0ff;
+    --magenta: #ff2ec4;
+    --gold: #ffd23f;
+    --orange: #ff9f43;
+    --red: #ff3860;
+    --green: #7ee081;
+    --text: #e8e8f0;
+    --dim: #8a8fb5;
+    --cut: 60px;                  /* hücre kenarı; media query ile küçülür */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 700px at 50% -10%, #16172e 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Courier New", monospace; /* monospace */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    min-height: 100vh;
+    padding: 64px 12px 24px;      /* üst: Ana Menü düğmesine pay */
+  }
+  /* 2) başlık + alt başlık */
+  h1 {
+    letter-spacing: 6px;
+    font-size: clamp(20px, 5vw, 28px);
+    color: var(--cyan);
+    text-shadow: 0 0 12px rgba(0, 240, 255, 0.8), 3px 3px 0 rgba(255, 46, 196, 0.5);
+    text-align: center;
+  }
+  #alt-baslik {
+    color: var(--magenta);
+    font-weight: bold;
+    letter-spacing: 2px;
+    font-size: clamp(11px, 3vw, 15px);
+    text-shadow: 0 0 10px rgba(255, 46, 196, 0.6);
+    margin-top: -6px;
+    text-align: center;
+  }
+
+  /* 3) sağ üst Ana Menü düğmesi */
+  #ana-menu {
+    position: fixed;
+    top: 10px;
+    right: 12px;
+    z-index: 55;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--gold);
+    background: #1a1c33;
+    border: 2px solid var(--gold);
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    box-shadow: 0 0 12px rgba(255, 210, 63, 0.35);
+    min-height: 44px;             /* dokunmatik hedefi */
+  }
+  /* 3) duraklatma menü paneli */
+  #menu {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 7, 16, 0.82); /* örtü: oyun kilitli */
+  }
+  #menu.acik { display: flex; }
+  #menu-pano {
+    background: var(--panel);
+    border: 2px solid var(--gold);
+    border-radius: 14px;
+    box-shadow: 0 0 26px rgba(255, 210, 63, 0.35);
+    padding: 26px 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    align-items: center;
+    max-width: calc(100vw - 32px);
+  }
+  #menu-pano h2 {
+    color: var(--gold);
+    letter-spacing: 3px;
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+  .menu-btn {
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 10px;
+    padding: 12px 26px;
+    cursor: pointer;
+    min-height: 44px;
+    min-width: 220px;
+  }
+  #devam   { background: linear-gradient(180deg, var(--cyan), #0097a7); border: 2px solid #b8fbff; color: #04131a; }
+  #menu-sifirla { background: #1a1c33; border: 2px solid var(--red); color: var(--red); }
+
+  /* ============ HUD ============ */
+  #hud {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    align-items: center;
+  }
+  #hud span, #hud button.ses-toggle {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: clamp(11px, 3vw, 15px);
+    font-weight: bold;
+    min-width: 110px;
+    text-align: center;
+  }
+  #money   { color: var(--cyan);    box-shadow: 0 0 10px rgba(0, 240, 255, 0.25); }
+  #count   { color: var(--magenta); box-shadow: 0 0 10px rgba(255, 46, 196, 0.25); }
+  #income  { color: var(--green);   box-shadow: 0 0 10px rgba(126, 224, 129, 0.25); }
+  #level   { color: var(--gold);    box-shadow: 0 0 10px rgba(255, 210, 63, 0.3); }
+  #broken  { color: var(--red);     box-shadow: 0 0 10px rgba(255, 56, 96, 0.35); }
+
+  /* Ses aç/kapa düğmesi */
+  #ses { cursor: pointer; color: var(--green); border-color: var(--green); transition: color 0.15s; }
+  #ses.off { color: var(--dim); border-color: var(--line); }
+
+  /* aktif olay etiketi (HUD'da sayaçla kalır) */
+  #effect {
+    display: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: clamp(11px, 3vw, 14px);
+    font-weight: bold;
+    animation: blink 1s step-end infinite;
+  }
+  #effect.on { display: inline-block; }
+  #effect.ef-akini    { color: var(--gold);   border: 1px solid var(--gold);   box-shadow: 0 0 12px rgba(255, 210, 63, 0.5); }
+  #effect.ef-elektrik { color: var(--red);    border: 1px solid var(--red);    box-shadow: 0 0 12px rgba(255, 56, 96, 0.5); }
+  @keyframes blink { 50% { opacity: 0.65; } }
+
+  /* ============ Arsa gridi: hücre 60px (mobilde küçülür), 4px boşluk ============ */
+  #grid-wrap { position: relative; }
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(8, var(--cut));
+    grid-template-rows: repeat(8, var(--cut));
+    gap: 4px;
+    padding: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 0 24px rgba(0, 240, 255, 0.08);
+  }
+  .cell {
+    width: var(--cut);
+    height: var(--cut);
+    background: #0d0e20;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    position: relative;
+  }
+  /* İnşa edilen bina: parlayan neon kutu (tip rengi aşağıda) */
+  .cell.filled::before {
+    content: "";
+    position: absolute;
+    inset: 9px;
+    border-radius: 4px;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  /* her bina tipinin rengi farklı: ev=cyan, dükkan=magenta, fabrika=altın */
+  .cell.filled.t-ev::before {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.85), rgba(0, 120, 160, 0.9));
+    border: 2px solid var(--cyan);
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.7), inset 0 0 8px rgba(0, 240, 255, 0.5);
+  }
+  .cell.filled.t-dukkans::before {
+    background: linear-gradient(135deg, rgba(255, 46, 196, 0.85), rgba(140, 20, 110, 0.9));
+    border: 2px solid var(--magenta);
+    box-shadow: 0 0 10px rgba(255, 46, 196, 0.7), inset 0 0 8px rgba(255, 46, 196, 0.5);
+  }
+  .cell.filled.t-fabrika::before {
+    background: linear-gradient(135deg, rgba(255, 210, 63, 0.9), rgba(180, 130, 10, 0.9));
+    border: 2px solid var(--gold);
+    box-shadow: 0 0 10px rgba(255, 210, 63, 0.75), inset 0 0 8px rgba(255, 210, 63, 0.5);
+  }
+  /* yerleşim anında kısa "pulse" sıçraması */
+  .cell.filled.yerlesiyor::before {
+    animation: yerles 0.45s ease;
+  }
+  @keyframes yerles {
+    0%   { transform: scale(0.2); }
+    60%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+  /* bozuk bina: kırmızı kenarlık + soluk görünüm, üretim yok */
+  .cell.kirisik::before {
+    border-color: var(--red) !important;
+    animation: none;
+    filter: grayscale(0.8) brightness(0.45);
+    box-shadow: 0 0 8px rgba(255, 56, 96, 0.6) !important;
+  }
+  .cell.kirisik { outline: 2px solid var(--red); outline-offset: -2px; animation: titreme 0.9s ease-in-out infinite; }
+  @keyframes titreme {
+    0%, 100% { transform: rotate(0deg); }
+    25%      { transform: rotate(-1.2deg) translateY(0.5px); }
+    75%      { transform: rotate(1.2deg) translateY(-0.5px); }
+  }
+  .cell.filled { cursor: pointer; } /* binaya tıklanabilir */
+  @keyframes pulse {
+    0%, 100% { filter: brightness(0.85); }
+    50%      { filter: brightness(1.25); }
+  }
+
+  /* para kazanınca yükselen "+X" yazıları */
+  .floater {
+    position: absolute;
+    z-index: 45;
+    font-size: clamp(10px, 3vw, 13px);
+    font-weight: bold;
+    pointer-events: none;
+    text-shadow: 0 0 6px currentColor;
+    animation: yukselen 1s ease-out forwards;
+  }
+  .floater.f-normal { color: var(--green); }
+  .floater.f-boost  { color: var(--gold); }
+  .floater.f-dim    { color: var(--red); }
+  @keyframes yukselen {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(-34px); }
+  }
+
+  /* bina bilgi kutucuğu (tooltip) */
+  #tooltip {
+    position: absolute;
+    z-index: 40;
+    display: none;
+    background: #0d0e20;
+    border: 1px solid var(--cyan);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: nowrap;
+    box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+    pointer-events: none;
+  }
+  #tooltip .tt-broken { color: var(--red); font-weight: bold; }
+  #tooltip .tt-ok { color: var(--green); }
+  #tooltip b { color: var(--gold); }
+
+  /* ============ Butonlar ============ */
+  #builds {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  .build-btn {
+    font-family: inherit;
+    font-size: clamp(12px, 3.2vw, 15px);
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #04131a;
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: transform 0.08s, box-shadow 0.15s;
+  }
+  .build-btn.b-ev     { background: linear-gradient(180deg, var(--cyan), #0097a7);    border: 2px solid #b8fbff; box-shadow: 0 0 14px rgba(0, 240, 255, 0.5), 0 5px 0 #006070; }
+  .build-btn.b-dukkans{ background: linear-gradient(180deg, var(--magenta), #a3157e); border: 2px solid #ffc0ec; box-shadow: 0 0 14px rgba(255, 46, 196, 0.5), 0 5px 0 #6d0f54; color: #fff; }
+  .build-btn.b-fabrika{ background: linear-gradient(180deg, var(--gold), #c79100);    border: 2px solid #fff0b8; box-shadow: 0 0 14px rgba(255, 210, 63, 0.5), 0 5px 0 #7a5a00; }
+  .build-btn.b-tamir  { background: linear-gradient(180deg, var(--orange), #c96a10);  border: 2px solid #ffe1bd; box-shadow: 0 0 14px rgba(255, 159, 67, 0.5), 0 5px 0 #7c4207; }
+  .build-btn:active:not(:disabled) { transform: translateY(4px); }
+  .build-btn:disabled {
+    /* kilitli veya para yetmiyor: gri / devre dışı */
+    background: #3a3d55;
+    color: #7a7f9c;
+    border-color: #4a4d68;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  /* yardımcı butonlar: kaydet / sıfırla */
+  .util-btn {
+    font-family: inherit;
+    font-size: clamp(12px, 3vw, 14px);
+    font-weight: bold;
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    background: #1a1c33;
+    transition: transform 0.08s;
+  }
+  .util-btn:active { transform: translateY(2px); }
+  #kaydet  { color: var(--cyan);   border: 2px solid var(--cyan);   box-shadow: 0 0 10px rgba(0, 240, 255, 0.3); }
+  #sifirla { color: var(--red);    border: 2px solid var(--red);    box-shadow: 0 0 10px rgba(255, 56, 96, 0.3); }
+
+  /* 1) dokunmatik / dar ekran: butonlar min 44px hedef */
+  @media (max-width: 760px), (pointer: coarse) {
+    .build-btn, .util-btn, #ses { min-height: 44px; padding: 12px 16px; }
+  }
+  /* 1) grid küçük ekranda otomatik küçülür */
+  @media (max-width: 620px)  { :root { --cut: 34px; } .cell.filled::before { inset: 6px; } }
+  @media (max-width: 420px)  { :root { --cut: 30px; } }
+  /* yatay ekran (kısa dikey alan): başlık/HUD sıkışır, içerik kaydırılabilir kalır */
+  @media (orientation: landscape) and (max-height: 500px) {
+    body { padding-top: 56px; gap: 8px; }
+    h1 { font-size: 18px; }
+    #alt-baslik { font-size: 11px; }
+  }
+
+  /* ============ Ekran ortası büyük yazılar (seviye atlama + olay) ============ */
+  #levelup, #olay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 50;
+  }
+  #levelup b {
+    font-size: clamp(30px, 8vw, 72px);
+    letter-spacing: 4px;
+    color: var(--gold);
+    text-shadow: 0 0 22px rgba(255, 210, 63, 0.9), 4px 4px 0 rgba(255, 46, 196, 0.6);
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  #levelup.show b { animation: lvlpop 2s ease forwards; }
+  @keyframes lvlpop {
+    0%   { opacity: 0; transform: scale(0.6); }
+    15%  { opacity: 1; transform: scale(1.1); }
+    25%  { transform: scale(1); }
+    80%  { opacity: 1; }
+    100% { opacity: 0; transform: scale(1.05); }
+  }
+  /* olay yazısı: büyük, renkli, 3 sn */
+  #olay b {
+    font-size: clamp(24px, 7vw, 64px);
+    letter-spacing: 3px;
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  #olay.show b { animation: olaypop 3s ease forwards; }
+  #olay.b-akini    b { color: var(--gold);   text-shadow: 0 0 26px rgba(255, 210, 63, 0.95), 4px 4px 0 rgba(160, 120, 0, 0.7); }
+  #olay.b-elektrik b { color: var(--red);    text-shadow: 0 0 26px rgba(255, 56, 96, 0.95),  4px 4px 0 rgba(120, 0, 30, 0.7); }
+  #olay.b-hediye   b { color: var(--green);  text-shadow: 0 0 26px rgba(126, 224, 129, 0.95), 4px 4px 0 rgba(0, 100, 30, 0.7); }
+  #olay.b-denetim  b { color: var(--orange); text-shadow: 0 0 26px rgba(255, 159, 67, 0.95),  4px 4px 0 rgba(140, 70, 0, 0.7); }
+  @keyframes olaypop {
+    0%   { opacity: 0; transform: scale(0.6) rotate(-2deg); }
+    12%  { opacity: 1; transform: scale(1.12) rotate(1deg); }
+    22%  { transform: scale(1); }
+    82%  { opacity: 1; }
+    100% { opacity: 0; transform: scale(1.04); }
+  }
+
+  /* seviye atlama parlama katmanı */
+  #flash {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(circle at 50% 45%, rgba(255, 240, 170, 0.55), rgba(255, 210, 63, 0.12) 55%, transparent 75%);
+  }
+  #flash.on { animation: parlama 0.8s ease forwards; }
+  @keyframes parlama {
+    0%   { opacity: 0; }
+    18%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* Hareket azaltma tercihine saygı */
+  @media (prefers-reduced-motion: reduce) {
+    .cell.kirisik, #effect, .cell.filled::before { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <!-- 3) sağ üst Ana Menü -->
+  <button id="ana-menu" type="button">🏠 Ana Menü</button>
+
+  <h1>PIXEL TYCOON</h1>
+  <div id="alt-baslik">Neon Şehir İnşaatçısı</div>
+
+  <!-- Üst bilgi çubuğu -->
+  <div id="hud">
+    <span id="money">💰 Para: 100</span>
+    <span id="count">🏢 Bina: 0</span>
+    <span id="income">📈 Saniyede: 0</span>
+    <span id="level">⭐ Seviye: 1</span>
+    <span id="broken">🔧 Bozuk: 0</span>
+    <span id="effect" role="status"></span>
+    <button id="ses" type="button" class="ses-toggle" aria-pressed="true">🔊 Ses</button>
+  </div>
+
+  <!-- Arsa + bilgi kutucuğu -->
+  <div id="grid-wrap">
+    <div id="grid" aria-label="Şehir arsası"></div>
+    <div id="tooltip" role="tooltip"></div>
+  </div>
+
+  <!-- İnşa + tamir + kayıt butonları -->
+  <div id="builds"></div>
+
+  <!-- Ekran ortası yazılar + parlama -->
+  <div id="levelup" aria-live="polite"><b id="levelup-text"></b></div>
+  <div id="olay" aria-live="assertive"><b id="olay-text"></b></div>
+  <div id="flash" aria-hidden="true"></div>
+
+  <!-- 3) Duraklatma menüsü -->
+  <div id="menu" role="dialog" aria-modal="true" aria-label="Oyun menüsü">
+    <div id="menu-pano">
+      <h2>⏸ DURAKLATILDI</h2>
+      <button id="devam" class="menu-btn" type="button">▶ Devam</button>
+      <button id="menu-sifirla" class="menu-btn" type="button">🗑️ Sıfırla</button>
+    </div>
+  </div>
+
+<script>
+  /* ================== Yapılandırma ================== */
+  const SATIR = 8, SUTUN = 8;              // arsa 8x8 = 64 hücre
+  const TOPLAM_HUCRE = SATIR * SUTUN;
+  const SEVIYE_ADIMI = 25;                 // her 25 binada seviye +1
+  const TAMIR_MALIYET = 5;
+  const DAYANMA_AUSISI = 1;                // saniyede -1 dayanıklılık
+  const KAYIT_KEY = "pixelTycoonSave_v1";
+  const OTOKAYET_ARALIGI = 30000;          // 30 sn'de bir otomatik kayıt
+
+  const TIPLER = [
+    { id: "ev",      ad: "Ev",      ikon: "🏠", maliyet: 10,  gelir: 1,  seviye: 1 },
+    { id: "dukkans", ad: "Dükkan",  ikon: "🏪", maliyet: 50,  gelir: 5,  seviye: 2 },
+    { id: "fabrika", ad: "Fabrika", ikon: "🏭", maliyet: 200, gelir: 20, seviye: 3 },
+  ];
+  const tipBul = (id) => TIPLER.find((t) => t.id === id);
+
+  /* Rastgele olaylar: 30-50 sn'de bir biri seçilir */
+  const OLAY_ARALIGI = [30000, 50000];
+  const EFEK_SURE = 15000;
+  const OLAYLAR = [
+    { id: "akini",    yazi: "🌟 MÜŞTERİ AKINI!",   carpan: 2,   sure: EFEK_SURE, bip: 880 },
+    { id: "elektrik", yazi: "⚡ ELEKTRİK KESİNTİSİ!", carpan: 0.5, sure: EFEK_SURE, bip: 180 },
+    { id: "hediye",   yazi: "🎁 HEDİYE!",           hediye: 100, bip: 660 },
+    { id: "denetim",  yazi: "🔨 BELEDİYE DENETİMİ!", denetim: true, bip: 320 },
+  ];
+
+  /* ================== Oyun durumu ================== */
+  let para = 100;
+  let seviye = 1;
+  let sesAcik = true;
+  let duraklama = false;                   // 3) Ana Menü ile duraklatma
+  let sayilar = {};
+  TIPLER.forEach((t) => (sayilar[t.id] = 0));
+
+  const binalar = [];                     // {x, y, tip, dayaniklilik, bozuk}
+  let efek = null;
+
+  const toplamBina = () => binalar.length;
+  const calisanBinalar = () => binalar.filter((b) => !b.bozuk);
+  const bozukSayisi = () => binalar.filter((b) => b.bozuk).length;
+  const temelGelir = () => calisanBinalar().reduce((s, b) => s + tipBul(b.tip).gelir, 0);
+  const carpan = () => (efek && Date.now() < efek.bitis && efek.carpan ? efek.carpan : 1);
+  const efektifGelir = () => temelGelir() * carpan();
+
+  const gridEl = document.getElementById("grid");
+  const wrapEl = document.getElementById("grid-wrap");
+  const paraEl = document.getElementById("money");
+  const sayiEl = document.getElementById("count");
+  const gelirEl = document.getElementById("income");
+  const seviyeEl = document.getElementById("level");
+  const bozukEl = document.getElementById("broken");
+  const efektEl = document.getElementById("effect");
+  const buildsEl = document.getElementById("builds");
+  const levelupEl = document.getElementById("levelup");
+  const levelupTextEl = document.getElementById("levelup-text");
+  const olayEl = document.getElementById("olay");
+  const olayTextEl = document.getElementById("olay-text");
+  const flashEl = document.getElementById("flash");
+  const tooltipEl = document.getElementById("tooltip");
+  const sesBtn = document.getElementById("ses");
+  const anaMenuBtn = document.getElementById("ana-menu");
+  const menuEl = document.getElementById("menu");
+  const devamBtn = document.getElementById("devam");
+  const menuSifirlaBtn = document.getElementById("menu-sifirla");
+
+  /* ========== TÜM sesler Web Audio API ile (harici dosya yok) ========== */
+  let audioCtx = null;
+  function sesHazirla() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
+  document.addEventListener("pointerdown", sesHazirla);
+
+  const sesHazirMi = () => sesAcik && audioCtx && audioCtx.state === "running";
+
+  /* Buton "tık": çok kısa, tiz, hafif */
+  function tikSesi() {
+    if (!sesHazirMi()) return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "square";
+    o.frequency.value = 1350;
+    g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.04);
+  }
+
+  /* Bina yerleşme "pop": hızlı tize yükselen frekans kayması */
+  function popSesi() {
+    if (!sesHazirMi()) return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "square";
+    o.frequency.setValueAtTime(240, audioCtx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.09);
+    g.gain.setValueAtTime(0.18, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.15);
+  }
+
+  /* Genel bip (olaylar, seviye, tamir, yıkım...) */
+  function bip(frekans = 600, sure = 0.12, vol = 0.15) {
+    if (!sesHazirMi()) return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "square"; // 8-bit hissi
+    o.frequency.value = frekans;
+    g.gain.setValueAtTime(vol, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + sure);
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + sure);
+  }
+
+  /* Her buton tıklamasına tık sesi (ses kapalıysa sessiz) */
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("button")) tikSesi();
+  });
+
+  /* Ses düğmesi */
+  sesBtn.addEventListener("click", () => {
+    sesAcik = !sesAcik;
+    sesBtn.textContent = sesAcik ? "🔊 Ses" : "🔇 Ses";
+    sesBtn.classList.toggle("off", !sesAcik);
+    sesBtn.setAttribute("aria-pressed", String(sesAcik));
+  });
+
+  /* 3) Ana Menü: oyunu duraklat, panel aç */
+  function menuAc() {
+    duraklama = true;                 // tick/olaylar durur
+    menuEl.classList.add("acik");
+    devamBtn.focus();
+  }
+  function menuKapat() {
+    duraklama = false;
+    menuEl.classList.remove("acik");
+  }
+  anaMenuBtn.addEventListener("click", menuAc);
+  devamBtn.addEventListener("click", menuKapat);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && duraklama) menuKapat();
+  });
+  menuSifirlaBtn.addEventListener("click", () => {
+    oyunuSifirla();                   // onaylı sıfırlama
+    menuKapat();                      // menüyü kapat, temiz oyuna dön
+  });
+
+  /* Grid hücreleri */
+  const hucreler = [];
+  for (let y = 0; y < SATIR; y++) {
+    for (let x = 0; x < SUTUN; x++) {
+      const d = document.createElement("div");
+      d.className = "cell";
+      gridEl.appendChild(d);
+      hucreler.push(d);
+    }
+  }
+  const hucreGetir = (x, y) => hucreler[y * SUTUN + x];
+  const cutPx = () => hucreler[0].offsetWidth; // mobilde küçülen gerçek hücre boyutu
+
+  /* İnşa butonları */
+  const butonlar = {};
+  for (const t of TIPLER) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "build-btn b-" + t.id;
+    b.dataset.tip = t.id;
+    buildsEl.appendChild(b);
+    butonlar[t.id] = b;
+    b.addEventListener("click", () => insaEt(t));
+  }
+
+  /* Tamir butonu */
+  const tamirBtn = document.createElement("button");
+  tamirBtn.type = "button";
+  tamirBtn.className = "build-btn b-tamir";
+  tamirBtn.id = "tamir";
+  tamirBtn.textContent = "🔧 Tamir Et (" + TAMIR_MALIYET + " Para)";
+  buildsEl.appendChild(tamirBtn);
+  tamirBtn.addEventListener("click", tamirEt);
+
+  /* Kaydet / Sıfırla butonları */
+  const kaydetBtn = document.createElement("button");
+  kaydetBtn.type = "button";
+  kaydetBtn.className = "util-btn";
+  kaydetBtn.id = "kaydet";
+  kaydetBtn.textContent = "💾 Kaydet";
+  buildsEl.appendChild(kaydetBtn);
+
+  const sifirlaBtn = document.createElement("button");
+  sifirlaBtn.type = "button";
+  sifirlaBtn.className = "util-btn";
+  sifirlaBtn.id = "sifirla";
+  sifirlaBtn.textContent = "🗑️ Sıfırla";
+  buildsEl.appendChild(sifirlaBtn);
+
+  /* ============ KAYIT SİSTEMİ ============ */
+  function kaydet(sekimsiz) {
+    const veri = {
+      v: 1,
+      tarih: new Date().toISOString(),
+      para: Math.floor(para),
+      seviye,
+      toplamBina: binalar.length,
+      binalar: binalar.map((b) => ({
+        x: b.x, y: b.y, tip: b.tip,
+        dayaniklilik: Math.round(b.dayaniklilik), bozuk: b.bozuk,
+      })),
+    };
+    try {
+      localStorage.setItem(KAYIT_KEY, JSON.stringify(veri));
+    } catch {
+      return false;
+    }
+    if (!sekimsiz) {
+      bip(900, 0.1);
+      const eski = kaydetBtn.textContent;
+      kaydetBtn.textContent = "✔ Kaydedildi";
+      setTimeout(() => { kaydetBtn.textContent = eski; }, 1500);
+    }
+    return true;
+  }
+
+  function kayitYukle() {
+    let ham = null;
+    try { ham = localStorage.getItem(KAYIT_KEY); } catch { return false; }
+    if (!ham) return false;
+    let k;
+    try { k = JSON.parse(ham); } catch { return false; }
+    if (!k || typeof k !== "object" || !Array.isArray(k.binalar)) return false;
+
+    para = Number(k.para);
+    if (!isFinite(para) || para < 0) para = 100;
+    seviye = Number(k.seviye);
+    if (!isFinite(seviye) || seviye < 1) seviye = 1;
+
+    TIPLER.forEach((t) => (sayilar[t.id] = 0));
+    binalar.length = 0;
+    for (const b of k.binalar) {
+      if (!b || !tipBul(b.tip)) continue;
+      const x = Math.floor(Number(b.x)), y = Math.floor(Number(b.y));
+      if (!isFinite(x) || !isFinite(y) || x < 0 || x >= SUTUN || y < 0 || y >= SATIR) continue;
+      const hucre = hucreGetir(x, y);
+      if (hucre.classList.contains("filled")) continue;
+      let d = Number(b.dayaniklilik);
+      if (!isFinite(d)) d = 100;
+      d = Math.max(0, Math.min(100, d));
+      const bozuk = b.bozuk === true || d === 0;
+      binalar.push({ x, y, tip: b.tip, dayaniklilik: d, bozuk });
+      sayilar[b.tip]++;
+      hucre.classList.add("filled", "t-" + b.tip);
+      if (bozuk) hucre.classList.add("kirisik");
+    }
+    const hesap = 1 + Math.floor(binalar.length / SEVIYE_ADIMI);
+    if (hesap > seviye) seviye = hesap;
+    return true;
+  }
+
+  /* Onaylı sıfırlama (alt bar ve menü ortak kullanır) */
+  function oyunuSifirla() {
+    if (!confirm("Oyunu sıfırlamak istediğine emin misin? Tüm ilerleme silinir.")) return;
+    try { localStorage.removeItem(KAYIT_KEY); } catch {}
+    para = 100;
+    seviye = 1;
+    efek = null;
+    binalar.length = 0;
+    TIPLER.forEach((t) => (sayilar[t.id] = 0));
+    hucreler.forEach((h) => (h.className = "cell"));
+    document.querySelectorAll(".floater").forEach((f) => f.remove());
+    tooltipKapat();
+    bip(240, 0.25); // yıkım sesi
+    guncelle();
+  }
+
+  kaydetBtn.addEventListener("click", () => kaydet());
+  sifirlaBtn.addEventListener("click", oyunuSifirla);
+
+  setInterval(() => { if (!duraklama) kaydet(true); }, OTOKAYET_ARALIGI); // otomatik kayıt
+
+  function rastgeleBosHucre() {
+    const boslar = [];
+    for (let i = 0; i < hucreler.length; i++) if (!hucreler[i].classList.contains("filled")) boslar.push(i);
+    if (boslar.length === 0) return null;
+    return boslar[Math.floor(Math.random() * boslar.length)];
+  }
+
+  function insaEt(t) {
+    if (duraklama) return;              // menü açıkken inşa yok
+    if (seviye < t.seviye) return;
+    if (para < t.maliyet) return;
+    const i = rastgeleBosHucre();
+    if (i === null) return;
+    const x = i % SUTUN, y = Math.floor(i / SUTUN);
+    para -= t.maliyet;
+    const hucre = hucreGetir(x, y);
+    hucre.classList.add("filled", "t-" + t.id);
+    hucre.classList.add("yerlesiyor");
+    setTimeout(() => hucre.classList.remove("yerlesiyor"), 500);
+    binalar.push({ x, y, tip: t.id, dayaniklilik: 100, bozuk: false });
+    sayilar[t.id]++;
+    popSesi();
+    seviyeKontrol();
+    guncelle();
+  }
+
+  function tamirEt() {
+    if (duraklama) return;
+    if (para < TAMIR_MALIYET || binalar.length === 0) return;
+    let enDusuk = null;
+    for (const b of binalar) if (!enDusuk || b.dayaniklilik < enDusuk.dayaniklilik) enDusuk = b;
+    if (!enDusuk || enDusuk.dayaniklilik >= 100) return;
+    para -= TAMIR_MALIYET;
+    enDusuk.dayaniklilik = 100;
+    enDusuk.bozuk = false;
+    hucreGetir(enDusuk.x, enDusuk.y).classList.remove("kirisik");
+    bip(740, 0.1);
+    if (acikBina) tooltipGuncelle(acikBina);
+    guncelle();
+  }
+
+  /* ============ OLAY SİSTEMİ ============ */
+  function olayTetikle(tanım, sureOverride) {
+    olayTextEl.textContent = tanım.yazi;
+    olayEl.className = "";
+    void olayEl.offsetWidth;
+    olayEl.classList.add("show", "b-" + (tanım.id || "hediye"));
+    setTimeout(() => olayEl.classList.remove("show"), 3000);
+    bip(tanım.bip || 600, 0.25, 0.2);
+
+    if (tanım.carpan && tanım.sure) {
+      const sure = sureOverride || tanım.sure;
+      efek = { tur: tanım.id, yazi: tanım.yazi.split(" ")[0], carpan: tanım.carpan, bitis: Date.now() + sure };
+    } else if (tanım.hediye) {
+      para += tanım.hediye;
+    } else if (tanım.denetim) {
+      const hedefler = binalar.filter((b) => !b.bozuk);
+      const havuz = hedefler.length ? hedefler : binalar;
+      if (havuz.length) {
+        const b = havuz[Math.floor(Math.random() * havuz.length)];
+        b.dayaniklilik = 0;
+        b.bozuk = true;
+        hucreGetir(b.x, b.y).classList.add("kirisik");
+        if (acikBina === b) tooltipGuncelle(b);
+      }
+    }
+    guncelle();
+  }
+
+  function sonrakiOlayiZamanla() {
+    const [min, max] = OLAY_ARALIGI;
+    const bekleme = min + Math.random() * (max - min);
+    setTimeout(() => {
+      if (duraklama) { sonrakiOlayiZamanla(); return; } // menü açıkken olay yok, zamanlayıcı ilerler
+      const tanım = OLAYLAR[Math.floor(Math.random() * OLAYLAR.length)];
+      olayTetikle(tanım);
+      sonrakiOlayiZamanla();
+    }, bekleme);
+  }
+  sonrakiOlayiZamanla();
+
+  /* Yükselen "+X" para yazısı */
+  function floaterGoster(x, y, deger) {
+    if (wrapEl.querySelectorAll(".floater").length > 80) return;
+    const yazi = document.createElement("span");
+    const c = carpan();
+    yazi.className = "floater " + (c > 1 ? "f-boost" : c < 1 ? "f-dim" : "f-normal");
+    const g = Math.round(deger * 10) / 10;
+    yazi.textContent = "+" + (Number.isInteger(g) ? g : g.toFixed(1).replace(".", ","));
+    const cut = cutPx(); // mobilde küçülen hücreye göre konumla
+    yazi.style.left = x * (cut + 4) + 10 + Math.round(cut / 2) - 8 + "px";
+    yazi.style.top = y * (cut + 4) + 2 + "px";
+    wrapEl.appendChild(yazi);
+    setTimeout(() => yazi.remove(), 1050);
+  }
+
+  /* Aşınma + gelir ticki */
+  function tick() {
+    if (duraklama) return;              // 3) duraklatılınca zaman işlemez
+    for (const b of binalar) {
+      if (b.bozuk) continue;
+      b.dayaniklilik = Math.max(0, b.dayaniklilik - DAYANMA_AUSISI);
+      if (b.dayaniklilik === 0) {
+        b.bozuk = true;
+        hucreGetir(b.x, b.y).classList.add("kirisik");
+      }
+    }
+    if (efek && Date.now() >= efek.bitis) efek = null;
+
+    const c = carpan();
+    const g = efektifGelir();
+    if (g > 0) {
+      para += g;
+      for (const b of calisanBinalar()) floaterGoster(b.x, b.y, tipBul(b.tip).gelir * c);
+    }
+    guncelle();
+    if (acikBina) tooltipGuncelle(acikBina);
+  }
+  setInterval(tick, 1000);
+
+  /* Efekt bitişi anlık görünsün */
+  setInterval(() => {
+    if (efek && Date.now() >= efek.bitis) efek = null;
+    guncelle();
+  }, 200);
+
+  /* Tooltip */
+  let acikBina = null;
+  function tooltipGuncelle(b) {
+    if (!b) return;
+    const t = tipBul(b.tip);
+    const durum = b.bozuk
+      ? '<span class="tt-broken">⚠️ BOZUK — üretim yok</span>'
+      : '<span class="tt-ok">Çalışıyor</span>';
+    const uretim = b.bozuk ? "0" : "+" + t.gelir;
+    tooltipEl.innerHTML =
+      "<b>" + t.ikon + " " + t.ad + "</b> — " + durum + "<br>" +
+      "🛡 Dayanıklılık: %" + Math.round(b.dayaniklilik) + "<br>" +
+      "📈 Üretim: " + uretim + "/sn";
+    const wRect = wrapEl.getBoundingClientRect();
+    const cRect = hucreGetir(b.x, b.y).getBoundingClientRect();
+    const sol = Math.min(Math.max(cRect.left - wRect.left + cRect.width / 2 - 90, 4), wRect.width - 184);
+    const ust = Math.max(cRect.top - wRect.top - 74, 2);
+    tooltipEl.style.left = sol + "px";
+    tooltipEl.style.top = ust + "px";
+    tooltipEl.style.display = "block";
+  }
+  function tooltipKapat() {
+    acikBina = null;
+    tooltipEl.style.display = "none";
+  }
+  gridEl.addEventListener("click", (e) => {
+    if (duraklama) return;
+    const cell = e.target.closest(".cell");
+    if (!cell) { tooltipKapat(); return; }
+    const i = hucreler.indexOf(cell);
+    if (i < 0 || !cell.classList.contains("filled")) { tooltipKapat(); return; }
+    const x = i % SUTUN, y = Math.floor(i / SUTUN);
+    const b = binalar.find((bb) => bb.x === x && bb.y === y);
+    if (b) { acikBina = b; tooltipGuncelle(b); } else tooltipKapat();
+  });
+
+  /* Seviye sistemi */
+  function seviyeKontrol() {
+    const hedef = 1 + Math.floor(toplamBina() / SEVIYE_ADIMI);
+    if (hedef > seviye) {
+      seviye = hedef;
+      levelupTextEl.textContent = "⭐ SEVİYE " + seviye + "!";
+      levelupEl.classList.remove("show");
+      void levelupEl.offsetWidth;
+      levelupEl.classList.add("show");
+      setTimeout(() => levelupEl.classList.remove("show"), 2000);
+      flashEl.classList.remove("on");
+      void flashEl.offsetWidth;
+      flashEl.classList.add("on");
+      setTimeout(() => flashEl.classList.remove("on"), 850);
+      bip(1040, 0.3, 0.2);
+    }
+  }
+
+  /* HUD + butonlar */
+  function guncelle() {
+    paraEl.textContent = "💰 Para: " + Math.floor(para);
+    sayiEl.textContent = "🏢 Bina: " + toplamBina();
+    gelirEl.textContent = "📈 Saniyede: " + Number(efektifGelir().toFixed(1)).toString().replace(".", ",");
+    seviyeEl.textContent = "⭐ Seviye: " + seviye;
+    bozukEl.textContent = "🔧 Bozuk: " + bozukSayisi();
+
+    if (efek && Date.now() < efek.bitis) {
+      const kalan = Math.max(0, Math.ceil((efek.bitis - Date.now()) / 1000));
+      efektEl.textContent = efek.yazi + " x" + efek.carpan + " (" + kalan + "sn)";
+      efektEl.className = "on ef-" + efek.tur;
+    } else {
+      efektEl.className = "";
+      efektEl.textContent = "";
+    }
+
+    for (const t of TIPLER) {
+      const b = butonlar[t.id];
+      if (seviye < t.seviye) {
+        b.disabled = true;
+        b.textContent = t.ikon + " " + t.ad + " — 🔒 Seviye " + t.seviye;
+      } else {
+        b.textContent = t.ikon + " " + t.ad + " (" + t.maliyet + " Para · +" + t.gelir + "/sn)";
+        b.disabled = para < t.maliyet || toplamBina() >= TOPLAM_HUCRE;
+      }
+    }
+    tamirBtn.disabled = binalar.length === 0 || para < TAMIR_MALIYET;
+  }
+
+  /* Konsol kısayolları */
+  window.__tycoon = {
+    durum: () => ({
+      para, seviye, toplam: toplamBina(), gelir: efektifGelir(), temel: temelGelir(),
+      carpan: carpan(), bozuk: bozukSayisi(), ses: sesAcik, duraklama,
+      binalar: binalar.map((b) => ({ ...b })),
+      efek: efek ? { tur: efek.tur, carpan: efek.carpan, kalan: Math.ceil((efek.bitis - Date.now()) / 1000) } : null,
+    }),
+    paraEkle: (n) => { para += n; guncelle(); },
+    setDayaniklilik: (index, v) => {
+      const b = binalar[index];
+      if (!b) return;
+      b.dayaniklilik = Math.max(0, Math.min(100, v));
+      if (b.dayaniklilik === 0) { b.bozuk = true; hucreGetir(b.x, b.y).classList.add("kirisik"); }
+      guncelle();
+    },
+    sesVar: () => Boolean(audioCtx),
+    olayTetikle: (id, sureMs) => {
+      const t = OLAYLAR.find((o) => o.id === id);
+      if (t) olayTetikle(t, sureMs);
+    },
+    kaydet,
+    kayitOku: () => { try { return JSON.parse(localStorage.getItem(KAYIT_KEY) || "null"); } catch { return null; } },
+  };
+
+  /* Açılışta kaydı dene */
+  if (kayitYukle()) {
+    guncelle();
+    olayTextEl.textContent = "💾 KAYIT YÜKLENDİ";
+    olayEl.className = "";
+    void olayEl.offsetWidth;
+    olayEl.classList.add("show", "b-hediye");
+    setTimeout(() => olayEl.classList.remove("show"), 2000);
+  } else {
+    guncelle();
+  }
+</script>
+</body>
+</html>
