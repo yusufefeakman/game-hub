@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { loadSettings } from "../lib/settings";
+import { loadSettings, saveSettings } from "../lib/settings";
 
 /* =====================================================================
    Pixel Arcade ambient layer:
@@ -165,7 +165,7 @@ export default function AmbientArcade() {
   const musicRef = useRef<ReturnType<typeof createMusicBox> | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const startedRef = useRef(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(false); // gerçek durum mount'ta ayarlardan gelir
 
   /* ---- Animated background ---- */
   useEffect(() => {
@@ -300,13 +300,26 @@ export default function AmbientArcade() {
       if (startedRef.current) return;
       startedRef.current = true;
       music.start();
+      music.setMuted(!loadSettings().music);
     };
+    const onMusicPref = (e: Event) => {
+      const enabled = (e as CustomEvent<boolean>).detail;
+      if (!startedRef.current) {
+        startedRef.current = true;
+        music.start();
+      }
+      music.setMuted(!enabled);
+      setMuted(!enabled);
+    };
+    setMuted(!loadSettings().music); // düğme durumu kayıtlı tercihi yansıtsın
     window.addEventListener("pointerdown", onGesture);
     window.addEventListener("keydown", onGesture);
+    window.addEventListener("hub:music", onMusicPref);
 
     return () => {
       window.removeEventListener("pointerdown", onGesture);
       window.removeEventListener("keydown", onGesture);
+      window.removeEventListener("hub:music", onMusicPref);
       music.destroy();
     };
   }, []);
@@ -319,11 +332,13 @@ export default function AmbientArcade() {
       startedRef.current = true;
       music.start();
       setMuted(false);
+      saveSettings({ ...loadSettings(), music: true });
       return;
     }
     const next = !muted;
     setMuted(next);
     music.setMuted(next);
+    saveSettings({ ...loadSettings(), music: !next }); // düğme de tercihi yazar
   }
 
   return (

@@ -6,7 +6,7 @@ import { loadSettings, saveSettings, type HubSettings } from "../lib/settings";
 
 export default function SettingsModal() {
   const [open, setOpen] = useState(false);
-  const [s, setS] = useState<HubSettings>({ fanfare: true, motion: true });
+  const [s, setS] = useState<HubSettings>({ fanfare: true, motion: true, music: true });
 
   useEffect(() => setS(loadSettings()), []);
 
@@ -14,6 +14,7 @@ export default function SettingsModal() {
     const next = { ...s, [k]: !s[k] };
     setS(next);
     saveSettings(next);
+    if (k === "music") window.dispatchEvent(new CustomEvent<boolean>("hub:music", { detail: next.music }));
   };
 
   return (
@@ -38,6 +39,12 @@ export default function SettingsModal() {
               <span>✨ Animasyonlar<small>Ambient arka plan ve kutlama efektleri</small></span>
               <button type="button" role="switch" aria-checked={s.motion} className={`set-switch${s.motion ? " on" : ""}`} onClick={() => toggle("motion")}>
                 {s.motion ? "AÇIK" : "KAPALI"}
+              </button>
+            </label>
+            <label className="set-row">
+              <span>🎵 Ambient müzik<small>Sayfadaki 🎵 düğmesiyle de yönetilir; tercihin hatırlanır</small></span>
+              <button type="button" role="switch" aria-checked={s.music} className={`set-switch${s.music ? " on" : ""}`} onClick={() => toggle("music")}>
+                {s.music ? "AÇIK" : "KAPALI"}
               </button>
             </label>
             <p className="set-note">Tercihler yalnızca bu tarayıcıda saklanır — sunucu görmez.</p>
