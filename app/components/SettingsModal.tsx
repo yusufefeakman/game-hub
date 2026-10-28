@@ -10,6 +10,15 @@ export default function SettingsModal() {
 
   useEffect(() => setS(loadSettings()), []);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   const toggle = (k: keyof HubSettings) => {
     const next = { ...s, [k]: !s[k] };
     setS(next);

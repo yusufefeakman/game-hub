@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import MotionBootstrap from "./components/MotionBootstrap";
+import Hotkeys from "./components/Hotkeys";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -44,6 +45,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body>
         <MotionBootstrap />
+        <Hotkeys />
         {children}
         {/* Register the service worker for offline + installable PWA */}
         <script

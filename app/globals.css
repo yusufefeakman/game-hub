@@ -1589,3 +1589,47 @@ html[data-motion="reduce"] .build-btn { transition: none !important; }
   .ambient-bg { display: none; }
   .rc-card, .gc-toast { animation: none !important; }
 }
+
+/* ⌨️ kısayol yardım kartı */
+.hk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1650;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 7, 16, 0.75);
+  padding: 16px;
+}
+.hk-card {
+  width: min(440px, 100%);
+  background: #12132a;
+  border: 1px solid #2a2d4a;
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 0 26px rgba(124, 58, 237, 0.25);
+}
+.hk-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.hk-head h2 { font-size: 15px; letter-spacing: 2px; color: #a78bfa; }
+.hk-list { list-style: none; margin: 0; padding: 0; }
+.hk-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid #1d1f38;
+  font-size: 13px;
+  color: #b9bede;
+}
+.hk-list kbd {
+  min-width: 40px;
+  text-align: center;
+  background: #1a1c33;
+  border: 1px solid #2a2d4a;
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: monospace;
+  font-weight: 800;
+  color: #ffd23f;
+}
+.hk-note { margin-top: 10px; font-size: 11px; color: #8a8fb5; }

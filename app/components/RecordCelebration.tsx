@@ -63,6 +63,15 @@ export default function RecordCelebration() {
     };
   }, [game]);
 
+  useEffect(() => {
+    if (!party) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setParty(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [party]);
+
   if (!party) return null;
   const share = () =>
     void shareGame(
