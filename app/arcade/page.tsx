@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { GAMES as GAMES_LIB } from "../lib/games";
 import { recordPlay } from "../lib/playtrack";
+import { calcAvg, loadRatings } from "../lib/ratings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
 import { getArcadeBests } from "../lib/hiscore";
@@ -115,13 +116,7 @@ export default function ArcadePage() {
   }, [persist]);
 
   /* --- puanlama: pop'tan türeyen taban puan + kullanıcının yıldızları --- */
-  const avgOf = useCallback((g: ArcadeGame) => {
-    const base = 4 + Math.max(0, Math.min(0.8, ((g.pop - 76) / 19) * 0.8));
-    const baseVotes = g.pop * 37;
-    const r = ratings[g.id];
-    if (!r || r.count === 0) return { avg: base, votes: baseVotes, mine: 0 };
-    return { avg: (baseVotes * base + r.sum) / (baseVotes + r.count), votes: baseVotes + r.count, mine: r.mine };
-  }, [ratings]);
+  const avgOf = useCallback((g: ArcadeGame) => calcAvg(g, ratings), [ratings]);
 
   const rate = useCallback((id: string, stars: number) => {
     setRatings((prev) => {

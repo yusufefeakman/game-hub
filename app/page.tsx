@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AmbientArcade from "./components/AmbientArcade";
 import MembershipUI from "./components/MembershipUI";
 import BestShelf from "./components/BestShelf";
@@ -9,6 +9,7 @@ import RecentlyShelf from "./components/RecentlyShelf";
 import FavShelf from "./components/FavShelf";
 import SiteFooter from "./components/SiteFooter";
 import { GAMES, type GameCategory } from "./lib/games";
+import { calcAvg, loadRatings, fmtVotes, type RatingsMap } from "./lib/ratings";
 
 const ALL = "Tümü";
 
@@ -18,6 +19,9 @@ function trLower(s: string): string {
 }
 
 export default function Home() {
+  const [ratings, setRatings] = useState<RatingsMap>({});
+  useEffect(() => setRatings(loadRatings()), []);
+
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>(ALL);
 
@@ -138,6 +142,9 @@ export default function Home() {
                           {t}
                         </span>
                       ))}
+                                          <span className="card-rate" title={`${fmtVotes(calcAvg(game, ratings).votes)} kişiden ${calcAvg(game, ratings).avg.toFixed(1)}`}>
+                        ⭐ {calcAvg(game, ratings).avg.toFixed(1)} · {fmtVotes(calcAvg(game, ratings).votes)}
+                      </span>
                     </div>
                     <span className="card-play">▶ Şimdi Oyna</span>
                   </div>

@@ -1199,6 +1199,13 @@ main {
   border: 1px solid rgba(167, 139, 250, 0.5);
   background: rgba(167, 139, 250, 0.12);
 }
+.card-rate {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffd23f;
+  white-space: nowrap;
+}
 .card-tag {
   font-size: 11px;
   padding: 3px 8px;

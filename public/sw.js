@@ -1,5 +1,5 @@
 /* Pixel Arcade service worker — offline app shell caching */
-const CACHE = "pixel-arcade-v2";
+const CACHE = "pixel-arcade-v3";
 const BASE = "/game-hub";
 
 self.addEventListener("install", (e) => {
@@ -9,6 +9,12 @@ self.addEventListener("install", (e) => {
         `${BASE}/`,
         `${BASE}/icons/icon-192.png`,
         `${BASE}/icons/icon-512.png`,
+        // manifest kısayollarıyla aynı oyunlar: ilk çevrimdışı ziyaret de garanti
+        `${BASE}/tycoon.html`,
+        `${BASE}/games/pixel-tycoon/`,
+        `${BASE}/games/okey/`,
+        `${BASE}/games/world-war-z/`,
+        `${BASE}/games/chess/`,
       ]).catch(() => {})
     )
   );
