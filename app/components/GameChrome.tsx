@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { recordPlay } from "../lib/playtrack";
+import SimilarShelf from "./SimilarShelf";
 
 /**
  * Oyun rotaları (/games/* ve /fighting) için ortak kabuk:
@@ -37,6 +38,7 @@ export default function GameChrome({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
+      <SimilarShelf />
       <div className="gc-fab" role="group" aria-label="Oyun sayfası kontrolleri">
         <button
           type="button"

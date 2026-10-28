@@ -1328,3 +1328,52 @@ a:focus-visible, button:focus-visible, input:focus-visible {
   background: #0a0a12;
   box-shadow: 0 0 30px rgba(255, 210, 63, 0.12);
 }
+
+/* Oyun sayfası altı öneri şeridi */
+.sim-shelf {
+  width: min(1080px, 100%);
+  margin: 18px auto 8px;
+  padding: 0 16px;
+}
+.sim-shelf h2 {
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: var(--text, #e8e8f0);
+  margin-bottom: 10px;
+}
+.sim-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sim-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 14px 8px 8px;
+  background: #12132a;
+  border: 1px solid #2a2d4a;
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, transform 0.08s;
+}
+.sim-card:hover { border-color: #00f0ff; transform: translateY(-2px); }
+.sim-art {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #1b1e3a, #0c0d1d);
+  box-shadow: inset 0 0 8px rgba(0, 240, 255, 0.15);
+}
+.sim-meta { display: flex; flex-direction: column; }
+.sim-meta b { font-size: 13px; }
+.sim-meta small { font-size: 11px; color: #8a8fb5; }
+@media (max-width: 520px) {
+  .sim-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+  .sim-card { flex: 0 0 auto; }
+}
