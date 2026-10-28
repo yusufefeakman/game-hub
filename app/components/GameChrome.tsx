@@ -6,6 +6,7 @@ import { recordPlay } from "../lib/playtrack";
 import SimilarShelf from "./SimilarShelf";
 import { shareGame } from "../lib/share";
 import { GAMES_BY_ID } from "../lib/games";
+import RecordCelebration from "./RecordCelebration";
 
 /**
  * Oyun rotaları (/games/* ve /fighting) için ortak kabuk:
@@ -61,6 +62,7 @@ export default function GameChrome({ children }: { children: React.ReactNode }) 
     <>
       {children}
       <SimilarShelf />
+      <RecordCelebration />
       {toast ? <div className="gc-toast" role="status">{toast}</div> : null}
       <div className="gc-fab" role="group" aria-label="Oyun sayfası kontrolleri">
         <button
