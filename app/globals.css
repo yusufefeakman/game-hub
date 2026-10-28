@@ -1633,3 +1633,54 @@ html[data-motion="reduce"] .build-btn { transition: none !important; }
   color: #ffd23f;
 }
 .hk-note { margin-top: 10px; font-size: 11px; color: #8a8fb5; }
+
+/* 🎮 Sıradaki oyunlar şeridi */
+.nq-shelf { max-width: 1000px; margin: 26px auto 8px; padding: 0 16px; }
+.nq-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.nq-head h2 { font-size: 16px; letter-spacing: 2px; color: #7ee081; text-shadow: 0 0 12px rgba(126, 224, 129, 0.35); }
+.nq-dice {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 12px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #12132a;
+  border: 1px solid #2a2d4a;
+  color: #7ee081;
+  cursor: pointer;
+}
+.nq-dice:hover { border-color: #7ee081; }
+.nq-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.nq-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #12132a;
+  border: 1px solid #2a2d4a;
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-decoration: none;
+  color: #e8e8f0;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.nq-card:hover { border-color: #7ee081; transform: translateY(-2px); }
+.nq-art { width: 56px; height: 56px; min-width: 56px; border-radius: 10px; }
+.nq-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nq-emoji { font-size: 16px; }
+.nq-title { font-weight: 800; font-size: 14px; }
+.nq-sub { font-size: 11px; color: #8a8fb5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arc-dice {
+  font-size: 16px;
+  min-width: 40px;
+  min-height: 40px;
+  background: #12132a;
+  border: 1px solid #2a2d4a;
+  border-radius: 10px;
+  cursor: pointer;
+  color: inherit;
+}
+.arc-dice:hover { border-color: #ffd23f; }
+@media (max-width: 720px) {
+  .nq-row { grid-template-columns: 1fr; }
+}

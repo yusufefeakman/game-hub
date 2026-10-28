@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { recordPlay } from "../lib/playtrack";
 import SimilarShelf from "./SimilarShelf";
+import NextUp from "./NextUp";
 import { shareGame } from "../lib/share";
 import { GAMES_BY_ID } from "../lib/games";
 import RecordCelebration from "./RecordCelebration";
@@ -17,6 +18,11 @@ import RecordCelebration from "./RecordCelebration";
 export default function GameChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [fsOn, setFsOn] = useState(false);
+  const gameId = (() => {
+    if (pathname === "/fighting" || pathname.endsWith("/fighting")) return "fighting";
+    const m = pathname.match(/(?:^|\/)(?:games|fighting)\/([a-z0-9-]+)/);
+    return m?.[1];
+  })();
   const [toast, setToast] = useState<string | null>(null);
 
   const doShare = async () => {
@@ -61,6 +67,7 @@ export default function GameChrome({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
+      <NextUp currentId={gameId} />
       <SimilarShelf />
       <RecordCelebration />
       {toast ? <div className="gc-toast" role="status">{toast}</div> : null}

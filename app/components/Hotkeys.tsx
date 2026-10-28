@@ -7,21 +7,7 @@
    Esc → yardım kartını kapat (modaller kendi Esc'lerini yönetir) */
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { GAMES } from "../lib/games";
-import { getPlays } from "../lib/playtrack";
-
-export function surprisePick(): string {
-  const counts = new Map(getPlays().map((e) => [e.id, e.count || 0]));
-  const pool: string[] = [];
-  for (const g of GAMES) {
-    if (g.standalone || g.route === "/fighting") continue;
-    const c = counts.get(g.id) ?? 0;
-    const w = c === 0 ? 5 : c === 1 ? 3 : 1;
-    for (let i = 0; i < w; i++) pool.push(g.route);
-  }
-  if (pool.length === 0) return GAMES[0].route;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
+import { surprisePick } from "../lib/surprise";
 
 const KEYS: Array<[string, string]> = [
   ["/", "Oyun ara (arcade)"],

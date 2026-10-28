@@ -6,7 +6,9 @@ import { recordPlay, getPlays } from "../lib/playtrack";
 import { calcAvg, loadRatings } from "../lib/ratings";
 import { shareGame } from "../lib/share";
 import { shareOrDownloadCard } from "../lib/sharecard";
+import { surprisePick } from "../lib/surprise";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import AmbientArcade from "../components/AmbientArcade";
 import { getArcadeBests } from "../lib/hiscore";
 
@@ -84,6 +86,7 @@ function normalizeTr(s: string): string {
 }
 
 export default function ArcadePage() {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<string>("Tümü");
   const [sort, setSort] = useState<"pop" | "new" | "az" | "rate">("pop");
@@ -285,6 +288,15 @@ export default function ArcadePage() {
       {/* ---------------- üst bar ---------------- */}
       <header className="arc-top">
         <Link href="/" className="arc-logo">PIXEL<span>ARCADE</span></Link>
+        <button
+          type="button"
+          className="arc-dice"
+          title="Sürpriz oyun"
+          aria-label="Sürpriz oyun"
+          onClick={() => router.push(surprisePick())}
+        >
+          🎲
+        </button>
         <div className="arc-search">
           <input
             value={q}
