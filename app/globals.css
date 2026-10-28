@@ -375,6 +375,7 @@ main {
 .card-art.art-17 { background: linear-gradient(135deg, #7dd3fc 0%, #22c55e 100%); }
 .card-art.art-18 { background: linear-gradient(135deg, #34d399 0%, #0891b2 100%); }
 .card-art.art-19 { background: linear-gradient(135deg, #fb7185 0%, #312e81 100%); }
+.card-art.art-20 { background: linear-gradient(135deg, #ffd23f 0%, #7c3aed 60%, #0a0a12 100%); }
 
 .card-art .art-emoji {
   position: relative;
@@ -1314,4 +1315,15 @@ a:focus-visible, button:focus-visible, input:focus-visible {
   .hero h1 { animation: none; }
   .game-card, .recent-chip, .cat-chip, .top-nav-links a { transition: none; }
   * { scroll-behavior: auto; }
+}
+
+/* Pixel Tycoon: bağımsız HTML sayfasını gömülü çalıştıran çerçeve */
+.tycoon-frame {
+  width: min(560px, 94vw);
+  height: calc(100dvh - 150px);
+  min-height: 420px;
+  border: 1px solid var(--line, #2a2d4a);
+  border-radius: 12px;
+  background: #0a0a12;
+  box-shadow: 0 0 30px rgba(255, 210, 63, 0.12);
 }

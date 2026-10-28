@@ -19,7 +19,7 @@ import { getArcadeBests } from "../lib/hiscore";
 
 type Category =
   | "Aksiyon" | "Bulmaca" | "Dövüş" | "Yarış"
-  | "Platform" | "Strateji" | "Macera" | "Arcade";
+  | "Platform" | "Strateji" | "Macera" | "Arcade" | "Simülasyon";
 
 interface ArcadeGame {
   id: string;
@@ -44,7 +44,7 @@ const GAMES: ArcadeGame[] = GAMES_LIB.map((g) => ({
 }));
 
 
-const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade"];
+const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade", "Simülasyon"];
 const FAV_TAB = "❤️ Favorilerim";
 const BEST_TAB = "🏆 Rekorlarım";
 const LS = { favs: "arcade_favs", recent: "arcade_recent", plays: "arcade_plays", ratings: "arcade_ratings" };

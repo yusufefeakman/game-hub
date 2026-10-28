@@ -5,7 +5,7 @@
 
 export type GameCategory =
   | "Aksiyon" | "Bulmaca" | "Dövüş" | "Yarış"
-  | "Platform" | "Strateji" | "Macera" | "Arcade";
+  | "Platform" | "Strateji" | "Macera" | "Arcade" | "Simülasyon";
 
 export interface GameDef {
   id: string;
@@ -143,6 +143,14 @@ export const GAMES: GameDef[] = [
     route: "/games/yilan-arena",
     isNew: true,
     description: "Neon yılan arenasında klasik yılan: elmalar, altın elma + hayalet modu, hızlanma ve rekor takibi. Oklar/WASD veya kaydırma; mobilde ekran butonları.",
+  },
+  {
+    id: "pixel-tycoon", title: "Pixel Tycoon", subtitle: "Neon Şehir İnşaatçısı", emoji: "🏗️",
+    artClass: "art-20", art: "linear-gradient(135deg,#ffd23f 0%,#7c3aed 100%)",
+    category: "Simülasyon", tags: ["Tycoon", "Şehir", "Dayanıklılık", "Rastgele Olay"], pop: 90,
+    route: "/games/pixel-tycoon", standalone: "/tycoon.html",
+    isNew: true,
+    description: "Neon şehir tycoon: ev, dükkan ve fabrika inşa et; dayanıklılık ve tamir yönet, müşteri akını ile belediye denetimi gibi rastgele olaylara dayan; şehrin otomatik kaydedilir.",
   },
   {
     id: "mayin-tarlasi", title: "Mayın Tarlası", subtitle: "Neon Mayın Oyunu", emoji: "💣",
