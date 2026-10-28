@@ -243,7 +243,8 @@ export default function ArcadePage() {
           <span className="arc-play">▶ OYNA</span>
           {bests[g.id] ? <span className="arc-best" title="Kişisel rekorun">🏆 {bests[g.id]}</span> : null}
         </div>
-        {g.isNew ? <span className="arc-badge new">YENİ</span>
+        {mine >= 3 ? <span className="arc-badge freq" title="En çok oynadıkların">🎮 {mine}× oynadın</span>
+          : g.isNew ? <span className="arc-badge new">YENİ</span>
           : g.pop >= 90 ? <span className="arc-badge hot">🔥 POPÜLER</span> : null}
         <button
           type="button"

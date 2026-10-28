@@ -880,6 +880,7 @@ main {
   color: #fff;
 }
 .arc-badge.hot { background: linear-gradient(90deg, #ff5f6d, #ffc371); color: #2b0d00; }
+.arc-badge.freq { background: linear-gradient(90deg, #7c3aed, #f472b6); color: #fff; }
 .arc-badge.new { background: linear-gradient(90deg, #22d3ee, #8b5cf6); color: #04121a; }
 .arc-best {
   position: absolute;
