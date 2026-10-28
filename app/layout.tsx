@@ -17,6 +17,21 @@ const geistMono = Geist_Mono({
 const APP_NAME = "Pixel Arcade — Game Hub";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://yusufefeakman.github.io"),
+  openGraph: {
+    title: "Pixel Arcade",
+    description: "18 özgün tarayıcı oyunu: rekorlar, çevrimdışı destek ve kişisel önerilerle tek adreste.",
+    type: "website",
+    url: "/game-hub/",
+    siteName: "Pixel Arcade",
+    images: [{ url: "/game-hub/og/hub.svg", width: 1200, height: 630, alt: "Pixel Arcade — 18 özgün tarayıcı oyunu" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Pixel Arcade",
+    description: "18 özgün tarayıcı oyunu: rekorlar, çevrimdışı destek ve kişisel önerilerle tek adreste.",
+    images: ["/game-hub/og/hub.svg"],
+  },
   title: APP_NAME,
   description:
     "Orijinal tarayıcı oyunları koleksiyonu: 101 Okey, Anime Legends, Doping Runner, Akıl Küpü ve daha fazlası. Ana ekranına kurulabilen mobil oyun merkezi.",
