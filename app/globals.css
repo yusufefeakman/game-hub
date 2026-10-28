@@ -1384,3 +1384,20 @@ a:focus-visible, button:focus-visible, input:focus-visible {
   .sim-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
   .sim-card { flex: 0 0 auto; }
 }
+
+/* Hakkımızda: Oyuncu Salonu istatistikleri */
+.player-stats { margin-top: 26px; }
+.player-stats h2 { font-size: 17px; letter-spacing: 1px; color: var(--accent, #00f0ff); margin-bottom: 12px; }
+.ps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.ps-tile {
+  background: #0d0e20;
+  border: 1px solid #2a2d4a;
+  border-radius: 10px;
+  padding: 14px 12px;
+  text-align: center;
+}
+.ps-tile b { display: block; font-size: 24px; color: #ffd23f; text-shadow: 0 0 10px rgba(255, 210, 63, 0.4); }
+.ps-tile span { font-size: 12px; color: #8a8fb5; }
+.ps-note { margin-top: 10px; font-size: 12px; color: #8a8fb5; }
+.ps-empty { color: #8a8fb5; }
+.ps-empty a { color: var(--accent, #00f0ff); }

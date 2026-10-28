@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { GAMES as GAMES_LIB } from "../lib/games";
-import { recordPlay } from "../lib/playtrack";
+import { recordPlay, getPlays } from "../lib/playtrack";
 import { calcAvg, loadRatings } from "../lib/ratings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
@@ -48,6 +48,7 @@ const GAMES: ArcadeGame[] = GAMES_LIB.map((g) => ({
 const CATEGORIES: Category[] = ["Aksiyon", "Bulmaca", "Dövüş", "Yarış", "Platform", "Strateji", "Macera", "Arcade", "Simülasyon"];
 const FAV_TAB = "❤️ Favorilerim";
 const BEST_TAB = "🏆 Rekorlarım";
+const RECENT_TAB = "🕘 Son Oynananlar";
 const LS = { favs: "arcade_favs", recent: "arcade_recent", plays: "arcade_plays", ratings: "arcade_ratings" };
 
 /** GitHub Pages bu repoyu /game-hub/ altında sunar; iframe/standalone
@@ -85,6 +86,7 @@ export default function ArcadePage() {
   const [sort, setSort] = useState<"pop" | "new" | "az" | "rate">("pop");
   const [favs, setFavs] = useState<string[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
+  const [playTimes, setPlayTimes] = useState<Record<string, number>>({});
   const [plays, setPlays] = useState<Record<string, number>>({});
   const [ratings, setRatings] = useState<Record<string, { sum: number; count: number; mine: number }>>({});
   const [bests, setBests] = useState<Record<string, string>>({});
@@ -97,6 +99,9 @@ export default function ArcadePage() {
     try {
       setFavs(JSON.parse(localStorage.getItem(LS.favs) || "[]") as string[]);
       setRecent(JSON.parse(localStorage.getItem(LS.recent) || "[]") as string[]);
+      const pl: Record<string, number> = {};
+      for (const e of getPlays()) pl[e.id] = e.t;
+      setPlayTimes(pl);
       setPlays(JSON.parse(localStorage.getItem(LS.plays) || "{}") as Record<string, number>);
       setRatings(JSON.parse(localStorage.getItem(LS.ratings) || "{}") as Record<string, { sum: number; count: number; mine: number }>);
       setBests(getArcadeBests());
@@ -180,6 +185,7 @@ export default function ArcadePage() {
     let list = GAMES.filter((g) => {
       if (tab === FAV_TAB) return favs.includes(g.id);
       if (tab === BEST_TAB) return Boolean(bests[g.id]);
+      if (tab === RECENT_TAB) return playTimes[g.id] !== undefined;
       if (tab !== "Tümü" && g.category !== tab) return false;
       return true;
     });
@@ -190,6 +196,7 @@ export default function ArcadePage() {
       );
     }
     list = [...list];
+    if (tab === RECENT_TAB && sort === "pop") list.sort((a, b) => (playTimes[b.id] ?? 0) - (playTimes[a.id] ?? 0));
     if (sort === "az") list.sort((a, b) => a.title.localeCompare(b.title, "tr"));
     else if (sort === "new") list.sort((a, b) => Number(!!b.isNew) - Number(!!a.isNew) || b.pop - a.pop);
     else if (sort === "rate") list.sort((a, b) => avgOf(b).avg - avgOf(a).avg || b.pop - a.pop);
@@ -298,6 +305,11 @@ export default function ArcadePage() {
         {Object.keys(bests).length > 0 ? (
           <button type="button" className={`arc-pill${tab === BEST_TAB ? " on" : ""}`} onClick={() => setTab(BEST_TAB)}>
             {BEST_TAB} <b>{Object.keys(bests).length}</b>
+          </button>
+        ) : null}
+        {Object.keys(playTimes).length > 0 ? (
+          <button type="button" className={`arc-pill${tab === RECENT_TAB ? " on" : ""}`} onClick={() => setTab(RECENT_TAB)}>
+            {RECENT_TAB} <b>{Object.keys(playTimes).length}</b>
           </button>
         ) : null}
         {CATEGORIES.map((c) => {
