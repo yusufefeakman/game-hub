@@ -11,6 +11,7 @@ import { getArcadeBests } from "../lib/hiscore";
 import { GAMES_BY_ID, type GameDef } from "../lib/games";
 import { shareGame } from "../lib/share";
 import { drawScoreCard } from "../lib/sharecard";
+import { playFanfare } from "../lib/fanfare";
 
 const POLL_MS = 1500;
 
@@ -48,6 +49,7 @@ export default function RecordCelebration() {
         const canvas = drawScoreCard(game, now);
         const cardUrl = canvas.toDataURL("image/png");
         setParty({ game, best: now, cardUrl });
+        playFanfare();
         if (dismissTimer.current) clearTimeout(dismissTimer.current);
         dismissTimer.current = setTimeout(() => setParty(null), 8000);
       } else {
