@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import MotionBootstrap from "./components/MotionBootstrap";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
       </head>
       <body>
+        <MotionBootstrap />
         {children}
         {/* Register the service worker for offline + installable PWA */}
         <script

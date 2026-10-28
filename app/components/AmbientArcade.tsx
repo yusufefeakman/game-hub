@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { loadSettings } from "../lib/settings";
 
 /* =====================================================================
    Pixel Arcade ambient layer:

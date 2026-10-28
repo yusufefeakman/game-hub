@@ -8,6 +8,7 @@ import BestShelf from "./components/BestShelf";
 import RecentlyShelf from "./components/RecentlyShelf";
 import FavShelf from "./components/FavShelf";
 import SiteFooter from "./components/SiteFooter";
+import SettingsModal from "./components/SettingsModal";
 import { GAMES, type GameCategory } from "./lib/games";
 import { GAMES_BY_ID } from "./lib/games";
 import { getPlays, type PlayEntry } from "./lib/playtrack";
@@ -76,6 +77,7 @@ export default function Home() {
             <Link href="#katalog">🕹️ Oyunlar</Link>
             <Link href="/arcade">🎮 Arcade</Link>
             <Link href="/about">ℹ️ Hakkımızda</Link>
+            <SettingsModal />
           </div>
         </nav>
 
