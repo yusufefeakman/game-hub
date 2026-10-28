@@ -87,5 +87,15 @@ export function getArcadeBests(): Record<string, string> {
     const vals = Object.values(m).map(Number).filter((v) => Number.isFinite(v) && v > 0);
     if (vals.length) out["mayin-tarlasi"] = secs(Math.min(...vals));
   } catch { /* bozuk kayıt */ }
+  // pixel-tycoon: sayı skor yerine şehir durumu (kendi HTML sayfasının kayıt anahtarı)
+  try {
+    const t = JSON.parse(localStorage.getItem("pixelTycoonSave_v1") || "null") as
+      { seviye?: number; toplamBina?: number; binalar?: unknown[] } | null;
+    if (t && Array.isArray(t.binalar) && t.binalar.length > 0) {
+      const bina = Number.isFinite(Number(t.toplamBina)) ? Number(t.toplamBina) : t.binalar.length;
+      const seviye = Number.isFinite(Number(t.seviye)) ? Math.max(1, Number(t.seviye)) : 1;
+      out["pixel-tycoon"] = `${numFmt.format(Math.round(bina))} bina · Sv ${numFmt.format(seviye)}`;
+    }
+  } catch { /* bozuk kayıt */ }
   return out;
 }
