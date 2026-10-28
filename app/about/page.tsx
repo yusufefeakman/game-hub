@@ -1,6 +1,7 @@
 import Link from "next/link";
 import SiteFooter from "../components/SiteFooter";
 import PlayerStats from "../components/PlayerStats";
+import HubTimeline from "../components/HubTimeline";
 import { GAMES } from "../lib/games";
 
 export const metadata = { title: "Hakkımızda — Pixel Arcade" };
@@ -32,6 +33,7 @@ export default function AboutPage() {
           geliştirilmiştir; Next.js ile derlenip GitHub Pages üzerinde statik olarak
           yayınlanır.
         </p>
+        <HubTimeline />
         <PlayerStats />
         <h2>Gizlilik</h2>
         <p>
