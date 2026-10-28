@@ -4,6 +4,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { recordPlay } from "../lib/playtrack";
 import SimilarShelf from "./SimilarShelf";
+import { shareOrCopy } from "../lib/share";
+import { GAMES_BY_ID } from "../lib/games";
 
 /**
  * Oyun rotaları (/games/* ve /fighting) için ortak kabuk:
@@ -14,6 +16,21 @@ import SimilarShelf from "./SimilarShelf";
 export default function GameChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [fsOn, setFsOn] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const shareGame = async () => {
+    const m = pathname.match(/(?:^|\/)\/?(?:games|fighting)\/?([a-z0-9-]+)?/);
+    const id = pathname === "/fighting" || pathname.endsWith("/fighting") ? "fighting" : m?.[1];
+    if (!id) return;
+    const g = GAMES_BY_ID[id];
+    const title = g ? g.title : "Pixel Arcade";
+    const base = window.location.pathname.startsWith("/game-hub") ? "/game-hub" : "";
+    const url = g ? new URL(base + g.route, window.location.origin).href : window.location.href;
+    const res = await shareOrCopy(id, title, url);
+    if (res === "copy") setToast("🔗 Bağlantı panoya kopyalandı");
+    else if (res === "none") setToast("Paylaşım desteklenmiyor");
+    setTimeout(() => setToast(null), 2200);
+  };
 
   useEffect(() => {
     const m = pathname.match(/(?:^|\/)(?:games|fighting)\/?([a-z0-9-]+)?/);
@@ -39,6 +56,7 @@ export default function GameChrome({ children }: { children: React.ReactNode }) 
     <>
       {children}
       <SimilarShelf />
+      {toast ? <div className="gc-toast" role="status">{toast}</div> : null}
       <div className="gc-fab" role="group" aria-label="Oyun sayfası kontrolleri">
         <button
           type="button"
@@ -54,6 +72,13 @@ export default function GameChrome({ children }: { children: React.ReactNode }) 
           title="Oyunu yeniden başlat"
         >
           ↻
+        </button>
+        <button
+          type="button"
+          onClick={shareGame}
+          title="Oyunu paylaş"
+        >
+          📤
         </button>
       </div>
     </>

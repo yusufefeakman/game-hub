@@ -4,6 +4,7 @@ import Link from "next/link";
 import { GAMES as GAMES_LIB } from "../lib/games";
 import { recordPlay, getPlays } from "../lib/playtrack";
 import { calcAvg, loadRatings } from "../lib/ratings";
+import { shareOrCopy } from "../lib/share";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
 import { getArcadeBests } from "../lib/hiscore";
@@ -441,6 +442,7 @@ export default function ArcadePage() {
               </button>
               <button type="button" className="arc-btn" onClick={goFullscreen}>⛶ Tam Ekran</button>
               <a className="arc-btn" href={playUrl(open)} target="_blank" rel="noreferrer">↗ Yeni Sekme</a>
+              <button type="button" className="arc-btn" onClick={() => void shareOrCopy(open.id, open.title, new URL(playUrl(open), window.location.href).href)} title="Oyunu paylaş">📤</button>
               <button type="button" className="arc-btn close" onClick={closeGame}>✕</button>
             </div>
             <div className="arc-frame-wrap" ref={frameRef}>
