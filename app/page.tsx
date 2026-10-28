@@ -9,6 +9,8 @@ import RecentlyShelf from "./components/RecentlyShelf";
 import FavShelf from "./components/FavShelf";
 import SiteFooter from "./components/SiteFooter";
 import { GAMES, type GameCategory } from "./lib/games";
+import { GAMES_BY_ID } from "./lib/games";
+import { getPlays, type PlayEntry } from "./lib/playtrack";
 import { calcAvg, loadRatings, fmtVotes, type RatingsMap } from "./lib/ratings";
 
 const ALL = "Tümü";
@@ -21,6 +23,20 @@ function trLower(s: string): string {
 export default function Home() {
   const [ratings, setRatings] = useState<RatingsMap>({});
   useEffect(() => setRatings(loadRatings()), []);
+
+  const [playlog, setPlaylog] = useState<PlayEntry[]>([]);
+  useEffect(() => setPlaylog(getPlays()), []);
+  const lastGame = playlog.length ? GAMES_BY_ID[playlog[0].id] : undefined;
+  /** Sürpriz oyun: hiç oynanmamışa 5, tek playinge 3, sık oynayana 1 ağırlık */
+  const surpriseHref = useMemo(() => {
+    const counts = new Map(playlog.map((e) => [e.id, e.count] as const));
+    const pool: typeof GAMES = [];
+    for (const g of GAMES) {
+      const c = counts.get(g.id) ?? 0;
+      for (let i = 0; i < (c === 0 ? 5 : c === 1 ? 3 : 1); i++) pool.push(g);
+    }
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)].route : "/arcade";
+  }, [playlog]);
 
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>(ALL);
@@ -74,11 +90,20 @@ export default function Home() {
             oyunları keşfedebilir ve kendi rekorlarını kırmaya çalışabilirsin.
           </p>
           <div className="hero-cta-row">
-            <a href="#katalog" className="hero-cta">
-              🕹️ Oyunları Keşfet
-            </a>
+            {lastGame ? (
+              <Link href={lastGame.route} className="hero-cta playable">
+                ▶ Kaldığın yerden devam et: {lastGame.title}
+              </Link>
+            ) : (
+              <a href="#katalog" className="hero-cta">
+                🕹️ Oyunları Keşfet
+              </a>
+            )}
             <Link href="/arcade" className="hero-cta ghost">
               🎮 Arcade Portal
+            </Link>
+            <Link href={surpriseHref} className="hero-cta ghost playable">
+              🎲 Sürpriz Oyun
             </Link>
           </div>
         </section>
