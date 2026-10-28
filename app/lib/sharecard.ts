@@ -63,16 +63,24 @@ export function drawScoreCard(
   return c;
 }
 
+/** Kartı dosya olarak üretir (paylaşım ve indirme ortak kullanır). */
+export async function makeCardFile(
+  g: Pick<GameDef, "id" | "title" | "emoji" | "art" | "subtitle" | "category">,
+  best?: string
+): Promise<File | null> {
+  const canvas = drawScoreCard(g, best);
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
+  if (!blob) return null;
+  return new File([blob], `${g.id}-skor-karti.png`, { type: "image/png" });
+}
+
 /** @returns "share" (dosya paylaşımı) | "download" (PNG kaydı) | "none" */
 export async function shareOrDownloadCard(
   g: Pick<GameDef, "id" | "title" | "emoji" | "art" | "subtitle" | "category">,
   best?: string
 ): Promise<string> {
-  const canvas = drawScoreCard(g, best);
-  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
-  if (!blob) return "none";
-  const name = `${g.id}-skor-karti.png`;
-  const file = new File([blob], name, { type: "image/png" });
+  const file = await makeCardFile(g, best);
+  if (!file) return "none";
   if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: `Pixel Arcade — ${g.title}` });
@@ -81,10 +89,10 @@ export async function shareOrDownloadCard(
       /* kullanıcı vazgeçti → indirmeye düş */
     }
   }
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(file);
   const a = document.createElement("a");
   a.href = url;
-  a.download = name;
+  a.download = file.name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   return "download";

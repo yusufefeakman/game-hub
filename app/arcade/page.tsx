@@ -4,7 +4,7 @@ import Link from "next/link";
 import { GAMES as GAMES_LIB } from "../lib/games";
 import { recordPlay, getPlays } from "../lib/playtrack";
 import { calcAvg, loadRatings } from "../lib/ratings";
-import { shareOrCopy } from "../lib/share";
+import { shareGame } from "../lib/share";
 import { shareOrDownloadCard } from "../lib/sharecard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
@@ -444,7 +444,7 @@ export default function ArcadePage() {
               </button>
               <button type="button" className="arc-btn" onClick={goFullscreen}>⛶ Tam Ekran</button>
               <a className="arc-btn" href={playUrl(open)} target="_blank" rel="noreferrer">↗ Yeni Sekme</a>
-              <button type="button" className="arc-btn" onClick={() => void shareOrCopy(open.id, open.title, new URL(playUrl(open), window.location.href).href)} title="Oyunu paylaş">📤</button>
+              <button type="button" className="arc-btn" onClick={() => void shareGame(open, new URL(playUrl(open), window.location.href).href)} title="Oyunu paylaş">📤</button>
               <button type="button" className="arc-btn" onClick={() => void shareOrDownloadCard(open, bests[open.id])} title="Skor kartı oluştur (PNG)">🖼</button>
               <button type="button" className="arc-btn close" onClick={closeGame}>✕</button>
             </div>

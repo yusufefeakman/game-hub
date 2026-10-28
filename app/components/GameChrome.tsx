@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { recordPlay } from "../lib/playtrack";
 import SimilarShelf from "./SimilarShelf";
-import { shareOrCopy } from "../lib/share";
+import { shareGame } from "../lib/share";
 import { GAMES_BY_ID } from "../lib/games";
 
 /**
@@ -18,15 +18,20 @@ export default function GameChrome({ children }: { children: React.ReactNode }) 
   const [fsOn, setFsOn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const shareGame = async () => {
+  const doShare = async () => {
     const m = pathname.match(/(?:^|\/)\/?(?:games|fighting)\/?([a-z0-9-]+)?/);
     const id = pathname === "/fighting" || pathname.endsWith("/fighting") ? "fighting" : m?.[1];
     if (!id) return;
     const g = GAMES_BY_ID[id];
-    const title = g ? g.title : "Pixel Arcade";
     const base = window.location.pathname.startsWith("/game-hub") ? "/game-hub" : "";
     const url = g ? new URL(base + g.route, window.location.origin).href : window.location.href;
-    const res = await shareOrCopy(id, title, url);
+    if (!g) {
+      const res = await navigator.clipboard.writeText(url).then(() => "copy").catch(() => "none");
+      if (res === "copy") setToast("🔗 Bağlantı panoya kopyalandı");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+    const res = await shareGame(g, url);
     if (res === "copy") setToast("🔗 Bağlantı panoya kopyalandı");
     else if (res === "none") setToast("Paylaşım desteklenmiyor");
     setTimeout(() => setToast(null), 2200);
@@ -75,7 +80,7 @@ export default function GameChrome({ children }: { children: React.ReactNode }) 
         </button>
         <button
           type="button"
-          onClick={shareGame}
+          onClick={doShare}
           title="Oyunu paylaş"
         >
           📤
