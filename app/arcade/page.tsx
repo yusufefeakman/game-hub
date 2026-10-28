@@ -5,6 +5,7 @@ import { GAMES as GAMES_LIB } from "../lib/games";
 import { recordPlay, getPlays } from "../lib/playtrack";
 import { calcAvg, loadRatings } from "../lib/ratings";
 import { shareOrCopy } from "../lib/share";
+import { shareOrDownloadCard } from "../lib/sharecard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientArcade from "../components/AmbientArcade";
 import { getArcadeBests } from "../lib/hiscore";
@@ -26,6 +27,7 @@ type Category =
 interface ArcadeGame {
   id: string;
   title: string;
+  subtitle: string;
   emoji: string;
   category: Category;
   tags: string[];
@@ -40,7 +42,7 @@ interface ArcadeGame {
 
 // Merkezi katalogdan beslenir — yeni oyun tek yerde (app/lib/games.ts) tanımlanır.
 const GAMES: ArcadeGame[] = GAMES_LIB.map((g) => ({
-  id: g.id, title: g.title, emoji: g.emoji, category: g.category, tags: g.tags,
+  id: g.id, title: g.title, subtitle: g.subtitle, emoji: g.emoji, category: g.category, tags: g.tags,
   description: g.description, route: g.route, art: g.art, pop: g.pop,
   isNew: g.isNew, featured: g.featured, standalone: g.standalone,
 }));
@@ -443,6 +445,7 @@ export default function ArcadePage() {
               <button type="button" className="arc-btn" onClick={goFullscreen}>⛶ Tam Ekran</button>
               <a className="arc-btn" href={playUrl(open)} target="_blank" rel="noreferrer">↗ Yeni Sekme</a>
               <button type="button" className="arc-btn" onClick={() => void shareOrCopy(open.id, open.title, new URL(playUrl(open), window.location.href).href)} title="Oyunu paylaş">📤</button>
+              <button type="button" className="arc-btn" onClick={() => void shareOrDownloadCard(open, bests[open.id])} title="Skor kartı oluştur (PNG)">🖼</button>
               <button type="button" className="arc-btn close" onClick={closeGame}>✕</button>
             </div>
             <div className="arc-frame-wrap" ref={frameRef}>
