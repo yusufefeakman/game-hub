@@ -1,5 +1,5 @@
 /* Pixel Arcade service worker — offline app shell caching */
-const CACHE = "pixel-arcade-v1";
+const CACHE = "pixel-arcade-v2";
 const BASE = "/game-hub";
 
 self.addEventListener("install", (e) => {
@@ -30,10 +30,22 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Network-first for pages (so updates show), cache fallback offline.
+  // Sayfalarda ağ-önce (güncellemeler görünsün); ağ yokken önce o
+  // sayfanın daha önce önbelleğe alınmış kopyası, yoksa ana kabuk.
+  // Böylece bir kez açılmış oyun/rota çevrimdışı da açılabilir.
   if (req.mode === "navigate") {
     e.respondWith(
-      fetch(req).catch(() => caches.match(`${BASE}/`))
+      fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, clone));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(req).then((hit) => hit || caches.match(`${BASE}/`))
+        )
     );
     return;
   }
